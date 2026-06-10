@@ -2139,6 +2139,7 @@
   // single fade for backdrop + card together - no double-fade, and the
   // transform is cleared only once hidden so there's no mid-close snap.
   var atlasGridEl = document.getElementById('atlasGrid');
+  var modalCloseResetTimer = null;
   function morphTransform(modalCard, sourceCard) {
     if (!modalCard || !sourceCard) return null;
     var s = sourceCard.getBoundingClientRect();
@@ -2170,6 +2171,10 @@
   function morphModalOpen(modalCard, sourceCard) {
     var modal = document.getElementById('detail-modal');
     if (!modalCard) { modal.classList.add('is-open'); return; }
+    if (modalCloseResetTimer) {
+      clearTimeout(modalCloseResetTimer);
+      modalCloseResetTimer = null;
+    }
     // Identity first so we can measure the card's natural rect, then jump
     // it (no transition) to the source card's position + scale.
     modalCard.classList.remove('is-morphing');
@@ -2205,11 +2210,15 @@
     modal.classList.remove('is-open');
     var end = modalCard ? morphTransform(modalCard, sourceCard) : null;
     var finish = function () {
-      if (modalCard) {
-        modalCard.classList.remove('is-morphing');
-        modalCard.style.transform = '';
-      }
       if (done) done();
+      if (modalCard) {
+        if (modalCloseResetTimer) clearTimeout(modalCloseResetTimer);
+        modalCloseResetTimer = setTimeout(function () {
+          modalCard.classList.remove('is-morphing');
+          modalCard.style.transform = '';
+          modalCloseResetTimer = null;
+        }, 240);
+      }
     };
     if (modalCard && end) {
       modalCard.classList.add('is-morphing');
