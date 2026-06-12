@@ -806,6 +806,11 @@
     if (n >= 10000) return (n / 1000).toFixed(1) + 'k';
     return n.toLocaleString();
   }
+  // Compact count for atlas cards (1K, 1.2K); the modal keeps the exact number.
+  function fmtNK(n) {
+    if (n == null) return '-';
+    return n < 1000 ? n.toLocaleString() : +(n / 1000).toFixed(1) + 'K';
+  }
   // Human label for the current time-window picker selection - replaces
   // a bare "window" with the span it actually covers. Thresholds match
   // the winPick buttons (1H / 12H / 24H / 7D / ALL).
@@ -1118,7 +1123,7 @@
     if (!filtered.length) {
       grid.innerHTML = '<div class="atlas-empty">' +
         '<p>No detections in this window.</p>' +
-        '<p class="hint">Try a longer time window - the lifelist is still here under ALL.</p>' +
+        '<p class="hint">Try a longer time window.</p>' +
         '</div>';
       return;
     }
@@ -1158,9 +1163,9 @@
       // all-time count - collapse to a single stat rather than print the
       // same number twice. Otherwise label the count with its span.
       var statRows = currentHours >= 1000000
-        ? '<div><span class="n">' + fmtN(total) + '</span><span class="lbl-inline">all time</span></div>'
-        : '<div><span class="n">' + fmtN(win) + '</span><span class="lbl-inline">' + windowLabel(currentHours) + '</span></div>'
-          + '<div><span class="n">' + fmtN(total) + '</span><span class="lbl-inline">all time</span></div>';
+        ? '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">all time</span></div>'
+        : '<div><span class="n">' + fmtNK(win) + '</span><span class="lbl-inline">' + windowLabel(currentHours) + '</span></div>'
+          + '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">all time</span></div>';
       return ''
         + '<article class="bird-card" data-sci="' + s.sci + '" data-audio="' + audioSrc + '">'
         +   (isLifer ? '<span class="lifer-badge" title="new to the life list in this window">lifer</span>' : '')
@@ -2070,9 +2075,9 @@
     loadSpecies.then(function (j) {
       var s = j.summary || {};
       document.getElementById('modalCommon').textContent = s.com || sci;
-      document.getElementById('modalAllTime').textContent = fmtN(+s.total || 0);
+      document.getElementById('modalAllTime').textContent = (+s.total || 0).toLocaleString();
       var winRow = ((DATA.recent && DATA.recent.species) || []).filter(function (x) { return x.sci === sci; })[0];
-      document.getElementById('modalWindow').textContent = fmtN(winRow ? +winRow.n : 0);
+      document.getElementById('modalWindow').textContent = (winRow ? +winRow.n : 0).toLocaleString();
       document.getElementById('modalFirstSeen').textContent = s.first_seen ? fmtRecTime(s.first_seen.split(' ')[0], s.first_seen.split(' ')[1]) : '-';
       var rar = rarityLabel(+s.total || 0, s.first_seen);
       var rarEl = document.getElementById('modalRarity');

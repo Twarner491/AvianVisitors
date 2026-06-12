@@ -792,9 +792,15 @@
      names, window/all-time detection counts, and small action chips for
      audio playback, Wikipedia, and eBird. */
   .atlas-controls {
+    /* The bar is transparent and floats (z-index) over the scrolling cards;
+       only the pill is opaque. Cards scroll behind it and clip at the top of
+       the view, under the title, as they did before it was pinned. */
+    position: sticky; top: 0; z-index: 2;
     max-width: 1280px; margin: 0 auto 18px;
     display: flex; justify-content: flex-end; align-items: center;
+    pointer-events: none;
   }
+  .atlas-sort { pointer-events: auto; }
   .atlas-sort {
     display: inline-flex; padding: 3px; position: relative;
     background: var(--paper-2); border-radius: 999px;
