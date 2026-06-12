@@ -2198,6 +2198,8 @@
     }, 0);
     if (start) {
       onceTransformEnd(modalCard, function () {
+        // A close took over (is-open gone); clearing now snaps the card to centre.
+        if (!modal.classList.contains('is-open')) return;
         modalCard.classList.remove('is-morphing');
         modalCard.style.transform = '';
       }, 360);
