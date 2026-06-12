@@ -41,7 +41,10 @@ if ($file !== '') {
     // BirdNET-Pi keeps apostrophes in some common names (e.g.
     // Anna's_Hummingbird-...mp3.png), so allow ' in the whitelist; the
     // regex still blocks "/" and ".." so path traversal isn't reachable.
-    if (!preg_match("/^[A-Za-z0-9_.:'-]+\\.(mp3|png)$/", $file)) {
+    // Allow Unicode letters so accented common names (DATABASE_LANG=fr etc.)
+    // resolve; "/" is still excluded and ".." is rejected, so the value
+    // stays a safe basename.
+    if (strpos($file, '..') !== false || !preg_match("/^[\\p{L}\\p{N}_.:'-]+\\.(mp3|png)$/u", $file)) {
         http_response_code(400);
         echo 'invalid file name';
         exit;
@@ -95,7 +98,31 @@ if ($file !== '') {
     exit;
 }
 
+// The DB's Com_Name is in the configured DATABASE_LANG, which is how
+// BirdNET-Pi names the species directories. Prefer it so non-English
+// installs (DATABASE_LANG=fr, etc.) resolve to the right directory.
+function resolve_common_from_db(string $sci): ?string {
+    $dbPath = dirname(__DIR__, 2) . '/scripts/birds.db';
+    if (!is_readable($dbPath) || !class_exists('SQLite3')) return null;
+    try {
+        $db = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
+        $stmt = $db->prepare('SELECT Com_Name FROM detections WHERE Sci_Name = :s ORDER BY Date DESC, Time DESC LIMIT 1');
+        $stmt->bindValue(':s', $sci, SQLITE3_TEXT);
+        $res = $stmt->execute();
+        $row = $res ? $res->fetchArray(SQLITE3_ASSOC) : false;
+        $db->close();
+        if ($row && !empty($row['Com_Name'])) {
+            return str_replace(' ', '_', (string)$row['Com_Name']);
+        }
+    } catch (\Throwable $e) {
+        // fall through to the file-based maps below
+    }
+    return null;
+}
+
 function resolve_common(string $sci): ?string {
+    $fromDb = resolve_common_from_db($sci);
+    if ($fromDb !== null) return $fromDb;
     $f = dirname(__DIR__, 3) . '/BirdNET-Pi/scripts/birds.json';
     if (is_readable($f)) {
         $list = json_decode((string)file_get_contents($f), true);
