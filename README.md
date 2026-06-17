@@ -55,7 +55,7 @@ The repo ships with 498 bundled illustrations (249 species, perched + flight). T
 
 ```bash
 pip install -r ~/BirdNET-Pi/avian/scripts/requirements.txt
-export GEMINI_API_KEY='your-key'
+export GEMINI_API_KEY='your-key'  # image generation requires billing enabled
 
 # generate on a cream ground, cut the ground off, rebuild the collage masks
 python3 ~/BirdNET-Pi/avian/scripts/pregen.py --labels ~/BirdNET-Pi/model/labels.txt --force
