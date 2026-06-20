@@ -56,3 +56,15 @@ image_url = "https://bird.onethreenine.net/frame.png?k=YOUR_FRAME_KEY"
 ```
 
 No Worker? Set `shoot = true` to screenshot on any capable host instead. Full options are in [`config.example.toml`](config.example.toml).
+
+---
+
+## No bird mic? BirdWeather mode
+
+To run the frame on its own, with no mic and no website, install with `--bird-weather` and your ZIP code instead of step 3:
+
+```bash
+cd AvianVisitors/frame && ./install.sh --bird-weather --zip 94107
+```
+
+It pulls the top recently-heard birds near that ZIP code from [BirdWeather](https://app.birdweather.com) and renders the collage on the Pi itself, refreshing every few hours. Cutouts load from this repo's illustrations on GitHub, so there is no image set to copy over; add illustrations for any local birds it is missing the same way you would for the site. ZIP codes with no station nearby fall back to the closest ones, and an optional `EBIRD_API_KEY` covers the most remote spots.
