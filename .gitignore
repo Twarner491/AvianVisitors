@@ -26,6 +26,11 @@
 
 *.pyc
 __pycache__/
+
+# AvianVisitors illustration pipeline: local venv + API key
+avian/scripts/.venv/
+avian/scripts/.env
+
 *.flac
 .vscode
 model/labels.txt
