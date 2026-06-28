@@ -3,7 +3,7 @@
   // Bumped whenever the offline sketch build changes, so the browser
   // doesn't keep a stale cache after we regenerate the sketches.
   var SKETCH_VERSION = 'r16'; // full library restyle: every species
-                              // re-rendered (perched + flight) with clean cutouts.
+                              // re-rendered (resting + active) with clean cutouts.
   // Cache-bust for /api/img - bump whenever a bird gets re-rendered via
   // /api/regen or whenever you need every CF DC to drop its cached copy.
   // Cloudflare keys on the full URL incl. query, so bumping this is
@@ -252,9 +252,9 @@
   var GRID_STRIDE = 4; // viewport px per occupancy cell; smaller = slower
   var COLLAGE_PAD = 3; // breathing room (grid cells) around each bird;
                        // eased on narrow screens where birds are smaller.
-  var FLY_PROB = 0.15; // chance a bird shows in its flight pose (rare); perched
+  var FLY_PROB = 0.15; // chance a species shows in its active pose (rare); resting
                        // otherwise. Rolled once per window appearance.
-  var collagePose = {}; // sci -> 1 perched | 2 flight, persisted across polls;
+  var collagePose = {}; // sci -> 1 resting | 2 active, persisted across polls;
                         // cleared when a bird leaves the window so it rerolls.
 
   // Decode and cache each mask once. Sparse cell-list form (only "on"
@@ -432,8 +432,8 @@
     // without dwarfing it.
     var tiles = items.map(function (s) {
       var base = slugify(s.sci);
-      // Pose: perched by default, rarely flight (FLY_PROB), and only if a
-      // flight render exists. Flight uses the <slug>-2 mask/aspect/image so
+      // Pose: resting by default, rarely active (FLY_PROB), and only if an
+      // active render exists. Active uses the <slug>-2 mask/aspect/image so
       // the wings-spread silhouette nests correctly.
       var pose = collagePose[s.sci];
       if (pose === undefined) {
@@ -1993,7 +1993,7 @@
     var poseToggle = document.getElementById('modalPoseToggle');
     var poseBtns = [].slice.call(poseToggle.querySelectorAll('button'));
 
-    // Reset the toggle: assume nothing's available, set pose 1 (perched
+    // Reset the toggle: assume nothing's available, set pose 1 (resting
     // cutout - every species has it) as the optimistic default. HEAD
     // probes below toggle each button on/off and pick the best default.
     poseToggle.removeAttribute('data-unavailable');
@@ -2010,8 +2010,8 @@
     img.alt = sci;
 
     // Probe each pose's image with HEAD. Build a list of available
-    // poses, then pick the highest-numbered as the default (in-flight
-    // > perched, etc.). When only one pose remains, hide the toggle
+    // poses, then pick the highest-numbered as the default (active
+    // > resting, etc.). When only one pose remains, hide the toggle
     // entirely - no choice means no UI.
     var probes = poseBtns.map(function (b) {
       var pose = +b.dataset.pose;
@@ -2025,8 +2025,8 @@
       results.filter(function (r) { return !r.ok; }).forEach(function (r) {
         r.btn.setAttribute('data-unavailable', 'true');
       });
-      // Default to the highest-numbered available pose (in-flight if
-      // present, else fall back to perched).
+      // Default to the highest-numbered available pose (active if
+      // present, else fall back to resting).
       var pick = available.sort(function (a, b) { return b.pose - a.pose; })[0];
       if (pick) {
         poseBtns.forEach(function (b) {
@@ -2253,8 +2253,8 @@
     }
   }
 
-  // Pose toggle inside the modal - swaps the sketch between perched
-  // (default) and in-flight alt pose. A short opacity transition makes
+  // Pose toggle inside the modal - swaps the sketch between resting
+  // (default) and active alt pose. A short opacity transition makes
   // the swap feel intentional rather than a hard cut.
   document.getElementById('modalPoseToggle').addEventListener('click', function (ev) {
     var btn = ev.target.closest && ev.target.closest('button');
