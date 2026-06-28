@@ -1069,6 +1069,9 @@
   // https://ebird.org/species/<code>/, where <code> is a stable 6-char
   // taxonomy code. Hardcoded here for the local-California demo set;
   // a real implementation can look these up via the eBird taxon API.
+  // sci -> non-bird group ("amphibian"|"insect"|"mammal"), loaded from
+  // taxa.json at boot (see build_taxa.py). Anything absent is a bird.
+  var TAXA = {};
   var EBIRD_CODES = {
     'Calypte anna':           'annhum',
     'Passer domesticus':      'houspa',
@@ -1091,6 +1094,13 @@
     var code = EBIRD_CODES[sci];
     return code ? 'https://ebird.org/species/' + code : 'https://ebird.org/explore';
   }
+  function inatUrl(sci) {
+    return 'https://www.inaturalist.org/taxa/search?q=' + encodeURIComponent(sci);
+  }
+  function isBird(sci) { return !TAXA[sci]; }
+  // Birds link to eBird; frogs/insects/mammals to iNaturalist (covers all taxa).
+  function refUrl(sci) { return isBird(sci) ? ebirdUrl(sci) : inatUrl(sci); }
+  function refLabel(sci) { return isBird(sci) ? 'ebird' : 'inat'; }
 
   // Tiny inline icons - monochrome, ink-only, match the page palette.
   var ICON_PLAY = '<svg viewBox="0 0 12 12" fill="currentColor"><path d="M3 2 L10 6 L3 10 Z"/></svg>';
@@ -1181,7 +1191,7 @@
         +       ICON_PLAY + '<span>play</span>'
         +     '</button>'
         +     '<a class="chip ext" href="' + wikiUrl(s.sci) + '" target="_blank" rel="noopener" aria-label="Wikipedia">wiki</a>'
-        +     '<a class="chip ext" href="' + ebirdUrl(s.sci) + '" target="_blank" rel="noopener" aria-label="eBird">ebird</a>'
+        +     '<a class="chip ext" href="' + refUrl(s.sci) + '" target="_blank" rel="noopener" aria-label="' + refLabel(s.sci) + '">' + refLabel(s.sci) + '</a>'
         +   '</div>'
         + '</article>';
     }).join('');
@@ -1362,11 +1372,14 @@
       fetchJson('./avian/api/birdnet-api.php?action=timeseries&days=30').catch(function () { return null; }),
       fetchJson('./avian/api/birdnet-api.php?action=firstseen&limit=10').catch(function () { return null; }),
       fetchJson('./avian/api/birdnet-api.php?action=recent&hours=' + forHours).catch(function () { return null; }),
+      // Non-bird taxonomy map (static; cacheable). Drives eBird-vs-iNat links.
+      fetch('./avian/frontend/taxa.json').then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; }),
     ]).then(function (parts) {
       DATA.stats = parts[0];
       DATA.lifelist = parts[1];
       DATA.timeseries = parts[2];
       DATA.firstseen = parts[3];
+      if (parts[5]) TAXA = parts[5];
       // Only accept the recent slice if the window hasn't changed
       // since this poll started - otherwise keep what's there.
       if (forHours === currentHours && parts[4]) DATA.recent = parts[4];
@@ -2050,7 +2063,9 @@
     document.getElementById('modalRecordings').innerHTML = '<li class="rec-empty">Loading recordings...</li>';
     document.getElementById('modalRecCount').textContent = '';
     document.getElementById('modalWiki').href = wikiUrl(sci);
-    document.getElementById('modalEbird').href = ebirdUrl(sci);
+    var modalRef = document.getElementById('modalEbird');
+    modalRef.href = refUrl(sci);
+    modalRef.textContent = refLabel(sci);
     // FLIP-style morph: scale + translate the modal-card from the
     // clicked atlas card's position to its natural centered size, so
     // the card *expands* into the detail view instead of just fading

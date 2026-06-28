@@ -73,6 +73,35 @@ GEMINI_URL = (
 )
 POSES = {1: "perched", 2: "in flight with wings spread"}
 
+# Per-taxon pose phrasing + template. Birds use POSES + the original
+# (untouched) prompt.template.md; non-birds get body-plan-appropriate poses
+# and their own standalone templates. Group comes from taxa.json (built by
+# build_taxa.py); anything not in taxa.json is treated as a bird.
+TAXON_POSES = {
+    "bird": POSES,
+    "amphibian": {1: "sitting alert", 2: "mid-leap with hind legs extended"},
+    "mammal": {1: "sitting upright and alert", 2: "standing in profile on all fours"},
+    "insect": {1: "at rest in side profile", 2: "in side profile with wings slightly raised"},
+}
+TAXON_TEMPLATES = {
+    "bird": "prompt.template.md",
+    "amphibian": "prompt.amphibian.md",
+    "insect": "prompt.insect.md",
+    "mammal": "prompt.mammal.md",
+}
+
+
+def load_taxa(path: Path) -> dict:
+    """{scientific_name: group} for non-bird animals; absent => bird."""
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def taxon_of(sci: str, taxa: dict) -> str:
+    return taxa.get(sci, "bird")
+
 # Genera where Gemini's prior collapses to Blue Jay markings unless we
 # attach a Blue Jay anti-reference. Add to this set if you find another
 # blue-songbird genus that needs the contrastive nudge.
@@ -393,7 +422,7 @@ def gen_one(
     prompt: str,
     sci: str,
     com: str,
-    pose: int,
+    pose_phrase: str,
     positive_ref: Path | None = None,
     anti_ref: Path | None = None,
     anti_ref_key: str | None = None,
@@ -417,7 +446,7 @@ def gen_one(
     body = (prompt
             .replace("{sci_name}", sci)
             .replace("{com_name}", com)
-            .replace("{pose}", POSES[pose])
+            .replace("{pose}", pose_phrase)
             .replace("{anti_ref_line}", _anti_ref_line(anti_ref_key)))
     if species_note:
         body = body + "\n\nSpecies-specific note: " + species_note
@@ -559,6 +588,10 @@ def main() -> int:
     ap.add_argument("--notes", type=Path,
                     default=Path(__file__).resolve().parent / "species-notes.json",
                     help="Per-species prompt addenda for difficult cases (e.g. similar-species drift)")
+    ap.add_argument("--taxa", type=Path,
+                    default=Path(__file__).resolve().parents[1] / "frontend" / "taxa.json",
+                    help="Non-bird taxonomy map (sci->group) from build_taxa.py; "
+                         "selects the per-taxon template + poses. Absent => bird.")
     ap.add_argument("--poses", nargs="+", type=int, default=[1, 2],
                     choices=list(POSES.keys()),
                     help="Which poses to render. 1=perched, 2=flight. Default: both.")
@@ -599,7 +632,19 @@ def main() -> int:
     if args.limit:
         species = species[:args.limit]
 
-    prompt = load_prompt(args.prompt)
+    taxa = load_taxa(args.taxa)
+    # Load one prompt template per taxon. Birds use --prompt (the untouched
+    # prompt.template.md); non-bird templates live next to it. A missing
+    # non-bird template falls back to the bird prompt at use time.
+    tmpl_dir = Path(__file__).resolve().parent
+    prompts: dict[str, str] = {}
+    for group, fn in TAXON_TEMPLATES.items():
+        path = args.prompt if group == "bird" else (tmpl_dir / fn)
+        try:
+            prompts[group] = load_prompt(path)
+        except OSError:
+            print(f"[warn] no template for {group} ({path.name}); using bird prompt",
+                  file=sys.stderr)
     args.out.mkdir(parents=True, exist_ok=True)
     anti_paths: dict[str, Path] = {}
     if not args.no_refs:
@@ -620,6 +665,9 @@ def main() -> int:
     first_fail = None
     for idx, (sci, com) in enumerate(species):
         slug = slugify(sci)
+        group = taxon_of(sci, taxa)
+        prompt = prompts.get(group) or prompts["bird"]
+        poses_map = TAXON_POSES.get(group, POSES)
         pos_ref = None
         if not args.no_refs:
             pos_ref = ensure_reference(args.refs, slug, sci, com)
@@ -639,10 +687,14 @@ def main() -> int:
                 skipped_existing += 1
                 continue
             try:
-                style_ref_path = args.styles / select_style_ref(sci, pose)
-                if not style_ref_path.exists():
-                    style_ref_path = None
-                data = gen_one(gemini_key, prompt, sci, com, pose,
+                # Style print is bird-genus-keyed; skip it for non-birds
+                # (their text templates carry the kachō-e style themselves).
+                style_ref_path = None
+                if group == "bird":
+                    style_ref_path = args.styles / select_style_ref(sci, pose)
+                    if not style_ref_path.exists():
+                        style_ref_path = None
+                data = gen_one(gemini_key, prompt, sci, com, poses_map[pose],
                                positive_ref=pos_ref, anti_ref=anti,
                                anti_ref_key=anti_key_for_call,
                                species_note=notes.get(sci),
