@@ -15,7 +15,7 @@ from utils.analysis import load_global_model, run_analysis
 from utils.helpers import get_settings, get_wav_files, ANALYZING_NOW
 from utils.classes import ParseFileName
 from utils.reporting import extract_detection, summary, write_to_file, write_to_db, apprise, bird_weather, heartbeat, \
-    update_json_file
+    update_json_file, should_record_detection, replace_db_detection
 
 shutdown = False
 
@@ -110,13 +110,28 @@ def handle_reporting_queue(queue):
         file, detections = msg
         try:
             update_json_file(file, detections)
+            recorded_detections = {}
+            report_detections = {}
             for detection in detections:
+                current = report_detections.get(detection.scientific_name)
+                if current is None or detection.confidence > current.confidence:
+                    report_detections[detection.scientific_name] = detection
+            for detection in sorted(report_detections.values(), key=lambda d: d.datetime):
+                action, row = should_record_detection(detection)
+                if action == 'skip':
+                    log.info('Skipping cooldown duplicate: %s', summary(file, detection))
+                    continue
                 detection.file_name_extr = extract_detection(file, detection)
                 log.info('%s;%s', summary(file, detection), os.path.basename(detection.file_name_extr))
-                write_to_file(file, detection)
-                write_to_db(file, detection)
-            apprise(file, detections)
-            bird_weather(file, detections)
+                if action == 'replace':
+                    replace_db_detection(row, detection)
+                    log.info('Replaced cooldown row with stronger detection: %s', summary(file, detection))
+                else:
+                    write_to_file(file, detection)
+                    write_to_db(file, detection)
+                recorded_detections[detection.scientific_name] = detection
+            apprise(file, list(recorded_detections.values()))
+            bird_weather(file, list(recorded_detections.values()))
             heartbeat()
             os.remove(file.file_name)
         except BaseException as e:

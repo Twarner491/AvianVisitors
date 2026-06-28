@@ -27,6 +27,11 @@ header('Cache-Control: public, max-age=30');
 // be relied on.
 $DB_PATH = dirname(__DIR__, 2) . '/scripts/birds.db';
 
+// Display confirmation gate: keep all detections in birds.db, but only show a
+// species in the Field Guide/collage once it has one strong hit or repeats.
+const CONFIRMED_MIN_CONFIDENCE = 0.80;
+const CONFIRMED_MIN_DETECTIONS = 3;
+
 if (!file_exists($DB_PATH)) {
     http_response_code(503);
     echo json_encode(['error' => 'birds.db not found']);
@@ -85,7 +90,10 @@ switch ($action) {
         $rs = rows($db,
           "SELECT Sci_Name AS sci, Com_Name AS com, MIN(Date||' '||Time) AS first_seen, "
         . "       MAX(Date||' '||Time) AS last_seen, COUNT(*) AS n, MAX(Confidence) AS best_conf "
-        . "FROM detections GROUP BY Sci_Name ORDER BY first_seen ASC"
+        . "FROM detections GROUP BY Sci_Name "
+        . "HAVING MAX(Confidence) >= :min_conf OR COUNT(*) >= :min_detections "
+        . "ORDER BY first_seen ASC",
+          [':min_conf' => CONFIRMED_MIN_CONFIDENCE, ':min_detections' => CONFIRMED_MIN_DETECTIONS]
         );
         echo json_encode(['species' => $rs, 'as_of' => date('c')]);
         break;
@@ -103,8 +111,14 @@ switch ($action) {
         . "       MAX(Date||' '||Time) AS last_seen "
         . "FROM detections "
         . "WHERE (julianday('now','localtime') - julianday(Date||' '||Time)) * 24 <= :hrs "
-        . "GROUP BY Sci_Name ORDER BY last_seen DESC",
-          [':hrs' => $hours]
+        . "GROUP BY Sci_Name "
+        . "HAVING MAX(Confidence) >= :min_conf OR COUNT(*) >= :min_detections "
+        . "ORDER BY last_seen DESC",
+          [
+              ':hrs' => $hours,
+              ':min_conf' => CONFIRMED_MIN_CONFIDENCE,
+              ':min_detections' => CONFIRMED_MIN_DETECTIONS,
+          ]
         );
         // for each row, attach the file of the top-confidence detection in the window
         foreach ($rs as &$r) {

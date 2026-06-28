@@ -1,4 +1,5 @@
 import glob
+import datetime
 import json
 import logging
 import os
@@ -17,6 +18,16 @@ from .classes import Detection, ParseFileName
 from .notifications import sendAppriseNotifications
 
 log = logging.getLogger(__name__)
+
+DEFAULT_TAXON = 'bird'
+TAXON_COOLDOWN_MINUTES = {
+    'bird': 5,
+    'mammal': 5,
+    'amphibian': 10,
+    'insect': 30,
+}
+TAXA_PATH = os.path.expanduser('~/BirdNET-Pi/avian/frontend/taxa.json')
+TAXA = None
 
 
 def extract(in_file, out_file, start, stop):
@@ -87,6 +98,81 @@ def extract_detection(file: ParseFileName, detection: Detection):
     return new_file
 
 
+def load_taxa():
+    global TAXA
+    if TAXA is None:
+        try:
+            with open(TAXA_PATH, 'r') as taxa_file:
+                TAXA = json.load(taxa_file)
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning('Could not load taxa map %s: %s', TAXA_PATH, e)
+            TAXA = {}
+    return TAXA
+
+
+def taxon_for(scientific_name):
+    return load_taxa().get(scientific_name, DEFAULT_TAXON)
+
+
+def cooldown_minutes_for(detection: Detection):
+    return TAXON_COOLDOWN_MINUTES.get(taxon_for(detection.scientific_name), TAXON_COOLDOWN_MINUTES[DEFAULT_TAXON])
+
+
+def recent_detection_for_update(cur, detection: Detection, cooldown_minutes):
+    window_start = detection.datetime - datetime.timedelta(minutes=cooldown_minutes)
+    cur.execute(
+        "SELECT rowid, Date, Time, Confidence, File_Name "
+        "FROM detections "
+        "WHERE Sci_Name = ? AND datetime(Date||' '||Time) >= datetime(?) "
+        "AND datetime(Date||' '||Time) <= datetime(?) "
+        "ORDER BY datetime(Date||' '||Time) DESC LIMIT 1",
+        (
+            detection.scientific_name,
+            window_start.strftime("%Y-%m-%d %H:%M:%S"),
+            detection.datetime.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+    )
+    return cur.fetchone()
+
+
+def should_record_detection(detection: Detection):
+    """Return ('insert'|'replace'|'skip', row) for cooldown-gated logging."""
+    cooldown_minutes = cooldown_minutes_for(detection)
+    for attempt_number in range(3):
+        try:
+            con = sqlite3.connect(DB_PATH)
+            con.row_factory = sqlite3.Row
+            cur = con.cursor()
+            row = recent_detection_for_update(cur, detection, cooldown_minutes)
+            con.close()
+
+            if row is None:
+                return 'insert', None
+            if detection.confidence > float(row['Confidence']):
+                return 'replace', row
+            return 'skip', row
+        except BaseException as e:
+            log.warning("Database busy: %s", e)
+            sleep(2)
+    return 'skip', None
+
+
+def delete_extracted_artifacts(file_name):
+    if not file_name:
+        return
+    conf = get_settings()
+    base = os.path.basename(file_name)
+    mask = os.path.join(conf['EXTRACTED'], 'By_Date', '*', '*', base)
+    for audio_file in glob.glob(mask):
+        for path in (audio_file, f'{audio_file}.png'):
+            try:
+                if os.path.isfile(path):
+                    os.remove(path)
+                    log.info('Deleted replaced extraction: %s', path)
+            except OSError as e:
+                log.warning('Could not delete replaced extraction %s: %s', path, e)
+
+
 def write_to_db(file: ParseFileName, detection: Detection):
     conf = get_settings()
     # Connect to SQLite Database
@@ -104,6 +190,32 @@ def write_to_db(file: ParseFileName, detection: Detection):
 
             con.commit()
             con.close()
+            break
+        except BaseException as e:
+            log.warning("Database busy: %s", e)
+            sleep(2)
+
+
+def replace_db_detection(row, detection: Detection):
+    conf = get_settings()
+    for attempt_number in range(3):
+        try:
+            con = sqlite3.connect(DB_PATH)
+            cur = con.cursor()
+            cur.execute(
+                "UPDATE detections "
+                "SET Date = ?, Time = ?, Sci_Name = ?, Com_Name = ?, Confidence = ?, "
+                "Lat = ?, Lon = ?, Cutoff = ?, Week = ?, Sens = ?, Overlap = ?, File_Name = ? "
+                "WHERE rowid = ?",
+                (
+                    detection.date, detection.time, detection.scientific_name, detection.common_name, detection.confidence,
+                    conf['LATITUDE'], conf['LONGITUDE'], conf['CONFIDENCE'], str(detection.week), conf['SENSITIVITY'],
+                    conf['OVERLAP'], os.path.basename(detection.file_name_extr), row['rowid']
+                )
+            )
+            con.commit()
+            con.close()
+            delete_extracted_artifacts(row['File_Name'])
             break
         except BaseException as e:
             log.warning("Database busy: %s", e)

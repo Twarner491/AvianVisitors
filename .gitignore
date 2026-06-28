@@ -31,6 +31,9 @@ __pycache__/
 avian/scripts/.venv/
 avian/scripts/.env
 
+# Local-only architecture notes
+ARCHITECTURE.md
+
 *.flac
 .vscode
 model/labels.txt
