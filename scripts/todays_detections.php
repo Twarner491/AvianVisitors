@@ -230,15 +230,18 @@ if(isset($_GET['ajax_detections']) && $_GET['ajax_detections'] == "true"  ) {
           <td><?php if($_GET['kiosk'] == true) { echo relativeTime(strtotime($todaytable['Time'])); } else {echo $todaytable['Time'];}?><br></td>
           <td id="recent_detection_middle_td">
           <div>
-            <div>
+            <div class="thumbnail-with-caption">
             <?php if(!empty($config["IMAGE_PROVIDER"]) && (isset($_GET['hard_limit']) || $_GET['kiosk'] == true) && strlen($image[2]) > 0) { ?>
-              <img style="float:left;height:75px;" onclick='setModalText(<?php echo $iterations; ?>,"<?php echo urlencode($image[2]); ?>", "<?php echo $image[3]; ?>", "<?php echo $image[4]; ?>", "<?php echo $image[1]; ?>", "<?php echo $image[5]; ?>")' src="<?php echo $image[1]; ?>" id="birdimage" class="img1">
+              <img style="height:75px;" onclick='setModalText(<?php echo $iterations; ?>,"<?php echo urlencode($image[2]); ?>", "<?php echo $image[3]; ?>", "<?php echo $image[4]; ?>", "<?php echo $image[1]; ?>", "<?php echo $image[5]; ?>")' src="<?php echo $image[1]; ?>" id="birdimage" class="img1">
             <?php } ?>
-          </div>
-            <div>
-            <form action="" method="GET">
+              <div class="thumbnail-caption">
+                <form action="" method="GET">
                     <input type="hidden" name="view" value="Species Stats">
-          <button class="a2" type="submit" name="species" value="<?php echo $todaytable['Com_Name'];?>"><?php echo $todaytable['Com_Name'];?></button>
+                    <button class="a2" type="submit" name="species" value="<?php echo $todaytable['Com_Name'];?>"><?php echo $todaytable['Com_Name'];?></button>
+                </form>
+              </div>
+            </div>
+            <div>
 	            <br><i>
           <?php echo $todaytable['Sci_Name'];?>
 	                <br>
@@ -250,7 +253,6 @@ if(isset($_GET['ajax_detections']) && $_GET['ajax_detections'] == "true"  ) {
           	    <?php } ?></i>
 	                <br>
 	            </div>
-            </form>
           </div>
           </td>
           <td><?php if(!isset($_GET['mobile'])) { echo '<b>Confidence:</b>';} echo round((float)round($todaytable['Confidence'],2) * 100 ) . '%';?><br></td>
@@ -550,6 +552,22 @@ window.addEventListener("load", function(){
   padding: 10px;
   transition: opacity 0.2s ease-in-out;
 }
+  .thumbnail-with-caption {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .thumbnail-caption {
+    margin-top: 0.25rem;
+    font-size: 0.78rem;
+    line-height: 1.2;
+    max-width: 80px;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 </style>
 
 <script src="static/custom-audio-player.js"></script>
