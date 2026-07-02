@@ -49,6 +49,8 @@ include_species_list.txt
 whitelist_species_list.txt
 /nbproject/private/
 .DS_Store
+.venv
+/avian/assets/prompts
 
 # --- AvianVisitors: local-only material, deliberately not shipped ---
 # Claude Code session data
