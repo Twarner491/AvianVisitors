@@ -85,7 +85,7 @@ JAY_GENERA = {
 # deeply forked tail) unless we attach a Barn Swallow anti-reference.
 # Hirundo rustica is itself the Barn Swallow so it's excluded.
 SWALLOW_GENERA = {
-    "Tachycineta", "Riparia", "Progne", "Petrochelidon", "Stelgidopteryx",
+    "Tachycineta", "Riparia", "Progne", "Petrochelidon", "Stelgidopteryx", "Chaetura"
 }
 
 # Genera where Gemini's prior collapses to American Robin (gray back,
