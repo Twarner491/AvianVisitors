@@ -591,6 +591,18 @@
     text-transform: uppercase;
   }
 
+  /* No-birds state: an empty-nest illustration sits where the collage would be,
+     with the status line beneath it. Fills the collage box so the frame's
+     matting treats it like any other collage. */
+  .empty-nest {
+    height: 100%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 28px;
+  }
+  .empty-nest .nest-img { width: 78%; max-width: 470px; height: auto; }
+  .empty-nest .empty { padding: 0; margin: 0; }
+
   /* Page header is now shared at .stage > .static-head - see top of CSS. */
   /* Stats grid: charts stack on the LEFT, text sections on the RIGHT.
      Each chart is a full-bleed card; each text section is a list with

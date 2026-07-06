@@ -177,7 +177,7 @@ def _centroid_x(img, paper):
 TITLE_H_FRAC, COLLAGE_FRAC, GAP_FRAC = 0.065, 0.66, 0.1
 
 
-def mat_and_center(img, mat, empty=False):
+def mat_and_center(img, mat):
     """Crop the title and collage, size each to a fraction of the A5 opening,
     stack with a gap, and centre on the panel."""
     img = img.convert("RGB")
@@ -204,22 +204,6 @@ def mat_and_center(img, mat, empty=False):
     tb = _region_bbox(img, paper, top, split[0]) if split else None
     cb = _region_bbox(img, paper, split[1], bot + 1) if split else None
     box_w, box_h = A5_W * (1 - mat), A5_H * (1 - mat)
-    # No birds yet: hold the title where a full collage would put it and float
-    # the one-line note where the birds would be, so a birdless frame reads like
-    # a full one with the collage removed, not a title card drifted to the middle.
-    if empty and tb and cb:
-        title = _scale_h(img.crop(tb), box_h * TITLE_H_FRAC)
-        note = _scale_w(img.crop(cb), box_w * 0.30)
-        gap = round(box_h * GAP_FRAC)
-        region = box_w * COLLAGE_FRAC  # stand in for a usual-size collage
-        cw = max(title.width, note.width)
-        comp = Image.new("RGB", (cw, round(title.height + gap + region)), paper)
-        comp.paste(title, ((cw - title.width) // 2, 0))
-        ny = title.height + gap + max(0, (round(region) - note.height) // 2)
-        comp.paste(note, ((cw - note.width) // 2, ny))
-        canvas = Image.new("RGB", (PANEL_W, PANEL_H), paper)
-        canvas.paste(comp, ((PANEL_W - comp.width) // 2, (PANEL_H - comp.height) // 2))
-        return canvas
     if not (tb and cb):
         return _place(img.crop(full), paper, mat)
     title = _scale_h(img.crop(tb), box_h * TITLE_H_FRAC)
@@ -367,7 +351,7 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
     except Exception as e:
         print(f"could not get image: {e}", file=sys.stderr)  # keep last panel image
         return
-    img = mat_and_center(img, cfg["mat"], empty=(species == []))
+    img = mat_and_center(img, cfg["mat"])
     if preview:
         out = quantize_spectra6(img)
         if mat_box:

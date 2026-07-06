@@ -413,7 +413,12 @@
   function renderCollage(items, animate) {
     collage.innerHTML = '';
     if (!items.length) {
-      collage.innerHTML = '<p class="empty">no birds heard in this window.</p>';
+      // No birds heard yet: show an empty nest where the collage would be, with
+      // the status line beneath it. The frame (shoot.py) overrides the .empty
+      // text for the e-ink panel; the nest illustration is shared by both.
+      collage.innerHTML = '<div class="empty-nest">' +
+        '<img class="nest-img" src="nest.webp" alt="an empty nest" decoding="async">' +
+        '<p class="empty">no birds heard in this window.</p></div>';
       return;
     }
     var W = collage.clientWidth, H = collage.clientHeight;
