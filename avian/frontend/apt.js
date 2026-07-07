@@ -412,6 +412,12 @@
 
   function renderCollage(items, animate) {
     collage.innerHTML = '';
+    // Drop the previous render's hit-test tiles up front so a click or hover on
+    // the empty-nest state (or a collage that hasn't laid out yet) resolves to
+    // nothing, not to a stale bird from the last populated render. The populated
+    // path repopulates collagePlaced once the new tiles are placed.
+    collagePlaced = [];
+    collageHovered = null;
     if (!items.length) {
       // No birds heard yet: show an empty nest where the collage would be, with
       // the status line beneath it. The frame (shoot.py) overrides the .empty
@@ -419,6 +425,16 @@
       collage.innerHTML = '<div class="empty-nest">' +
         '<img class="nest-img" src="nest.webp" alt="an empty nest" decoding="async">' +
         '<p class="empty">no birds heard in this window.</p></div>';
+      // Bloom the nest in on the same cues as the collage (first load, window
+      // change, view switch); a silent poll/resize renders without animate. The
+      // class self-clears after the worst case so a throttled tab still ends
+      // with the nest visible, mirroring the tile entrance's safety net.
+      if (animate) {
+        var enest = collage.firstChild;
+        enest.classList.add('entering');
+        clearTimeout(collageEntranceT);
+        collageEntranceT = setTimeout(function () { enest.classList.remove('entering'); }, 900);
+      }
       return;
     }
     var W = collage.clientWidth, H = collage.clientHeight;
