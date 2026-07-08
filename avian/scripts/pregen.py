@@ -63,6 +63,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from io import BytesIO
 from pathlib import Path
 
 # Gemini's image-out model. The endpoint changes occasionally; if you
@@ -71,6 +72,9 @@ GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     "gemini-2.5-flash-image:generateContent"
 )
+OPENAI_IMAGES_GENERATIONS_URL = "https://api.openai.com/v1/images/generations"
+OPENAI_IMAGES_EDITS_URL = "https://api.openai.com/v1/images/edits"
+OPENAI_IMAGE_MODEL = "gpt-image-1"
 POSES = {1: "perched", 2: "in flight with wings spread"}
 
 # Genera where Gemini's prior collapses to Blue Jay markings unless we
@@ -216,29 +220,36 @@ def slugify(sci: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", sci.lower()).strip("-")
 
 
-def parse_species_line(line: str) -> tuple[str, str] | None:
-    """Accept any of: 'Sci|Com', 'Sci_Com', 'Sci,Com'. Skip blanks + #."""
+def parse_species_line(line: str) -> tuple[tuple[str, str] | None, str | None]:
+    """Accept delimited labels like 'Sci|Com' or a scientific name-only line."""
     line = line.strip()
-    if not line or line.startswith("#"):
-        return None
+    if not line:
+        return None, "blank line"
+    if line.startswith("#"):
+        return None, "comment"
+
     for sep in ("|", "_", ","):
         if sep in line:
             sci, com = line.split(sep, 1)
             sci, com = sci.strip(), com.strip()
             if sci and com:
-                return (sci, com)
-    return None
+                return (sci, com), None
+            return None, f"separator {sep!r} found but scientific/common name missing"
+
+    if " " in line:
+        return (line, line), None
+    return None, "not a valid scientific-name or 'Sci|Com' entry"
 
 
-def parse_species_list(lines: list[str]) -> tuple[list[tuple[str, str]], int]:
-    """Returns (parsed, skipped_count)."""
-    out, skipped = [], 0
-    for line in lines:
-        parsed = parse_species_line(line)
+def parse_species_list(lines: list[str]) -> tuple[list[tuple[str, str]], list[tuple[int, str, str]]]:
+    """Returns (parsed, skipped_details)."""
+    out, skipped = [], []
+    for idx, line in enumerate(lines, 1):
+        parsed, reason = parse_species_line(line)
         if parsed:
             out.append(parsed)
         elif line.strip() and not line.lstrip().startswith("#"):
-            skipped += 1
+            skipped.append((idx, line.strip(), reason or "unrecognized format"))
     return out, skipped
 
 
@@ -246,7 +257,7 @@ def load_prompt(path: Path) -> str:
     """Return everything after the `## Prompt` heading, stripped to the
     next `##` heading (so doc preamble or trailing sections don't bleed
     into the API call)."""
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8", errors="replace")
     m = re.search(r"##\s*Prompt\s*\n(.+?)(?=\n##\s|\Z)", text, flags=re.DOTALL)
     return (m.group(1) if m else text).strip()
 
@@ -388,6 +399,13 @@ def _anti_ref_line(anti_ref_key: str | None) -> str:
     )
 
 
+def write_prompt_file(out_dir: Path, sci: str, body: str, pose: int) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{sci}_{pose}.txt"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
 def gen_one(
     api_key: str,
     prompt: str,
@@ -494,6 +512,7 @@ def gen_one(
         except urllib.error.HTTPError as e:
             if e.code in (429, 500, 502, 503, 504) and attempt < 3:
                 ra = e.headers.get("Retry-After")
+                print(f"Gemini HTTP {e.code} - retrying after {ra or backoff:.1f}s...", file=sys.stderr)
                 try:
                     retry_after = float(ra) if ra else backoff
                 except (TypeError, ValueError):
@@ -501,13 +520,18 @@ def gen_one(
                 time.sleep(retry_after)
                 backoff *= 2
                 continue
-            raise
-        except urllib.error.URLError:
+            if e.code == 429:
+                raise RuntimeError(
+                    "Gemini 429 rate limit hit: the API quota was exhausted or requests were too frequent. "
+                    "Try lowering the batch size, increasing --sleep, or waiting before re-running."
+                ) from e
+            raise RuntimeError(f"Gemini HTTP {e.code}: {e.reason}") from e
+        except urllib.error.URLError as e:
             if attempt < 3:
                 time.sleep(backoff)
                 backoff *= 2
                 continue
-            raise
+            raise RuntimeError(f"Gemini request failed: {e.reason}") from e
 
     for cand in resp.get("candidates", []):
         for part in cand.get("content", {}).get("parts", []):
@@ -518,6 +542,134 @@ def gen_one(
     finish = (resp.get("candidates", [{}])[0]).get("finishReason", "?")
     block = resp.get("promptFeedback", {}).get("blockReason", "")
     raise RuntimeError(f"no image (finish={finish} block={block})")
+
+
+def _prepare_image_bytes(path: Path) -> bytes:
+    try:
+        from PIL import Image
+        img = Image.open(path).convert("RGB")
+        w, h = img.size
+        if max(w, h) > 1024:
+            scale = 1024 / max(w, h)
+            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        buf = BytesIO()
+        img.save(buf, format="PNG", optimize=True)
+        return buf.getvalue()
+    except Exception:
+        return path.read_bytes()
+
+
+def _openai_multipart_form(fields: dict[str, str], files: list[tuple[str, str, bytes, str]]) -> tuple[str, bytes]:
+    boundary = f"----AvianVisitorsBoundary{int(time.time() * 1000)}"
+    parts: list[bytes] = []
+    for name, value in fields.items():
+        parts.extend([
+            f"--{boundary}".encode("utf-8"),
+            f"Content-Disposition: form-data; name=\"{name}\"".encode("utf-8"),
+            b"",
+            value.encode("utf-8"),
+        ])
+    for field_name, filename, content, mime_type in files:
+        parts.extend([
+            f"--{boundary}".encode("utf-8"),
+            f"Content-Disposition: form-data; name=\"{field_name}\"; filename=\"{filename}\"".encode("utf-8"),
+            f"Content-Type: {mime_type}".encode("utf-8"),
+            b"",
+            content,
+        ])
+    parts.extend([f"--{boundary}--".encode("utf-8"), b""])
+    return f"multipart/form-data; boundary={boundary}", b"\r\n".join(parts)
+
+
+def gen_one_openai(
+    api_key: str,
+    prompt: str,
+    sci: str,
+    com: str,
+    pose: int,
+    positive_ref: Path | None = None,
+    anti_ref: Path | None = None,
+    anti_ref_key: str | None = None,
+    species_note: str | None = None,
+    style_ref: Path | None = None,
+) -> bytes:
+    """Single OpenAI Images API call with optional reference images.
+
+    Returns raw PNG bytes.
+    If any image references are attached, this uses the OpenAI image edits
+    endpoint; otherwise it uses the text-only images generation endpoint.
+    """
+    body = (prompt
+            .replace("{sci_name}", sci)
+            .replace("{com_name}", com)
+            .replace("{pose}", POSES[pose])
+            .replace("{anti_ref_line}", _anti_ref_line(anti_ref_key)))
+    if species_note:
+        body = body + "\n\nSpecies-specific note: " + species_note
+    body += "\n\n"
+    if positive_ref:
+        body += "The first uploaded image is the target species reference. Use it for anatomy, proportions, and coloration, but do not copy photographic artifacts.\n"
+    if anti_ref:
+        anti_name = (ANTI_REFS.get(anti_ref_key or {}) or {}).get("common_name", "lookalike species")
+        body += (
+            f"The second uploaded image is a negative reference: {anti_name}. Do not copy its diagnostic features.\n"
+        )
+    if style_ref:
+        body += (
+            "The third uploaded image is a style reference only. Copy its painting technique, not its scenery, branches, or any background elements.\n"
+        )
+    write_prompt_file(Path(__file__).resolve().parents[1] / "assets" / "prompts", sci, body, pose)
+
+    fields = {
+        "model": OPENAI_IMAGE_MODEL,
+        "prompt": body,
+        "n": "1",
+        "size": "1024x1024",
+        "response_format": "b64_json",
+    }
+    files: list[tuple[str, str, bytes, str]] = []
+    if positive_ref:
+        files.append(("image[]", positive_ref.name, _prepare_image_bytes(positive_ref), _mime_for(positive_ref)))
+    if anti_ref:
+        files.append(("image[]", anti_ref.name, anti_ref.read_bytes(), _mime_for(anti_ref)))
+    if style_ref:
+        files.append(("image[]", style_ref.name, style_ref.read_bytes(), _mime_for(style_ref)))
+
+    if files:
+        url = OPENAI_IMAGES_EDITS_URL
+        content_type, body_bytes = _openai_multipart_form(fields, files)
+    else:
+        url = OPENAI_IMAGES_GENERATIONS_URL
+        body_bytes = json.dumps(fields).encode("utf-8")
+        content_type = "application/json"
+
+    req = urllib.request.Request(
+        url,
+        data=body_bytes,
+        headers={
+            "Content-Type": content_type,
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=180) as r:
+            resp = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            raise RuntimeError("OpenAI 429 rate limit hit: try reducing request frequency or waiting before retrying.") from e
+        raise RuntimeError(f"OpenAI HTTP {e.code}: {e.reason}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"OpenAI request failed: {e.reason}") from e
+
+    data = resp.get("data")
+    if not data or not isinstance(data, list):
+        raise RuntimeError(f"OpenAI response missing image data: {resp}")
+    img_b64 = data[0].get("b64_json")
+    if not img_b64:
+        raise RuntimeError(f"OpenAI image response had no b64_json: {resp}")
+    return base64.b64decode(img_b64)
 
 
 def _mime_for(p: Path) -> str:
@@ -571,19 +723,23 @@ def main() -> int:
     args = ap.parse_args()
 
     gemini_key = args.gemini_key or os.environ.get("GEMINI_API_KEY", "")
-    if not gemini_key:
-        print("error: GEMINI_API_KEY required (--gemini-key or env)", file=sys.stderr)
-        return 2
+    # if not gemini_key:
+    #     print("error: GEMINI_API_KEY required (--gemini-key or env)", file=sys.stderr)
+    #     return 2
 
     # Build species list
     if args.labels:
-        species, skipped = parse_species_list(args.labels.read_text().splitlines())
+        species, skipped = parse_species_list(args.labels.read_text(encoding="utf-8", errors="replace").splitlines())
     elif args.stdin:
         species, skipped = parse_species_list(sys.stdin.read().splitlines())
     else:
         species, skipped = parse_species_list(args.species)
     if skipped:
-        print(f"[parse] skipped {skipped} malformed line(s)", file=sys.stderr)
+        print(f"[parse] skipped {len(skipped)} malformed line(s)", file=sys.stderr)
+        for line_no, raw, reason in skipped[:10]:
+            print(f"[parse] line {line_no}: {raw!r} -> {reason}", file=sys.stderr)
+        if len(skipped) > 10:
+            print(f"[parse] ... and {len(skipped) - 10} more skipped line(s)", file=sys.stderr)
     if not species:
         print("error: no species resolved", file=sys.stderr)
         return 2
@@ -623,6 +779,7 @@ def main() -> int:
         pos_ref = None
         if not args.no_refs:
             pos_ref = ensure_reference(args.refs, slug, sci, com)
+            print(pos_ref)
             if not pos_ref:
                 print(f"  [warn] no Wikipedia photo for {sci} - proceeding without positive ref", file=sys.stderr)
         anti_key = select_anti_ref_key(sci)
@@ -635,6 +792,7 @@ def main() -> int:
         for pose in args.poses:
             fname = f"{slug}.png" if pose == 1 else f"{slug}-{pose}.png"
             path = args.out / fname
+            print(path)
             if path.exists() and not args.force:
                 skipped_existing += 1
                 continue
