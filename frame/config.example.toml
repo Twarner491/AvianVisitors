@@ -14,6 +14,14 @@ shoot = true
 # Or read a PNG a sibling process drops next to us:
 # image = "~/.birdframe/frame.png"
 
+# Or render from BirdWeather for any ZIP, no mic (what install.sh --bird-weather
+# writes). The panel still refreshes only when the local top birds change:
+# species_source = "birdweather"
+# zip = "94107"
+# bw_days = 7          # BirdWeather lookback window, in days
+# bw_country = "us"    # geocoder country for the ZIP
+# shoot = true         # this Pi renders the collage
+
 hours = 24             # window shown on the frame
 
 # --- Titles and look (used when this Pi renders, i.e. shoot = true) ----------

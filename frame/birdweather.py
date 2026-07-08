@@ -23,6 +23,7 @@ EBIRD = "https://api.ebird.org/v2/data/obs/geo/recent"
 APT_JS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "avian", "frontend", "apt.js")
 
 _drawable = None
+_GEO_CACHE = os.path.expanduser("~/.birdframe/geocode.json")
 
 
 def _graphql(query, timeout):
@@ -39,12 +40,37 @@ def _graphql(query, timeout):
 
 
 def geocode(zip_code, country="us", timeout=20):
-    """ZIP / postal code to (lat, lon) via the keyless zippopotam.us gazetteer."""
-    url = f"{GEOCODER}/{country}/{urllib.parse.quote(zip_code.strip())}"
+    """ZIP / postal code to (lat, lon) via the keyless zippopotam.us gazetteer.
+    A ZIP's coordinates never move, so the result is cached on disk and the
+    frame geocodes once rather than on every 15-minute refresh."""
+    zip_code = zip_code.strip()
+    key = f"{country}/{zip_code}".lower()
+    store = {}
+    try:
+        with open(_GEO_CACHE) as f:
+            loaded = json.load(f)
+        if isinstance(loaded, dict):
+            store = loaded
+            hit = store.get(key)
+            if isinstance(hit, list) and len(hit) == 2:  # shape-guard a hand-edited / stale entry
+                return float(hit[0]), float(hit[1])
+    except Exception:
+        store = {}
+    url = f"{GEOCODER}/{country}/{urllib.parse.quote(zip_code)}"
     req = urllib.request.Request(url, headers={"User-Agent": "AvianVisitors-frame/1.0"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         place = json.loads(r.read(200_000))["places"][0]
-    return float(place["latitude"]), float(place["longitude"])
+    lat, lon = float(place["latitude"]), float(place["longitude"])
+    store[key] = [lat, lon]
+    try:
+        os.makedirs(os.path.dirname(_GEO_CACHE), exist_ok=True)
+        tmp = _GEO_CACHE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(store, f)
+        os.replace(tmp, _GEO_CACHE)  # atomic, like display.py's state write
+    except Exception:
+        pass
+    return lat, lon
 
 
 def bbox(lat, lon, miles):
@@ -194,13 +220,67 @@ def species_for_zip(zip_code, country="us", target=10, days=7, radii=(15, 30, 50
     return found[:target]
 
 
+def coverage_for_zip(zip_code, country="us", sample=15, days=7, radii=(15, 30, 50),
+                     apt_js=APT_JS, timeout=20):
+    """Split the ZIP's most-detected birds by whether the repo can draw them.
+
+    Same gather as species_for_zip (grow the radius, then triangulate / eBird
+    for sparse spots) but UNFILTERED, capped at the top `sample` by count, then
+    partitioned. Returns (have, missing) as [{sci,com,n}] lists sorted by count:
+    `have` are bundled today, `missing` are the local birds with no cutout yet -
+    the set the installer offers to generate. `sample` sits a little above the
+    render's `target` (10) so a few extra cover BirdWeather count drift without
+    generating birds that never reach the collage. The split is always against
+    the current bundle, so adding illustrations upstream shrinks `missing` free.
+    """
+    lat, lon = geocode(zip_code, country, timeout)
+    top = []
+    for miles in radii:
+        top = top_species(lat, lon, miles, days, 60, timeout)
+        if len(top) >= sample:
+            break
+    if len(top) < sample:
+        tri = triangulate(lat, lon, 3, days, timeout)
+        if len(tri) > len(top):
+            top = tri
+    if len(top) < sample:
+        eb = ebird_nearby(lat, lon, days * 2, timeout=timeout)
+        if len(eb) > len(top):
+            top = eb
+    top.sort(key=lambda s: -(s["n"] or 0))
+    top = top[:sample]
+    drawable = drawable_slugs(apt_js)
+    have = [s for s in top if slugify(s["sci"]) in drawable]
+    missing = [s for s in top if slugify(s["sci"]) not in drawable]
+    return have, missing
+
+
 if __name__ == "__main__":
     import argparse
-    ap = argparse.ArgumentParser(description="Print BirdWeather top drawable species for a ZIP.")
+    import sys
+    ap = argparse.ArgumentParser(description="BirdWeather top species for a ZIP.")
     ap.add_argument("zip")
     ap.add_argument("--country", default="us")
     ap.add_argument("--target", type=int, default=10)
     ap.add_argument("--days", type=int, default=7)
+    ap.add_argument("--missing", action="store_true",
+                    help="Print the ZIP's top LOCAL birds the repo can't draw yet "
+                         "as Sci|Com lines (feed to pregen.py --stdin); summary to stderr.")
+    ap.add_argument("--sample", type=int, default=15,
+                    help="How many of the ZIP's top birds to weigh for --missing (default 15).")
     a = ap.parse_args()
-    for s in species_for_zip(a.zip, a.country, a.target, a.days):
-        print(f'{s["n"]:>8}  {s["com"]}  ({s["sci"]})')
+    if a.missing:
+        try:
+            have, missing = coverage_for_zip(a.zip, a.country, a.sample, a.days)
+        except Exception as e:
+            # Never break the installer: no data just means no generation offer.
+            print(f"coverage lookup failed: {e}", file=sys.stderr)
+            sys.exit(0)
+        for s in missing:
+            print(f'{s["sci"]}|{s["com"]}')
+        total = len(have) + len(missing)
+        print(f"{len(have)} of the top {total} birds near {a.zip} are bundled; "
+              f"{len(missing)} are not.", file=sys.stderr)
+    else:
+        for s in species_for_zip(a.zip, a.country, a.target, a.days):
+            print(f'{s["n"]:>8}  {s["com"]}  ({s["sci"]})')

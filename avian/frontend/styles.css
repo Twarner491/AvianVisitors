@@ -591,6 +591,30 @@
     text-transform: uppercase;
   }
 
+  /* No-birds state: an empty-nest illustration sits where the collage would be,
+     with the status line beneath it. Fills the collage box so the frame's
+     matting treats it like any other collage. */
+  .empty-nest {
+    height: 100%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 28px;
+  }
+  .empty-nest .nest-img { width: 78%; max-width: 470px; height: auto; }
+  .empty-nest .empty { padding: 0; margin: 0; }
+  /* Bloom the empty nest in on the same cues as the collage, reusing the tile
+     keyframe (gtile-in): the nest fades + scales, the status line trails it. */
+  .empty-nest.entering .nest-img {
+    animation: gtile-in 420ms cubic-bezier(.2, .7, .3, 1) backwards;
+  }
+  .empty-nest.entering .empty {
+    animation: gtile-in 420ms cubic-bezier(.2, .7, .3, 1) 130ms backwards;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .empty-nest.entering .nest-img,
+    .empty-nest.entering .empty { animation: none; }
+  }
+
   /* Page header is now shared at .stage > .static-head - see top of CSS. */
   /* Stats grid: charts stack on the LEFT, text sections on the RIGHT.
      Each chart is a full-bleed card; each text section is a list with
