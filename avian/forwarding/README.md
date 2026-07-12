@@ -22,7 +22,7 @@ cloudflared tunnel login
 cloudflared tunnel create birds
 cloudflared tunnel route dns birds yourdomain.com
 
-sudo cp ~/AvianVisitors/avian/forwarding/cloudflared.yml /etc/cloudflared/config.yml
+sudo cp ~/BirdNET-Pi/avian/forwarding/cloudflared.yml /etc/cloudflared/config.yml
 # Replace TUNNEL_UUID in /etc/cloudflared/config.yml with the UUID returned by `cloudflared tunnel create birds`
 sudo cloudflared service install
 sudo systemctl restart cloudflared
