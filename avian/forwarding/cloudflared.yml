@@ -5,7 +5,7 @@ credentials-file: /etc/cloudflared/TUNNEL_UUID.json
 
 ingress:
   # Public collage - points at the local Caddy on port 80.
-  - hostname: birds.your-domain.com
+  - hostname: wvl.dpdns.org
     service: http://localhost:80
   # Catch-all required by cloudflared
   - service: http_status:404
