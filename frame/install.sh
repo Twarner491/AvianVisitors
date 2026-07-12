@@ -141,42 +141,34 @@ elif [ "$MODE" = image ]; then
     printf '%s\n' 'saturation = 0.6'
   } > "$CONFIG"
 else
-  { printf '%s\n' '# birdframe-mode: birdweather'; cat config.example.toml; } > "$CONFIG"
+  # birdweather: this Pi renders from BirdWeather near $ZIP, gated on the same
+  # signature as the other modes - it only redraws when the local top birds change.
+  {
+    printf '%s\n' '# birdframe-mode: birdweather'
+    printf '%s\n' '# AvianVisitors frame, BirdWeather mode: renders the top birds near a ZIP.'
+    printf '%s\n' 'species_source = "birdweather"'
+    printf 'zip = "%s"\n' "$ZIP"
+    printf '%s\n' 'bw_days = 7          # BirdWeather lookback window, in days'
+    printf '%s\n' 'bw_country = "us"    # geocoder country for the ZIP'
+    printf '%s\n' 'shoot = true         # this Pi renders the collage'
+    printf '%s\n' 'shoot_title = "Avian Visitors"'
+    printf '%s\n' 'shoot_subtitle = "Heard Today"'
+    printf '%s\n' 'rotate = 90          # flip to 270 if the frame hangs the other way up'
+    printf '%s\n' 'saturation = 0.6'
+  } > "$CONFIG"
 fi
 
 echo "5/5  Installing systemd service + timer..."
-if [ "$MODE" = birdweather ]; then
-  PY="$FRAME/.venv/bin/python"
-  PNG="$HOME/.birdframe/frame.png"
-  sudo tee /etc/systemd/system/birdframe.service >/dev/null <<SERVICE
-[Unit]
-Description=AvianVisitors frame, BirdWeather mode (ZIP $ZIP)
-Documentation=https://github.com/Twarner491/AvianVisitors
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=oneshot
-User=$USER
-WorkingDirectory=$FRAME
-ExecStart=/bin/sh -c '$PY $FRAME/shoot.py --bird-weather --zip "$ZIP" --out $PNG && $PY $FRAME/display.py --config $HOME/.birdframe/config.toml --image-url $PNG --no-signature --force'
-Environment=PYTHONUNBUFFERED=1
-Nice=10
-TimeoutStartSec=300
-SERVICE
-  # Remote ZIPs with no nearby station fall back to eBird, which needs a key.
-  if [ -n "$EBIRD_KEY" ]; then
-    echo "Environment=EBIRD_API_KEY=$EBIRD_KEY" | sudo tee -a /etc/systemd/system/birdframe.service >/dev/null
-  fi
-  # BirdWeather's recent-species list drifts slowly, so refresh a few times a day.
-  sed 's|OnUnitActiveSec=.*|OnUnitActiveSec=6h|' systemd/birdframe.timer \
-    | sudo tee /etc/systemd/system/birdframe.timer >/dev/null
-else
-  # local + image both run display.py against the config; only the config differs.
-  sed "s|/home/monalisa/AvianVisitors/frame|$FRAME|g; s|/home/monalisa|$HOME|g; s|User=monalisa|User=$USER|" \
-    systemd/birdframe.service | sudo tee /etc/systemd/system/birdframe.service >/dev/null
-  sudo cp systemd/birdframe.timer /etc/systemd/system/birdframe.timer
+# Every mode runs display.py against the config on the standard 15-minute timer;
+# only the config differs. display.py renders inline for local + birdweather and
+# pushes to the panel only when the birds change.
+sed "s|/home/monalisa/AvianVisitors/frame|$FRAME|g; s|/home/monalisa|$HOME|g; s|User=monalisa|User=$USER|" \
+  systemd/birdframe.service | sudo tee /etc/systemd/system/birdframe.service >/dev/null
+# BirdWeather's remote-ZIP eBird fallback reads its key from the unit environment.
+if [ "$MODE" = birdweather ] && [ -n "$EBIRD_KEY" ]; then
+  echo "Environment=EBIRD_API_KEY=$EBIRD_KEY" | sudo tee -a /etc/systemd/system/birdframe.service >/dev/null
 fi
+sudo cp systemd/birdframe.timer /etc/systemd/system/birdframe.timer
 sudo systemctl daemon-reload
 sudo systemctl enable --now birdframe.timer  # --now starts it immediately, not only on the next boot
 
@@ -201,10 +193,28 @@ DONE
   birdweather)
     cat <<DONE
 
-Installed in BirdWeather mode for ZIP $ZIP. The frame renders the top birds
-near you on the Pi and refreshes every 6 hours. Cutouts come from the repo on
-GitHub, so add illustrations there for any local birds it is missing.
+Installed in BirdWeather mode for ZIP $ZIP. The frame renders the top birds near
+you on the Pi and refreshes every 15 min, only when the local top birds change.
 DONE
+    # The bundled illustrations center on the western U.S. If birds near this ZIP
+    # aren't in the cloned set the frame quietly skips them, which has tripped
+    # people up - surface it here and point at the generator.
+    MISSING="$("$FRAME/.venv/bin/python" "$FRAME/birdweather.py" "$ZIP" --missing 2>/dev/null || true)"
+    if [ -n "$MISSING" ]; then
+      N="$(printf '%s\n' "$MISSING" | grep -c . || true)"
+      NAMES="$(printf '%s\n' "$MISSING" | head -8 | sed 's/.*|/    /')"
+      if [ "$N" -gt 8 ]; then NAMES="$NAMES
+    ... and $((N - 8)) more"; fi
+      cat <<FLAG
+Heads up: $N local bird(s) near you aren't in the illustration set you cloned, so
+the frame will skip them:
+$NAMES
+To add them, run this on a laptop or workstation (it needs rembg, which the Pi
+can't fit) and commit or copy the new cutouts over:
+  python3 $FRAME/generate_illustrations.py --zip $ZIP --gemini-key <KEY>
+A paid Google Gemini API key is needed: https://ai.google.dev
+FLAG
+    fi
     ;;
 esac
 

@@ -7,9 +7,9 @@ titles, and rewrites a few of the page's own apt.js tunables at capture time
 (cluster bias, count-to-size exponent, a rare-bird floor). The result is the
 actual website, framed for the wall, with no changes to AvianVisitors.
 
-Needs a real headless browser, so it runs on any 64-bit capable machine, NOT
-the Pi Zero W driving the panel. Writes a 1200x1600 PNG; display.py turns it
-into panel pixels.
+Needs a real headless browser, so it runs on any 64-bit capable machine,
+including the frame's own Pi (3 A+ / Zero 2 W) but NOT an original ARMv6
+Pi Zero W. Writes a 1200x1600 PNG; display.py turns it into panel pixels.
 
   pip install playwright && playwright install chromium
   python3 shoot.py --url https://bird.onethreenine.net \
@@ -31,8 +31,10 @@ import urllib.parse
 from playwright.sync_api import TimeoutError as PWTimeout
 from playwright.sync_api import sync_playwright
 
-# --bird-weather pulls cutouts straight from the repo's raw GitHub URLs, so the
-# Pi never bundles the illustration set and picks up new birds with no redeploy.
+# --bird-weather resolves cutouts from the local clone first, then falls back to
+# the repo's raw GitHub URLs: a fresh install needs no illustration redeploy,
+# upstream additions arrive with a git pull, and cutouts you generate and copy
+# into the clone render even before they reach GitHub.
 RAW_ILLUSTRATIONS = ("https://raw.githubusercontent.com/Twarner491/AvianVisitors/"
                      "avian-visitors/avian/assets/illustrations/")
 
@@ -118,16 +120,22 @@ def _serve_frontend(directory):
     return httpd, httpd.server_address[1]
 
 
-def _make_cutout_handler(base):
-    """Redirect each cutout.php lookup to the bird's raw illustration on GitHub.
-    Trusts species_for_zip to pre-filter to drawable slugs, so a redirect only
-    lands on a missing file if the repo is mid-update."""
+def _make_cutout_handler(base, local_dir=None):
+    """Resolve each cutout.php lookup to the bird's illustration. Serve a local
+    file first when `local_dir` has it - that is how cutouts you generate and copy
+    into the clone render before they reach GitHub - otherwise 302 to the raw
+    GitHub copy. Trusts species_for_zip to pre-filter to drawable slugs, so the
+    GitHub fallback only lands on a missing file if the repo is mid-update."""
     def handler(route):
         try:
             params = urllib.parse.parse_qs(urllib.parse.urlparse(route.request.url).query)
             slug = re.sub(r"[^a-z0-9]+", "-", (params.get("sci") or [""])[0].lower()).strip("-")
             if (params.get("pose") or ["1"])[0] == "2":
                 slug += "-2"
+            if local_dir:
+                local = os.path.join(local_dir, slug + ".png")
+                if os.path.isfile(local):
+                    return route.fulfill(path=local)
             route.fulfill(status=302, headers={"location": base + slug + ".png"})
         except Exception:
             _safe_continue(route)
@@ -158,7 +166,8 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
           headline_px=42, eyebrow_px=18, lowercase=False,
           mat=0.04, collage_vh=52, cluster_xbias=1.0, cluster_ybias=1.2,
           count_exp=0.4, cluster_pad=1, small_floor=0.04, window_hours=None,
-          timeout_ms=45000, user=None, password=None, species=None, cutout_base=None):
+          timeout_ms=45000, user=None, password=None, species=None, cutout_base=None,
+          cutout_local=None, empty_text="listening for birds…"):
     pad_side, pad_top, pad_bottom = int(vw * mat), int(vh * mat * 0.92), int(vh * mat)
     auth = "Basic " + base64.b64encode(f"{user}:{password or ''}".encode()).decode() if user else None
 
@@ -173,7 +182,7 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
             page.route("**/birdnet-api.php**", _make_api_handler(small_floor, window_hours, auth, species))
             page.route("**/apt.js*", _make_js_handler(cluster_xbias, cluster_ybias, count_exp, cluster_pad, auth, misses))
             if cutout_base:
-                page.route("**/cutout.php*", _make_cutout_handler(cutout_base))
+                page.route("**/cutout.php*", _make_cutout_handler(cutout_base, cutout_local))
 
             css = HIDE_CSS + _frame_css(headline_px, eyebrow_px, lowercase, pad_top, pad_side, pad_bottom, collage_vh)
             page.add_init_script(
@@ -197,6 +206,16 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
                         timeout=timeout_ms)
                 except PWTimeout:
                     print("some illustrations did not finish loading; capturing anyway", file=sys.stderr)
+            elif page.query_selector(".nest-img") is not None:
+                # Birdless empty state: wait for the nest illustration to load so
+                # the frame never captures a blank collage area.
+                try:
+                    page.wait_for_function(
+                        "() => { const n=document.querySelector('.nest-img');"
+                        " return n && n.complete && n.naturalWidth>0; }",
+                        timeout=timeout_ms)
+                except PWTimeout:
+                    print("nest illustration did not finish loading; capturing anyway", file=sys.stderr)
             if misses:
                 raise RuntimeError(f"apt.js tunables not found ({len(misses)}); refusing to ship a half-tuned frame")
 
@@ -204,16 +223,43 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
                 page.evaluate("t=>{const e=document.querySelector('.static-head .pre'); if(e)e.textContent=t;}", title)
             if subtitle is not None:
                 page.evaluate("s=>{const e=document.querySelector('.static-head h1'); if(e)e.textContent=s;}", subtitle)
-            # Soften the empty-state line for a fresh frame whose mic hasn't
-            # heard a bird yet, and darken it so it survives the e-ink dither and
-            # the matting step's ink detection (a no-op once there are birds).
-            page.evaluate("() => { const e = document.querySelector('.empty'); if (e) { e.textContent = 'listening for birds…'; e.style.color = '#555'; } }")
+            # Set the empty-state line for a birdless frame (the mic hasn't heard
+            # anything yet, or BirdWeather has no recent detections nearby) and
+            # darken it so it survives the e-ink dither and the matting step's ink
+            # detection (a no-op once there are birds).
+            page.evaluate("(t) => { const e = document.querySelector('.empty'); if (e) { e.textContent = t; e.style.color = '#555'; } }", empty_text)
             page.wait_for_timeout(250)
             # clip is CSS px; device_scale_factor scales the PNG to vw*dsf by vh*dsf = 1200x1600
             page.screenshot(path=out, clip={"x": 0, "y": 0, "width": vw, "height": vh})
         finally:
             browser.close()
     return out
+
+
+def shoot_birdweather(out, species, *, title=None, subtitle=None, timeout_ms=45000, **look):
+    """Render `species` ([{sci,com,n}]) as the BirdWeather collage into `out`.
+
+    The mic path screenshots a live site; this builds the same page from a
+    species list instead. It serves the bundled frontend on localhost, feeds it
+    the species, and routes cutouts to the local clone first then GitHub, so the
+    --bird-weather CLI and display.py's inline render share one setup. An empty
+    list renders the page's empty-state card, the same as the mic mode. `look`
+    overrides any shoot() tunable (the CLI passes its flags through)."""
+    if species is None:
+        raise RuntimeError("shoot_birdweather needs a species list")
+    here = os.path.dirname(os.path.abspath(__file__))
+    _httpd, port = _serve_frontend(os.path.join(here, "..", "avian", "frontend"))
+    cutout_local = os.path.join(here, "..", "avian", "assets", "illustrations")
+    # BirdWeather's flat 7-day counts need a steeper exponent for the same hero
+    # hierarchy; the slightly smaller titles match the mic frame's optical weight.
+    # A birdless BirdWeather frame says "no recent detections nearby", not "listening".
+    for k, v in (("count_exp", 1.0), ("headline_px", 39), ("eyebrow_px", 17),
+                 ("empty_text", "no recent detections nearby")):
+        look.setdefault(k, v)
+    return shoot(f"http://127.0.0.1:{port}/", out,
+                 title=title or "Avian Visitors", subtitle=subtitle or "Heard Today",
+                 species=species, cutout_base=RAW_ILLUSTRATIONS, cutout_local=cutout_local,
+                 timeout_ms=timeout_ms, **look)
 
 
 def main():
@@ -248,7 +294,6 @@ def main():
     ap.add_argument("--password")
     ap.add_argument("--timeout", type=int, default=45000)
     a = ap.parse_args()
-    url, title, subtitle, species, cutout_base = a.url, a.title, a.subtitle, None, None
     if a.bird_weather:
         if not a.zip:
             print("--bird-weather needs --zip", file=sys.stderr)
@@ -259,25 +304,33 @@ def main():
         if not species:
             print(f"no drawable birds near {a.zip}; nothing to render", file=sys.stderr)
             sys.exit(3)
-        front = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "avian", "frontend")
-        _httpd, port = _serve_frontend(front)
-        url = f"http://127.0.0.1:{port}/"
-        cutout_base = RAW_ILLUSTRATIONS
-        title = title or "Avian Visitors"
-        subtitle = subtitle or "Heard Today"
-    # BirdWeather's 7-day counts are flatter than a mic's, so they need a steeper
-    # exponent to get the same hero-bird hierarchy and collage shape.
-    count_exp = a.count_exp if a.count_exp is not None else (1.0 if a.bird_weather else 0.4)
-    headline_px = a.headline_px if a.headline_px is not None else (39 if a.bird_weather else 42)
-    eyebrow_px = a.eyebrow_px if a.eyebrow_px is not None else (17 if a.bird_weather else 18)
+        # Pass the CLI's look flags through; shoot_birdweather fills the bird-weather
+        # defaults (steeper count exponent, smaller titles) for anything left unset.
+        look = {k: v for k, v in (("count_exp", a.count_exp), ("headline_px", a.headline_px),
+                                  ("eyebrow_px", a.eyebrow_px)) if v is not None}
+        look.update(vw=a.width, vh=a.height, dsf=a.dsf, mat=a.mat, collage_vh=a.collage_vh,
+                    cluster_xbias=a.cluster_xbias, cluster_ybias=a.cluster_ybias,
+                    cluster_pad=a.cluster_pad, small_floor=a.small_floor, lowercase=a.lowercase,
+                    window_hours=a.window_hours, user=a.user, password=a.password)
+        try:
+            shoot_birdweather(a.out, species, title=a.title, subtitle=a.subtitle,
+                              timeout_ms=a.timeout, **look)
+        except Exception as e:
+            print(f"shoot failed: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(f"wrote {a.out}")
+        return
+    # Mic path: screenshot the live AvianVisitors site at --url.
+    count_exp = a.count_exp if a.count_exp is not None else 0.4
+    headline_px = a.headline_px if a.headline_px is not None else 42
+    eyebrow_px = a.eyebrow_px if a.eyebrow_px is not None else 18
     try:
-        shoot(url, a.out, title=title, subtitle=subtitle, vw=a.width, vh=a.height, dsf=a.dsf,
+        shoot(a.url, a.out, title=a.title, subtitle=a.subtitle, vw=a.width, vh=a.height, dsf=a.dsf,
               headline_px=headline_px, eyebrow_px=eyebrow_px, lowercase=a.lowercase,
               mat=a.mat, collage_vh=a.collage_vh, cluster_xbias=a.cluster_xbias,
               cluster_ybias=a.cluster_ybias, count_exp=count_exp, cluster_pad=a.cluster_pad,
               small_floor=a.small_floor,
-              window_hours=a.window_hours, timeout_ms=a.timeout, user=a.user, password=a.password,
-              species=species, cutout_base=cutout_base)
+              window_hours=a.window_hours, timeout_ms=a.timeout, user=a.user, password=a.password)
     except Exception as e:
         print(f"shoot failed: {e}", file=sys.stderr)
         sys.exit(1)
