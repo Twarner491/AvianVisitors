@@ -55,6 +55,47 @@ function one(SQLite3 $db, string $sql, array $bind = []) {
     return $r[0] ?? null;
 }
 
+function get_dutch_labels(): array {
+    static $labels = null;
+    if ($labels === null) {
+        $path = dirname(__DIR__, 2) . '/model/l18n/labels_nl.json';
+        $content = @file_get_contents($path);
+        $labels = $content !== false ? json_decode($content, true) : [];
+        if (!is_array($labels)) {
+            $labels = [];
+        }
+    }
+    return $labels;
+}
+
+function localize_com_name(string $sci, ?string $fallback = null): string {
+    $labels = get_dutch_labels();
+    $translated = $labels[$sci] ?? null;
+    if (is_string($translated) && $translated !== '') {
+        return $translated;
+    }
+    return $fallback !== null && $fallback !== '' ? $fallback : $sci;
+}
+
+function localize_rows(array $rows): array {
+    $out = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            $out[] = $row;
+            continue;
+        }
+        $sci = $row['sci'] ?? $row['Sci_Name'] ?? null;
+        $fallback = $row['com'] ?? $row['Com_Name'] ?? null;
+        if (is_string($sci) && $sci !== '') {
+            $row['com'] = localize_com_name($sci, is_string($fallback) ? $fallback : null);
+        } elseif (is_string($fallback)) {
+            $row['com'] = $fallback;
+        }
+        $out[] = $row;
+    }
+    return $out;
+}
+
 $action = $_GET['action'] ?? 'stats';
 
 switch ($action) {
@@ -87,6 +128,7 @@ switch ($action) {
         . "       MAX(Date||' '||Time) AS last_seen, COUNT(*) AS n, MAX(Confidence) AS best_conf "
         . "FROM detections GROUP BY Sci_Name ORDER BY first_seen ASC"
         );
+        $rs = localize_rows($rs);
         echo json_encode(['species' => $rs, 'as_of' => date('c')]);
         break;
     }
@@ -106,6 +148,7 @@ switch ($action) {
         . "GROUP BY Sci_Name ORDER BY last_seen DESC",
           [':hrs' => $hours]
         );
+        $rs = localize_rows($rs);
         // for each row, attach the file of the top-confidence detection in the window
         foreach ($rs as &$r) {
             $best = one($db,
@@ -137,6 +180,9 @@ switch ($action) {
         . "FROM detections WHERE Sci_Name = :sn",
           [':sn' => $sci]
         );
+        if (is_array($summary)) {
+            $summary['com'] = localize_com_name($sci, $summary['com'] ?? null);
+        }
         echo json_encode(['sci' => $sci, 'summary' => $summary, 'detections' => $detections]);
         break;
     }
@@ -180,6 +226,7 @@ switch ($action) {
         . "FROM detections GROUP BY Sci_Name ORDER BY first_seen DESC LIMIT :lim",
           [':lim' => $limit]
         );
+        $rs = localize_rows($rs);
         echo json_encode(['species' => $rs, 'as_of' => date('c')]);
         break;
     }
