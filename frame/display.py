@@ -11,6 +11,7 @@ look can be checked on any machine without the panel.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import base64
 import hashlib
 import inspect
@@ -396,6 +397,19 @@ def main():
             cfg[key] = val
     if args.rotate is not None:
         cfg["rotate"] = args.rotate
+    # One render at a time. A manual --force colliding with the timer's run
+    # pushes two refreshes into the panel mid-cycle; on the 13.3" (two
+    # half-panel controllers) that shows a split image and can wedge one
+    # controller until a full power cycle. The lock lives in the cache dir
+    # and is dropped automatically on exit.
+    lock_path = os.path.join(os.path.expanduser(cfg["cache"]), ".render.lock")
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    lock = open(lock_path, "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("another render is in progress; skipping")
+        return
     run(cfg, preview=args.preview, force=args.force, use_signature=not args.no_signature, mat_box=args.mat_box)
 
 
