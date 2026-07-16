@@ -19,6 +19,11 @@ HASHWORD=$(caddy hash-password --plaintext ${CADDY_PWD})
 cat << EOF > /etc/caddy/Caddyfile
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
+  # The HTML shell must always revalidate so UI deploys and re-rendered
+  # illustrations show up on the next load; versioned assets (?v=) keep
+  # caching normally.
+  @shell path / /index.html
+  header @shell Cache-Control "no-cache"
   file_server browse
   handle /By_Date/* {
     file_server browse
@@ -61,6 +66,11 @@ else
   cat << EOF > /etc/caddy/Caddyfile
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
+  # The HTML shell must always revalidate so UI deploys and re-rendered
+  # illustrations show up on the next load; versioned assets (?v=) keep
+  # caching normally.
+  @shell path / /index.html
+  header @shell Cache-Control "no-cache"
   file_server browse
   handle /By_Date/* {
     file_server browse
