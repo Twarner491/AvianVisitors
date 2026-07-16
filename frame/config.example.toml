@@ -51,7 +51,10 @@ heal_hours = 24        # force a refresh at least this often
 # --- Paths ------------------------------------------------------------------
 state = "~/.birdframe/state.json"
 cache = "~/.birdframe"
-timeout = 45
+# 180s: a Zero 2 W takes ~70-120s to render the collage in headless
+# chromium; the old 45s default made the frame silently never draw on
+# that board (every shoot timed out waiting for tiles).
+timeout = 180
 
 # --- Only if your WHOLE site is behind basic-auth ---------------------------
 # The AvianVisitors default leaves the collage and detection API public, so
