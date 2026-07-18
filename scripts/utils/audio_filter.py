@@ -114,9 +114,6 @@ def soft_stationary_denoise(
 
     return cleaned.astype(np.float32)
 
-
-from __future__ import annotations
-
 import numpy as np
 import librosa
 
