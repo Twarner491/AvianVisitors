@@ -8,7 +8,7 @@ import numpy as np
 from .classes import Detection, ParseFileName
 from .helpers import get_settings, get_language
 from .models import get_model
-from .audio_filter import filter_for_birdnet, soft_stationary_denoise
+from .audio_filter import adaptive_quiet_frame_denoise, filter_for_birdnet, soft_stationary_denoise
 log = logging.getLogger(__name__)
 
 MODEL = None
@@ -54,16 +54,27 @@ def readAudioData(path, overlap, sample_rate, chunk_duration):
     sig,
     rate,
     highpass_hz=180.0,
-    notch_frequencies=(np.arange(200,6000,50)),
+    notch_frequencies=(),
     )
 
-    sig = soft_stationary_denoise(
-    sig,
-    rate,
-    floor_percentile = 30,
-    strength=0.5,
-    minimum_gain=0.5,
-)
+#     sig = soft_stationary_denoise(
+#     sig,
+#     rate,
+#     floor_percentile = 30,
+#     strength=0.5,
+#     minimum_gain=0.5,
+# )
+    sig = adaptive_quiet_frame_denoise(
+            sig,
+            rate,
+            n_fft=2048,
+            hop_length=512,
+            quiet_fraction=0.20,
+            strength=0.30,
+            minimum_gain=0.60,
+            noise_percentile=40.0,
+            temporal_smoothing=0.85,
+        )
 
     # Split audio into chunks
     chunks = splitSignal(sig, rate, overlap, seconds=chunk_duration)
