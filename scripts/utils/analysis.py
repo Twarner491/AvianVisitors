@@ -60,9 +60,9 @@ def readAudioData(path, overlap, sample_rate, chunk_duration):
     sig = soft_stationary_denoise(
     sig,
     rate,
-    floor_percentile = 20,
-    strength=0.4,
-    minimum_gain=0.45,
+    floor_percentile = 30,
+    strength=0.7,
+    minimum_gain=0.5,
 )
 
     # Split audio into chunks
