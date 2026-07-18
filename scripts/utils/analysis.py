@@ -53,7 +53,7 @@ def readAudioData(path, overlap, sample_rate, chunk_duration):
     sig = filter_for_birdnet(
     sig,
     rate,
-    highpass_hz=180.0,
+    highpass_hz=3000.0,
     notch_frequencies=(np.arange(200,6000,50)),
     )
 
