@@ -64,17 +64,17 @@ def readAudioData(path, overlap, sample_rate, chunk_duration):
 #     strength=0.5,
 #     minimum_gain=0.5,
 # )
-    sig = adaptive_quiet_frame_denoise(
-            sig,
-            rate,
-            n_fft=2048,
-            hop_length=512,
-            quiet_fraction=0.20,
-            strength=0.30,
-            minimum_gain=0.60,
-            noise_percentile=40.0,
-            temporal_smoothing=0.85,
-        )
+    # sig = adaptive_quiet_frame_denoise(
+    #         sig,
+    #         rate,
+    #         n_fft=2048,
+    #         hop_length=512,
+    #         quiet_fraction=0.20,
+    #         strength=0.30,
+    #         minimum_gain=0.60,
+    #         noise_percentile=40.0,
+    #         temporal_smoothing=0.85,
+    #     )
 
     # Split audio into chunks
     chunks = splitSignal(sig, rate, overlap, seconds=chunk_duration)
