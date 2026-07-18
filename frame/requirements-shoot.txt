@@ -1,4 +1,0 @@
-# Screenshot host: shoot.py. Any 64-bit machine that can run headless Chromium
-# (a Pi 4/5, a laptop, a small server). NOT a Pi Zero W (no ARMv6 browser).
-#   pip install -r requirements-shoot.txt && playwright install chromium
-playwright>=1.40

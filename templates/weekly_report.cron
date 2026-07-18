@@ -1,2 +1,0 @@
-#birdnet
-0 1 * * 1 $USER /usr/local/bin/weekly_report.sh >/dev/null 2>&1

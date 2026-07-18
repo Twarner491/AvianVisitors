@@ -1,7 +1,0 @@
-# Frame Pi: display.py + the Inky panel.
-# On a Pi Zero W (ARMv6) numpy needs libatlas3-base, and the panel needs SPI +
-# I2C enabled. install.sh handles all of that, so prefer running install.sh on
-# a fresh Pi rather than installing this file by hand.
-Pillow>=10,<12
-inky>=2.1,<3
-tomli; python_version < "3.11"
