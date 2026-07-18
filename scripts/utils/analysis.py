@@ -54,16 +54,16 @@ def readAudioData(path, overlap, sample_rate, chunk_duration):
     sig,
     rate,
     highpass_hz=180.0,
-    notch_frequencies=(),
+    notch_frequencies=(np.arange(200,6000,50)),
     )
 
-    sig = soft_stationary_denoise(
-    sig,
-    rate,
-    floor_percentile = 30,
-    strength=0.7,
-    minimum_gain=0.5,
-)
+#     sig = soft_stationary_denoise(
+#     sig,
+#     rate,
+#     floor_percentile = 30,
+#     strength=0.7,
+#     minimum_gain=0.5,
+# )
 
     # Split audio into chunks
     chunks = splitSignal(sig, rate, overlap, seconds=chunk_duration)
