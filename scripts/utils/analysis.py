@@ -8,7 +8,7 @@ import numpy as np
 from .classes import Detection, ParseFileName
 from .helpers import get_settings, get_language
 from .models import get_model
-
+from .audio_filter import filter_for_birdnet, soft_stationary_denoise
 log = logging.getLogger(__name__)
 
 MODEL = None
@@ -49,6 +49,21 @@ def readAudioData(path, overlap, sample_rate, chunk_duration):
 
     # Open file with librosa (uses ffmpeg or libav)
     sig, rate = librosa.load(path, sr=sample_rate, mono=True, res_type='kaiser_fast')
+
+    sig = filter_for_birdnet(
+    sig,
+    rate,
+    highpass_hz=180.0,
+    notch_frequencies=(),
+    )
+
+    sig = soft_stationary_denoise(
+    sig,
+    rate,
+    floor_percentile = 20,
+    strength=0.4,
+    minimum_gain=0.45,
+)
 
     # Split audio into chunks
     chunks = splitSignal(sig, rate, overlap, seconds=chunk_duration)
