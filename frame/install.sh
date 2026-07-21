@@ -123,7 +123,7 @@ shoot_title = "Avian Visitors"
 shoot_subtitle = "Heard Today"
 rotate = 90          # flip to 270 if the frame hangs the other way up
 saturation = 0.6
-timeout = 45
+timeout = 180        # a Zero 2 W needs ~70-120s to shoot the collage
 # If your BirdNET-Pi is behind basic-auth, uncomment and set these:
 # basic_user = "..."
 # basic_pass = "..."
