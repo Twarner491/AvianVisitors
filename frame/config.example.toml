@@ -38,6 +38,7 @@ shoot_subtitle = "Heard Today"
 rotate = 90            # 90 or 270 if the frame hangs the other way up
 saturation = 0.6       # Inky colour saturation, 0 to 1
 mat = 0.0              # extra shrink of the content inside the A5 opening (0 = none)
+opening = 0.7071       # fraction of panel height the opening covers; 0.7071 = A5 matboard (default). Raise toward ~0.96-0.98 if you have no matboard and want to fill the bare panel.
 # panel = "el133uf1"   # force the 13.3" driver if auto-detect ever fails
 
 # --- Refresh cadence --------------------------------------------------------
