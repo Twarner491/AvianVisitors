@@ -16,3 +16,7 @@ The main repo ships a Western-US set reviewed by hand. Other people have generat
 ## South America
 
 - 
+
+## Oceania
+
+- **Victoria, Australia (AU-VIC)**: [TheWillni's repo](https://github.com/TheWillni/AusVicVisitors), not a full fork but just the illustrations, `dims.json` and `masks.json` for 398 species from Victoria, Australia (AU-VIC).
