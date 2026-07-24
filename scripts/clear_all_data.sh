@@ -36,7 +36,8 @@ sudo -u ${USER} ln -fs $my_dir/stats.php ${EXTRACTED}
 sudo -u ${USER} ln -fs $my_dir/todays_detections.php ${EXTRACTED}
 sudo -u ${USER} ln -fs $my_dir/history.php ${EXTRACTED}
 sudo -u ${USER} ln -fs $my_dir/weekly_report.php ${EXTRACTED}
-sudo -u ${USER} ln -fs $my_dir/homepage/images/favicon.ico ${EXTRACTED}
+source "$my_dir/link_webroot.sh"
+link_avian_visitors_webroot "$(dirname "$my_dir")" "${EXTRACTED}" "${USER}"
 sudo -u ${USER} ln -fs ${HOME}/phpsysinfo ${EXTRACTED}
 sudo -u ${USER} ln -fs $(dirname $my_dir)/templates/phpsysinfo.ini ${HOME}/phpsysinfo/
 sudo -u ${USER} ln -fs $(dirname $my_dir)/templates/green_bootstrap.css ${HOME}/phpsysinfo/templates/
@@ -53,4 +54,5 @@ echo "Date;Time;Sci_Name;Com_Name;Confidence;Lat;Lon;Cutoff;Week;Sens;Overlap" >
 ln -sf $(dirname ${my_dir})/BirdDB.txt ${my_dir}/BirdDB.txt
 chown $USER:$USER ${my_dir}/BirdDB.txt && chmod g+rw ${my_dir}/BirdDB.txt
 echo "Restarting services"
+"$my_dir/update_caddyfile.sh"
 restart_services.sh

@@ -69,23 +69,6 @@ create_necessary_dirs() {
   sudo -u ${USER} ln -fs $my_dir/include_species_list.txt $my_dir/scripts
   sudo -u ${USER} ln -fs $my_dir/whitelist_species_list.txt $my_dir/scripts
   sudo -u ${USER} ln -fs $my_dir/homepage/* ${EXTRACTED}
-  # AvianVisitors overlay. The avian/ symlink keeps assets + PHP shims
-  # reachable at /avian/. The five frontend files at the EXTRACTED root
-  # make the collage the default index for http://birdnet.local/ -
-  # the matching try_files override in update_caddyfile.sh teaches
-  # php_fastcgi to prefer index.html over index.php at the root. The
-  # stock BirdNET-Pi UI stays reachable at http://birdnet.local/index.php
-  # for anyone who wants to drop into the legacy admin pages.
-  if [ -d $my_dir/avian ]; then
-    sudo -u ${USER} ln -fs $my_dir/avian ${EXTRACTED}/avian
-    sudo -u ${USER} ln -fs $my_dir/avian/frontend/index.html ${EXTRACTED}/index.html
-    sudo -u ${USER} ln -fs $my_dir/avian/frontend/styles.css ${EXTRACTED}/styles.css
-    sudo -u ${USER} ln -fs $my_dir/avian/frontend/apt.js    ${EXTRACTED}/apt.js
-    sudo -u ${USER} ln -fs $my_dir/avian/frontend/masks.json ${EXTRACTED}/masks.json
-    sudo -u ${USER} ln -fs $my_dir/avian/frontend/dims.json  ${EXTRACTED}/dims.json
-    sudo -u ${USER} ln -fs $my_dir/avian/frontend/nest.webp  ${EXTRACTED}/nest.webp
-    sudo -u ${USER} ln -fs $my_dir/avian/assets/favicon.png  ${EXTRACTED}/favicon.png
-  fi
   sudo -u ${USER} ln -fs $my_dir/model/labels.txt ${my_dir}/scripts
   sudo -u ${USER} ln -fs $my_dir/scripts ${EXTRACTED}
   sudo -u ${USER} ln -fs $my_dir/scripts/play.php ${EXTRACTED}
@@ -94,15 +77,9 @@ create_necessary_dirs() {
   sudo -u ${USER} ln -fs $my_dir/scripts/stats.php ${EXTRACTED}
   sudo -u ${USER} ln -fs $my_dir/scripts/todays_detections.php ${EXTRACTED}
   sudo -u ${USER} ln -fs $my_dir/scripts/history.php ${EXTRACTED}
-  sudo -u ${USER} ln -fs $my_dir/scripts/weekly_report.php ${EXTRACTED}
-  # favicon.ico -> AvianVisitors PNG when the overlay is present (modern
-  # browsers accept image/png for the .ico path); fall back to the stock
-  # BirdNET-Pi favicon.ico otherwise so plain installs still get an icon.
-  if [ -d $my_dir/avian ]; then
-    sudo -u ${USER} ln -fs $my_dir/avian/assets/favicon.png ${EXTRACTED}/favicon.ico
-  else
-    sudo -u ${USER} ln -fs $my_dir/homepage/images/favicon.ico ${EXTRACTED}
-  fi
+  sudo -u ${USER} ln -fs $my_dir/weekly_report.php ${EXTRACTED}
+  source "$my_dir/scripts/link_webroot.sh"
+  link_avian_visitors_webroot "$my_dir" "${EXTRACTED}" "${USER}"
   sudo -u ${USER} ln -fs ${HOME}/phpsysinfo ${EXTRACTED}
   sudo -u ${USER} ln -fs $my_dir/templates/phpsysinfo.ini ${HOME}/phpsysinfo/
   sudo -u ${USER} ln -fs $my_dir/templates/green_bootstrap.css ${HOME}/phpsysinfo/templates/
