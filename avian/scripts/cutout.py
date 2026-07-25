@@ -53,7 +53,12 @@ def main() -> int:
         return 2
 
     if args.slugs:
-        paths = [args.dir / f"{s}.png" for s in args.slugs]
+        paths = []
+        for slug in args.slugs:
+            paths.append(args.dir / f"{slug}.png")
+            flight = args.dir / f"{slug}-2.png"
+            if not slug.endswith("-2") and flight.exists():
+                paths.append(flight)
         missing = [p for p in paths if not p.exists()]
         if missing:
             print("error: not found: " + ", ".join(p.name for p in missing), file=sys.stderr)
