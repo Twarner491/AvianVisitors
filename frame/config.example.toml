@@ -39,6 +39,9 @@ rotate = 90            # 90 or 270 if the frame hangs the other way up
 saturation = 0.6       # Inky colour saturation, 0 to 1
 mat = 0.0              # extra shrink of the content inside the A5 opening (0 = none)
 # panel = "el133uf1"   # force the 13.3" driver if auto-detect ever fails
+# panel = "waveshare13in3e"   # Waveshare 13.3" e-Paper HAT+ (E) instead of the
+#                      # Inky Impression. Same Spectra 6 panel, different control
+#                      # pins, and no EEPROM for auto-detect to read.
 
 # --- Refresh cadence --------------------------------------------------------
 # The panel refreshes only when the species set or a count bracket changes,

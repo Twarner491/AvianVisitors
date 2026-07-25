@@ -67,6 +67,8 @@ Pick how the frame gets its birds:
 
 Each one enables SPI + I2C, installs the deps and a systemd timer, writes `~/.birdframe/config.toml`, and reboots once to bring SPI up. Full options live in [`config.example.toml`](config.example.toml).
 
+**Waveshare panel instead of an Inky:** the [13.3" e-Paper HAT+ (E)](https://www.waveshare.com/13.3inch-e-paper-hat-plus-e.htm) carries the same EL133UF1 Spectra 6 panel, so the Inky driver runs it on remapped pins. It has no EEPROM, so auto-detect fails with `No EEPROM detected!` — set `panel = "waveshare13in3e"` in `~/.birdframe/config.toml` and it drives GPIO 25/17/24 (DC/RST/BUSY) plus the HAT's power-enable on GPIO 18.
+
 BirdWeather mode renders on the Pi from this repo's illustrations on GitHub, so there is no image set to copy over. ZIP codes with no station nearby fall back to the closest ones. If you are far from any BirdWeather station, add `--ebird-key <key>` (a free key from [ebird.org/api/keygen](https://ebird.org/api/keygen)) and the frame fills from eBird sightings instead.
 
 The bundled illustrations center on the western U.S. If birds near your ZIP aren't in the set you cloned, the installer flags them and the frame skips them until they exist. To generate them, run [`generate_illustrations.py`](generate_illustrations.py) on a laptop or workstation (it uses the same rembg cutout as the rest of the pipeline, which the Pi can't fit in memory), passing your ZIP and a paid Google Gemini key, then commit the new cutouts or copy them to the Pi:

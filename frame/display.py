@@ -55,7 +55,8 @@ DEFAULTS = {
     "mat": 0.0,             # extra global shrink of the content inside the A5 opening
     "rotate": 90,           # 90 or 270 if the frame hangs the other way up
     "saturation": 0.6,
-    "panel": "",            # "el133uf1" forces the 13.3" driver if auto() fails
+    "panel": "",            # "el133uf1" forces the 13.3" driver if auto() fails;
+                            # "waveshare13in3e" for the Waveshare 13.3" HAT+ (E)
     "quiet_start": 0, "quiet_end": 0,    # 0/0 = no quiet hours
     "heal_hours": 24,
     "state": "~/.birdframe/state.json",
@@ -251,13 +252,39 @@ def _draw_mat_box(img):
 
 
 # --- hardware ---------------------------------------------------------------
+# The Waveshare 13.3" e-Paper HAT+ (E) carries the same EL133UF1 Spectra 6 panel
+# as the Inky Impression 13.3", so the Inky driver runs it once the control pins
+# are remapped. It has no EEPROM, so inky.auto() can't identify it.
+WAVESHARE_PINS = {"cs_pin_0": 8, "cs_pin_1": 7, "dc_pin": 25,
+                  "reset_pin": 17, "busy_pin": 24}
+WAVESHARE_PWR_PIN = 18
+
+
+def hold_power(pin):
+    """The Waveshare HAT+ gates panel power behind a GPIO the Inky driver knows
+    nothing about. Drive it high and hand back the request: releasing it drops
+    the rail, so the caller holds it until the refresh is done."""
+    import gpiod
+    import gpiodevice
+    from gpiod.line import Direction, Value
+    chip = gpiodevice.find_chip_by_platform()
+    return chip.request_lines(consumer="birdframe-pwr", config={
+        chip.line_offset_from_id(pin): gpiod.LineSettings(
+            direction=Direction.OUTPUT, output_value=Value.ACTIVE)})
+
+
 def push_panel(img, rotate, saturation, panel=""):
     """Rotate to the panel's landscape buffer and push. Lazy import so this
     module still loads on a machine without the Inky library."""
     if rotate not in (90, 270):
         print(f"rotate must be 90 or 270, not {rotate}; using 90", file=sys.stderr)
         rotate = 90
-    if panel == "el133uf1":
+    pwr = None
+    if panel == "waveshare13in3e":
+        from inky.inky_el133uf1 import Inky
+        pwr = hold_power(WAVESHARE_PWR_PIN)
+        dev = Inky(resolution=(1600, 1200), **WAVESHARE_PINS)
+    elif panel == "el133uf1":
         from inky.inky_el133uf1 import Inky
         dev = Inky(resolution=(1600, 1200))
     else:
@@ -269,6 +296,8 @@ def push_panel(img, rotate, saturation, panel=""):
     kw = {"saturation": saturation} if "saturation" in inspect.signature(dev.set_image).parameters else {}
     dev.set_image(buf, **kw)
     dev.show()
+    if pwr:
+        pwr.release()
 
 
 # --- state ------------------------------------------------------------------
