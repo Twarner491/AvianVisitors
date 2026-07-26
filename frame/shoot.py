@@ -175,6 +175,14 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
         browser = p.chromium.launch(args=["--force-color-profile=srgb", "--disable-dev-shm-usage"])
         try:
             ctx_kw = {"viewport": {"width": vw, "height": vh}, "device_scale_factor": dsf}
+            # The e-ink frame must ALWAYS capture the light theme, whatever the
+            # host machine's OS theme is. The page defaults to 'auto' and a
+            # fresh Playwright profile has no stored preference, so it resolves
+            # via prefers-color-scheme; pin that to light rather than relying on
+            # Playwright's default happening to be "light". Otherwise HIDE_CSS
+            # forces background: var(--paper) and the frame prints full-bleed
+            # charcoal.
+            ctx_kw["color_scheme"] = "light"
             if user:
                 ctx_kw["http_credentials"] = {"username": user, "password": password or ""}
             page = browser.new_context(**ctx_kw).new_page()

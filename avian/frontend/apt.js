@@ -131,20 +131,76 @@
     if (__audioActiveStop === stopSelf) __audioActiveStop = null;
   }
 
-  // ---- Theme (light / charcoal dark) ----
-  // A per-device preference (localStorage), applied as data-theme on
-  // <html>. An inline script in index.html sets it before first paint to
-  // avoid a flash; this keeps it in sync and powers the Settings switcher.
-  function applyTheme(name) {
-    var t = name === 'dark' ? 'dark' : 'light';
-    if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-    else document.documentElement.removeAttribute('data-theme');
-    writeLS('bird:theme', t);
+  // ---- Theme (auto / light / charcoal dark) ----
+  // Two separate things, deliberately kept apart:
+  //   localStorage['bird:theme:v2'] = 'auto'|'light'|'dark'  the PREFERENCE
+  //   <html data-theme>             = 'light' | 'dark'       the RESOLUTION
+  // 'auto' (the default) follows the OS. prefers-color-scheme is read in
+  // exactly ONE place - resolveTheme() below, plus its inline pre-paint
+  // twin in index.html - because a CSS media query tracks the OS only and
+  // cannot see an explicit user override. Everything downstream (CSS,
+  // canvas, image swaps) keys off the resolved data-theme attribute, so
+  // never add an @media (prefers-color-scheme) rule or a <picture media>.
+  var THEME_MQ = '(prefers-color-scheme:dark)';
+  function osPrefersDark() {
+    try { return !!(window.matchMedia && window.matchMedia(THEME_MQ).matches); }
+    catch (e) { return false; }
   }
-  function currentTheme() {
-    return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  // Preference -> concrete theme. The single resolution point.
+  function resolveTheme(pref) {
+    if (pref === 'dark') return 'dark';
+    if (pref === 'light') return 'light';
+    return osPrefersDark() ? 'dark' : 'light';
   }
-  applyTheme(readLS('bird:theme', 'light'));
+  // The stored preference (tri-state) - NOT necessarily what is on screen.
+  // Exact twin of the inline pre-paint script in index.html; the two must
+  // agree for every input or the page flashes.
+  // The legacy 'bird:theme' fallback is deliberately ASYMMETRIC. The old
+  // applyTheme() wrote 'bird:theme' back on every single load, so nearly
+  // every existing device has an explicit value and 'auto' would otherwise
+  // reach nobody. A stored 'light' is just the old default echoing itself
+  // and carries no intent - treat it as unset so it becomes 'auto'. A
+  // stored 'dark' could only have come from a deliberate click (the old
+  // default was light), so it is preserved. Do not "simplify" this into
+  // preserving both; the asymmetry is the whole point.
+  function themePref() {
+    var v = readLS('bird:theme:v2', '');
+    if (v === 'auto' || v === 'light' || v === 'dark') return v;
+    return readLS('bird:theme', '') === 'dark' ? 'dark' : 'auto';
+  }
+  // Stamp the resolution from the stored preference, without writing it
+  // back. data-theme is ALWAYS set to a concrete value, never removed,
+  // because styles.css keys off :root[data-theme="dark"] and nothing keys
+  // off the attribute's absence (the base block is plain :root, which
+  // matches either way).
+  function syncTheme() {
+    document.documentElement.setAttribute('data-theme', resolveTheme(themePref()));
+  }
+  // Persist a preference and re-resolve. Writes ONLY 'bird:theme:v2'; the
+  // legacy 'bird:theme' key is read-only forever (see themePref()).
+  function applyTheme(pref) {
+    writeLS('bird:theme:v2', (pref === 'light' || pref === 'dark') ? pref : 'auto');
+    syncTheme();
+  }
+  applyTheme(themePref());
+  // The OS can flip at sunset while the page has been open for days - the
+  // wall-mounted-dashboard case. Re-resolve on that, but only while the
+  // preference is 'auto'; an explicit light/dark choice must keep winning.
+  // addListener is the pre-2019 Safari/WebKit spelling of the same thing.
+  // themeMql is module-scope on purpose: Safari/WebKit <= 13 (incl. iOS
+  // <= 13) collected MediaQueryList objects nothing referenced and silently
+  // dropped the listener. The handler does not close over it, so a local
+  // would be unreachable the moment the IIFE returned - and those are
+  // precisely the browsers the addListener fallback exists for, and the
+  // old-iPad wall dashboard this feature targets. Keep the reference.
+  var themeMql = null;
+  (function () {
+    try { themeMql = window.matchMedia && window.matchMedia(THEME_MQ); } catch (e) { return; }
+    if (!themeMql) return;
+    var onOsThemeChange = function () { if (themePref() === 'auto') syncTheme(); };
+    if (themeMql.addEventListener) themeMql.addEventListener('change', onOsThemeChange);
+    else if (themeMql.addListener) themeMql.addListener(onOsThemeChange);
+  })();
   var winBtns = [].slice.call(winPick.querySelectorAll('button'));
   var currentHours = +readLS('bird:window', '24') || 24;
   winBtns.forEach(function (b) {
@@ -1289,11 +1345,11 @@
         audioClaim(stopCurrent);   // stop any modal-recording / live-stream audio
         setBtnState(btn, 'loading');
         currentBtn = btn;
-        // Render the spectrogram client-side from the recording's audio so
-        // it matches the active theme. paintSpectrogram paints with the
-        // --paper/--ink palette per data-theme (the same canvas the modal
-        // recordings use), instead of a fixed-colour PNG that can't follow
-        // light/dark mode. Decoded buffers are cached per URL.
+        // Render the spectrogram client-side from the recording's audio
+        // (the same canvas the modal recordings use) instead of a fixed-
+        // colour PNG that can't follow light/dark mode. paintSpectrogram
+        // writes a theme-independent alpha mask; CSS supplies the paper
+        // and flips the ink. Decoded buffers are cached per URL.
         var spectroWrap = card.querySelector('.spectro-wrap');
         if (spectroWrap && !spectroWrap.firstChild) {
           var canvas = document.createElement('canvas');
@@ -1548,10 +1604,14 @@
       + liveAudioIcon + '<span>listen</span>'
       + '  </button>'
       + '</div>'
-      // Spectrogram canvas is always present; it stays a dark inert
+      // Spectrogram canvas is always present; it stays an empty paper
       // strip until the stream is on, then the FFT loop paints it in
-      // real time. No separate toggle.
+      // real time. No separate toggle. The wrapper carries the box
+      // treatment (paper ground, radius, recess) because dark mode puts
+      // filter: invert(1) on the canvas alone - see styles.css.
+      + '<div class="live-spectro-wrap">'
       + '<canvas class="live-spectro" id="liveSpectro" width="600" height="120" aria-label="live spectrogram"></canvas>'
+      + '</div>'
       + '<div class="live-status" id="liveStatus"></div>'
       + '<div class="menu-links">' + linksHtml + '</div>';
 
@@ -1617,11 +1677,9 @@
       if (analyser) { try { analyser.disconnect(); } catch (e) { } analyser = null; }
       liveBox.setAttribute('data-on', 'false');
       liveBtn.innerHTML = liveAudioIcon + '<span>listen</span>';
-      // Clear the spectrogram canvas so it returns to its quiet state.
-      var ctx = spectroEl.getContext('2d');
-      ctx.fillStyle = getComputedStyle(document.documentElement)
-        .getPropertyValue('--paper-2').trim() || '#efe8d8';
-      ctx.fillRect(0, 0, spectroEl.width, spectroEl.height);
+      // Clear the spectrogram canvas so it returns to its quiet state -
+      // fully transparent, letting the wrapper's paper back through.
+      spectroEl.getContext('2d').clearRect(0, 0, spectroEl.width, spectroEl.height);
     }
     function attachSpectrogram() {
       if (!liveEl) return;
@@ -1646,28 +1704,11 @@
       analyser.connect(audioCtx.destination);
       drawSpectrogram();
     }
-    // Convert a CSS colour token (hex or rgb()) to [r,g,b] by letting the 2d
-    // context normalise whatever form the variable is authored in.
-    function toRGB(str, fallback) {
-      var c = spectroEl.getContext('2d');
-      c.fillStyle = fallback; c.fillStyle = str;   // invalid str leaves fallback
-      var s = c.fillStyle;
-      if (s.charAt(0) === '#') return [parseInt(s.substr(1, 2), 16), parseInt(s.substr(3, 2), 16), parseInt(s.substr(5, 2), 16)];
-      var m = s.match(/(\d+)[,\s]+(\d+)[,\s]+(\d+)/);
-      return m ? [+m[1], +m[2], +m[3]] : [0, 0, 0];
-    }
     function drawSpectrogram() {
       var ctx = spectroEl.getContext('2d');
       var W = spectroEl.width, H = spectroEl.height;
-      // Read palette tokens so the live spectrogram follows the theme - a
-      // charcoal ground with a light trace in dark mode, not a hardcoded
-      // light-mode ramp - matching the recording-row + card spectrograms.
-      var cs = getComputedStyle(document.documentElement);
-      var paper = cs.getPropertyValue('--paper-2').trim() || '#efe8d8';
-      var bg = toRGB(paper, '#efe8d8');
-      var fg = toRGB(cs.getPropertyValue('--ink').trim() || '#1a1612', '#1a1612');
-      ctx.fillStyle = paper;
-      ctx.fillRect(0, 0, W, H);
+      // Transparent ground - the wrapper's CSS background is the paper.
+      ctx.clearRect(0, 0, W, H);
       var bins = new Uint8Array(analyser.frequencyBinCount);
       function tick() {
         if (!analyser) return;
@@ -1683,11 +1724,15 @@
           var idx = Math.round(lo + (hi - lo) * Math.pow(t, 1.6));
           var v = (bins[idx] || 0) / 255;
           var e = v * v * (3 - 2 * v);
-          // Ground (paper) -> trace (ink) ramp, per the active theme.
-          var r = bg[0] + Math.round((fg[0] - bg[0]) * e);
-          var g = bg[1] + Math.round((fg[1] - bg[1]) * e);
-          var b = bg[2] + Math.round((fg[2] - bg[2]) * e);
-          ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+          // The ink MUST stay pure black - do not "improve" this to a
+          // warm ink triple. Each column survives ~600 getImageData /
+          // putImageData round-trips as it scrolls left, and the canvas
+          // backing store is premultiplied: every round-trip un- and
+          // re-premultiplies. Black is an exact fixed point of that
+          // quantisation (round(0 * a/255) === 0); any other hue drifts
+          // visibly at low alpha over that many shifts. Dark mode
+          // recolours the trace via filter: invert(1) on the canvas.
+          ctx.fillStyle = 'rgba(0,0,0,' + e.toFixed(3) + ')';
           ctx.fillRect(W - 1, y, 1, 1);
         }
         specRaf = requestAnimationFrame(tick);
@@ -1695,13 +1740,10 @@
       tick();
     }
 
-    // Paint the spectrogram in its quiet/initial state.
+    // Quiet/initial state: a bare transparent canvas, so the wrapper's
+    // paper shows through. Defensive - a fresh canvas is already clear.
     (function () {
-      var ctx = spectroEl.getContext('2d');
-      var paper = getComputedStyle(document.documentElement)
-        .getPropertyValue('--paper-2').trim() || '#efe8d8';
-      ctx.fillStyle = paper;
-      ctx.fillRect(0, 0, spectroEl.width, spectroEl.height);
+      spectroEl.getContext('2d').clearRect(0, 0, spectroEl.width, spectroEl.height);
     })();
 
     liveBtn.addEventListener('click', function (ev) {
@@ -1806,18 +1848,21 @@
       + '  <div class="seg" data-key="' + key + '">' + btns + '</div>'
       + '</div>';
   }
-  // Client-side theme switcher row. Reuses the .seg look but is tagged
+  // Client-side theme switcher row. Tri-state: auto follows the OS,
+  // light/dark override it. Reuses the .seg look but is tagged
   // data-theme-seg so wireSettingsControls skips it - it applies instantly
-  // and is NOT part of the Pi config save flow.
+  // and is NOT part of the Pi config save flow (theme is per-device).
   function themeRow() {
-    var cur = currentTheme();
+    // Highlight the stored PREFERENCE, not the resolved theme, so 'auto'
+    // reads as selected while the OS happens to be dark.
+    var cur = themePref();
     var btn = function (v, label) {
       return '<button type="button" data-theme="' + v + '" aria-current="' + (cur === v ? 'true' : 'false') + '">' + label + '</button>';
     };
     return ''
       + '<div class="menu-row">'
-      + '  <div><span class="label">Theme</span><span class="hint">saved on this device</span></div>'
-      + '  <div class="seg" data-theme-seg>' + btn('light', 'light') + btn('dark', 'dark') + '</div>'
+      + '  <div><span class="label">Theme</span><span class="hint">saved on this device; auto follows your system</span></div>'
+      + '  <div class="seg" data-theme-seg>' + btn('auto', 'auto') + btn('light', 'light') + btn('dark', 'dark') + '</div>'
       + '</div>';
   }
   function wireSettingsControls(scope) {
@@ -2406,8 +2451,9 @@
           + '</div>';
         wireSettingsControls(adminBody);
         adminBody.querySelectorAll('.seg').forEach(wireToggleAdvance);   // open-space advance
-        // Theme switcher applies + persists immediately (separate from the
-        // Pi config save below).
+        // Theme switcher persists the preference and re-resolves
+        // immediately (separate from the Pi config save below). data-theme
+        // on the button carries the preference: 'auto' | 'light' | 'dark'.
         var themeSeg = adminBody.querySelector('[data-theme-seg]');
         if (themeSeg) themeSeg.addEventListener('click', function (ev) {
           var b = ev.target.closest('button[data-theme]');
@@ -2830,15 +2876,9 @@
     var imgData = ctx.createImageData(W, H);
     var data = imgData.data;
 
-    // Paper ground; ink intensifies where there's audio energy. Theme-
-    // aware so dark mode gets a charcoal ground with a light trace instead
-    // of a glaring light rectangle (matches --paper / --ink per theme).
-    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
-    var BG_R = dark ? 23 : 245, BG_G = dark ? 24 : 240, BG_B = dark ? 28 : 230;
-    var FG_R = dark ? 236 : 26, FG_G = dark ? 232 : 22, FG_B = dark ? 225 : 18;
-    for (var p = 0; p < data.length; p += 4) {
-      data[p] = BG_R; data[p + 1] = BG_G; data[p + 2] = BG_B; data[p + 3] = 255;
-    }
+    // createImageData zero-fills to rgba(0,0,0,0) - a fully transparent
+    // ground, which is exactly what we want. No fill loop, and no theme
+    // decision baked into the bitmap.
 
     // Precompute row -> bin map (log-ish so low freqs get more space).
     var rowToBin = new Int32Array(H);
@@ -2864,14 +2904,14 @@
         var db = 20 * Math.log10(mag + 1e-9);
         var v = (db + 75) / 65;
         if (v < 0) v = 0; else if (v > 1) v = 1;
-        // Ink-on-paper palette: low energy -> paper, high energy -> ink.
         // Smoothstep for a softer falloff between the two extremes.
         var e = v * v * (3 - 2 * v);
-        var r = BG_R + Math.round((FG_R - BG_R) * e);
-        var g = BG_G + Math.round((FG_G - BG_G) * e);
-        var b = BG_B + Math.round((FG_B - BG_B) * e);
+        // Alpha mask: pure black ink at `e` opacity on a transparent
+        // ground. No colour decision is baked into the bitmap - CSS
+        // supplies the paper behind the canvas, and dark mode flips the
+        // ink with filter: invert(1) (RGB inverts, alpha is preserved).
         var px = (row2 * W + col) * 4;
-        data[px] = r; data[px + 1] = g; data[px + 2] = b; data[px + 3] = 255;
+        data[px + 3] = Math.round(e * 255);
       }
     }
     ctx.putImageData(imgData, 0, 0);

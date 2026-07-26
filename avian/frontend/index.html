@@ -7,10 +7,34 @@
 <meta name="description" content="A live bird collage from your window.">
 <link rel="icon" type="image/png" href="./favicon.png">
 <link rel="apple-touch-icon" href="./favicon.png">
-<!-- Apply the saved theme before first paint so dark mode doesn't flash
-     light on load. The full switcher lives in Settings (writes bird:theme). -->
-<script>try{if(localStorage.getItem('bird:theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
-<link rel="stylesheet" href="./styles.css?v=r12">
+<!-- Resolve the theme before first paint so dark mode doesn't flash light
+     on load. Must stay inline, above the stylesheet link, and READ-ONLY -
+     it never writes storage, so it stays fast and cannot half-migrate.
+     bird:theme:v2 is a tri-state PREFERENCE ('auto' | 'light' | 'dark',
+     default auto); data-theme is the concrete RESOLUTION and is always
+     stamped. This is the inline twin of themePref()/resolveTheme() in
+     apt.js - between them they are the only two places prefers-color-scheme
+     is ever read, because a media query tracks the OS and cannot see a user
+     override. The full switcher lives in Settings (writes bird:theme:v2).
+     Legacy fallback, deliberately asymmetric: the old applyTheme() wrote
+     'bird:theme' back on EVERY load, so a stored 'light' is just the old
+     default echoing itself and carries no intent - treat it as unset so it
+     becomes 'auto'. A stored 'dark' could only have come from a deliberate
+     click (the old default was light), so it is preserved. Do not
+     "simplify" this to preserve both; the asymmetry is the whole point.
+     If storage throws (blocked site data, sandboxed iframe, partitioned
+     storage) fall back to 'auto' semantics, NOT to light - stamping light
+     there and letting apt.js re-resolve to dark is a full-page flash on
+     every load, for exactly the users this script protects. -->
+<script>(function(){var d=document.documentElement;
+function osDark(){return matchMedia('(prefers-color-scheme:dark)').matches;}
+try{var v=localStorage.getItem('bird:theme:v2');
+var p=(v==='auto'||v==='light'||v==='dark')?v
+  :(localStorage.getItem('bird:theme')==='dark'?'dark':'auto');
+d.setAttribute('data-theme',(p==='dark'||(p==='auto'&&osDark()))?'dark':'light');}
+catch(e){try{d.setAttribute('data-theme',osDark()?'dark':'light');}
+catch(e2){d.setAttribute('data-theme','light');}}})();</script>
+<link rel="stylesheet" href="./styles.css?v=r13">
 </head>
 <body class="av-local">
 <!-- Pill in the top-left slot, only visible on admin overlays
@@ -213,6 +237,6 @@
   </div>
 </section>
 
-<script src="./apt.js?v=r12"></script>
+<script src="./apt.js?v=r13"></script>
 </body>
 </html>

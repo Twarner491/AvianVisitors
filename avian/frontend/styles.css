@@ -430,16 +430,22 @@
   .live-audio button svg { width: 9px; height: 9px; }
   .live-audio button + button { margin-left: 4px; }
   /* Live spectrogram - hidden until the user clicks LISTEN. We
-     collapse via max-height (not display:none) so the canvas inside
-     keeps its layout dimensions and paints correctly on expand. */
-  .live-spectro {
+     collapse via height (not display:none) so the canvas inside keeps
+     its layout dimensions and paints correctly on expand.
+     The wrapper owns the box treatment (paper ground, radius, recess);
+     the canvas is a bare transparent alpha mask so dark mode can flip
+     it with filter: invert(1) without inverting the paper or shadow. */
+  .live-spectro-wrap {
     width: 100%; height: 0;
     background: var(--paper-2); border-radius: 6px;
     margin: 0; overflow: hidden;
     box-shadow: var(--recess);
     transition: height 240ms cubic-bezier(.7,.05,.2,1), margin 240ms ease;
   }
-  .live-audio[data-on="true"] + .live-spectro {
+  .live-spectro {
+    width: 100%; height: 100%; display: block;
+  }
+  .live-audio[data-on="true"] + .live-spectro-wrap {
     height: 70px; margin: 0 0 8px;
   }
   .live-status {
@@ -1441,8 +1447,8 @@
     margin-top: 8px;
     height: 0; overflow: hidden;
     border-radius: 4px;
-    /* Paper background - the spectrogram canvas paints ink ON it,
-       matching the sketch palette. */
+    /* Paper background - the canvas above is a transparent alpha mask,
+       so this IS the ground the ink reads against. Not optional. */
     background: var(--paper-2);
     box-shadow: var(--recess);
     position: relative;
@@ -1450,8 +1456,9 @@
   }
   .rec-row.expanded .rec-spectro { height: 88px; }
   /* The spectrogram is rendered client-side onto a canvas - we fetch
-     the mp3, decode via Web Audio, run an STFT, and paint columns
-     with our ink palette. No BirdNET-Pi PNG involved. */
+     the mp3, decode via Web Audio, run an STFT, and paint columns as
+     pure black at energy-proportional alpha. No BirdNET-Pi PNG
+     involved, and no theme baked into the bitmap. */
   .rec-spectro canvas {
     position: absolute; inset: 0;
     width: 100%; height: 100%;
@@ -1495,10 +1502,11 @@
     box-shadow: 0 0 0 0.5px rgba(26,22,18,0.20);
   }
   .rec-spectro.armed .rec-spectro-cursor { opacity: 1; }
-  /* Dark mode: the spectrogram ground is charcoal (paintSpectrogram paints
-     with --paper), so the dark played-veil and the --paper cursor pill would
-     both vanish into it. Flip the veil light, and make the cursor a light
-     pill so it still reads against the dark ground. */
+  /* Dark mode: the spectrogram ground is charcoal (--paper-2 on the strip),
+     so the dark played-veil and the --paper cursor pill would both vanish
+     into it. Flip the veil light, and make the cursor a light pill so it
+     still reads against the dark ground. These are siblings of the canvas,
+     NOT covered by the canvas invert filter below - both rules still needed. */
   :root[data-theme="dark"] .rec-spectro .rec-spectro-played {
     background: linear-gradient(90deg, rgba(236,232,225,0.18), rgba(236,232,225,0.07));
   }
@@ -1556,28 +1564,40 @@
   .modal-actions .chip:hover { transform: translateY(-1px); }
   .modal-actions .chip.ext::after { content: '↗'; opacity: 0.6; }
 
-  /* Spectrogram appears on first audio play. Recoloured via CSS filter
-     so BirdNET-Pi's default colour spectrogram comes out as a clean
-     monochrome ink strip, matching the rest of the chart. Click to
-     replay; a thin progress bar tracks playback in real time. */
+  /* Spectrogram appears on first audio play. Painted client-side as a
+     black-on-transparent alpha mask, so this wrapper's paper background
+     is the ground the ink reads against. Click to replay; a thin
+     progress bar tracks playback in real time. */
   .bird-card .spectro-wrap {
     position: relative;
     min-height: 0; margin: 6px 0 2px;
     cursor: pointer;
     overflow: hidden;
     border-radius: 3px;
+    background: var(--paper-2);
     box-shadow: var(--recess);
   }
   .bird-card .spectro-wrap:empty { display: none; }
-  /* Canvas is painted client-side in the active theme's paper/ink palette
-     (paintSpectrogram reads data-theme), so it follows light/dark mode with
-     no CSS filter - same renderer as the modal recording spectrograms. */
+  /* Canvas is a theme-independent alpha mask - same renderer as the modal
+     recording spectrograms. Dark mode flips it via the invert filter
+     below; nothing in JS knows what theme it is in.
+     position/z-index are load-bearing, not decoration: filter: invert(1)
+     creates a stacking context, and a non-positioned element that does so
+     paints as if position:relative; z-index:0 - i.e. it jumps into the
+     positioned layer and then orders against the wrapper's pseudo-elements
+     by tree order. ::before (the playhead) precedes the canvas, so in dark
+     mode the playhead would paint UNDER the canvas while in light mode it
+     paints over. Pinning position:relative; z-index:0 unconditionally makes
+     the paint order identical in both themes. (::after is last in tree
+     order and unaffected either way.) */
   .bird-card .spectro-wrap canvas {
     width: 100%; height: 44px; display: block;
+    position: relative; z-index: 0;
   }
   /* Progress wash: a translucent veil that grows as the clip plays. Ink in
      light mode; in dark mode a light veil so it stays visible over the
-     charcoal spectrogram ground. */
+     charcoal spectrogram ground. This is a pseudo-element on the wrapper,
+     NOT covered by the canvas invert filter below - the dark rule stays. */
   .bird-card .spectro-wrap::after {
     content: '';
     position: absolute; top: 0; bottom: 0; left: 0;
@@ -1589,6 +1609,26 @@
   :root[data-theme="dark"] .bird-card .spectro-wrap::after {
     background: linear-gradient(to right, rgba(236,232,225,0.26), rgba(236,232,225,0.05));
   }
+
+  /* ---- Dark mode: flip the spectrogram ink ----
+   * Every spectrogram canvas is painted as pure black at energy-
+   * proportional alpha on a transparent ground - no theme baked in.
+   * invert(1) flips RGB while preserving alpha, turning dark ink into
+   * light ink over the wrapper's charcoal paper. Because it is pure CSS,
+   * an OS light/dark flip at sunset needs zero repaint, which is the
+   * whole reason the bitmaps are theme-independent.
+   *
+   * MUST target the canvas element, never the wrapper. Do not
+   * "simplify" this: .rec-spectro has -loading / -played / -cursor /
+   * -scrub as absolutely-positioned SIBLINGS of the canvas, and
+   * .spectro-wrap has ::before / ::after (playhead + progress wash).
+   * Those paint over the canvas and already have their own dark-mode
+   * rules; inverting a wrapper would double-invert all of them, and
+   * would also invert the paper background and the recess shadow. */
+  :root[data-theme="dark"] .rec-spectro canvas,
+  :root[data-theme="dark"] .bird-card .spectro-wrap canvas,
+  :root[data-theme="dark"] .live-spectro { filter: invert(1); }
+
   /* Playhead - thin vertical line at the leading edge */
   .bird-card .spectro-wrap::before {
     content: '';
