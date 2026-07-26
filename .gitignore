@@ -57,3 +57,10 @@ whitelist_species_list.txt
 avian/assets/references/
 # Superseded assets retained locally
 avian/assets/_legacy/
+# Species label list pulled from a BirdNET-Pi install for pregen.py
+/labels.txt
+# Transfer tarballs used to move generated assets onto a Pi
+update*.tar.gz
+# Local QA output from verify.py
+avian/scripts/verify-results.csv
+
