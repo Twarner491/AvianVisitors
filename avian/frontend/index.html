@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -10,7 +10,7 @@
 <!-- Apply the saved theme before first paint so dark mode doesn't flash
      light on load. The full switcher lives in Settings (writes bird:theme). -->
 <script>try{if(localStorage.getItem('bird:theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
-<link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./styles.css?v=ios12-collage-1">
 </head>
 <body class="av-local">
 <!-- Pill in the top-left slot, only visible on admin overlays
@@ -32,6 +32,7 @@
     <button data-h="168" type="button">7D</button>
     <button data-h="1000000" type="button">ALL</button>
   </div>
+  <h1 class="top-title" id="staticTitle">Heard Recently</h1>
   <button class="menu-btn" id="menuBtn">menu</button>
 </header>
 
@@ -39,24 +40,20 @@
   <div id="dd-locked">
     <form class="lock-row" id="unlockForm">
       <input id="lockPass" type="password" placeholder="password" autocomplete="current-password">
-      <button type="submit" aria-label="unlock">→</button>
+      <button type="submit" aria-label="unlock">â†’</button>
     </form>
     <p class="lock-hint" id="lockHint">enter password to unlock tools.</p>
   </div>
   <nav class="menu-items" id="dd-items"></nav>
-  <p class="built-by">built by <a href="https://theodore.net" target="_blank" rel="noopener">teddy</a> · <a href="https://github.com/Twarner491/AvianVisitors" target="_blank" rel="noopener">github</a></p>
+  <p class="built-by">built by <a href="https://theodore.net" target="_blank" rel="noopener">teddy</a> Â· <a href="https://github.com/Twarner491/AvianVisitors" target="_blank" rel="noopener">github</a></p>
 </aside>
 
 <main class="stage">
-  <header class="static-head">
-    <button type="button" class="pre" id="aboutLink">your birds</button>
-    <h1 id="staticTitle">Heard Recently</h1>
-  </header>
   <div class="views" id="views">
 
     <!-- ========== View 1 - Collage ========== -->
     <section class="view" id="v0" aria-label="Bird collage">
-      <div class="gcollage" id="collage"></div>
+      <div class="gcollage" id="collage" style="height:calc(100vh - 300px);min-height:280px;flex:0 0 auto;overflow:hidden;"></div>
     </section>
 
     <!-- ========== View 2 - Stats ========== -->
@@ -111,7 +108,7 @@
               <path d="M2.4 11.5 L4 4.5 L5.6 11.5"/><path d="M2.9 9.2 H5.1"/>
               <path d="M8.2 11.5 V4.5 H10.4 a1.3 1.3 0 0 1 0 2.6 H8.2"/><path d="M8.2 7.1 H10.6 a1.5 1.5 0 0 1 0 3 H8.2"/>
             </svg>
-            <span class="tip">a → z</span>
+            <span class="tip">a â†’ z</span>
           </button>
         </div>
       </div>
@@ -124,7 +121,7 @@
 <div id="detail-modal" aria-hidden="true" role="dialog" aria-labelledby="modalCommon">
   <div class="modal-backdrop" data-close="1"></div>
   <article class="modal-card">
-    <button class="modal-close" type="button" aria-label="Close" data-close="1">×</button>
+    <button class="modal-close" type="button" aria-label="Close" data-close="1">Ã—</button>
     <div class="modal-grid">
       <div class="modal-img">
         <img id="modalImg" src="" alt="" loading="eager">
@@ -186,11 +183,11 @@
 <div id="about-modal" aria-hidden="true" role="dialog" aria-labelledby="aboutTitle">
   <div class="modal-backdrop" data-close="1"></div>
   <div class="about-card" role="document">
-    <button type="button" class="modal-close" data-close="1" aria-label="close">×</button>
+    <button type="button" class="modal-close" data-close="1" aria-label="close">Ã—</button>
     <p class="about-eyebrow">your birds</p>
     <h2 id="aboutTitle">The birds outside your window</h2>
     <p class="about-body">A tiny microphone identifies every passing bird with Cornell's <a href="https://birdnet.cornell.edu/" target="_blank" rel="noopener">BirdNET</a>. Each species shows up as an illustration in the collage, sized by how often it's been heard.</p>
-    <button type="button" class="about-explore" data-close="1">explore the birds →</button>
+    <button type="button" class="about-explore" data-close="1">explore the birds â†’</button>
     </div>
 </div>
 
@@ -213,6 +210,6 @@
   </div>
 </section>
 
-<script src="./apt.js"></script>
+<script src="./apt.js?v=ios12-collage-20"></script>
 </body>
 </html>

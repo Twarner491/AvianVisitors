@@ -45,6 +45,8 @@
   body {
     font-family: ui-serif, "Iowan Old Style", "Apple Garamond", Georgia, serif;
     -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
     overflow: hidden;
   }
   .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.02em; }
@@ -108,6 +110,15 @@
     padding: 0 28px; z-index: 30; pointer-events: none;
   }
   .top > * { pointer-events: auto; }
+  .top-title {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    margin: 0; padding: 0;
+    color: var(--ink);
+    font: 700 19.5px/1 ui-serif, "Iowan Old Style", Georgia, serif;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    white-space: nowrap; pointer-events: none;
+    transition: opacity 240ms cubic-bezier(.7,.05,.2,1);
+  }
   .top .window-pick {
     display: inline-flex; gap: 0; padding: 4px;
     background: var(--paper-2); border-radius: 999px;
@@ -495,6 +506,8 @@
      Viewport-fit, no scroll. The shared static-head provides the title;
      this view's content is just the cluster of bird cutouts which fills
      the remaining viewport height. */
+  /* COLLAGE BOX BASE: this element is the bird-layout canvas. Its iPad
+     height is overridden by the inline style on #collage in index.html. */
   .gcollage {
     flex: 1 1 auto; width: 100%; max-width: 1300px; margin: 0 auto;
     position: relative; min-height: 0;
@@ -602,6 +615,18 @@
   }
   .empty-nest .nest-img { width: 78%; max-width: 470px; height: auto; }
   .empty-nest .empty { padding: 0; margin: 0; }
+  .nest-mark {
+    width: min(78%, 470px); height: 110px; position: relative;
+    border-bottom: 7px solid var(--ink-soft); border-radius: 0 0 50% 50%;
+  }
+  .nest-mark span {
+    position: absolute; left: 8%; right: 8%; height: 5px;
+    border-radius: 50%; background: var(--ink-soft); opacity: .8;
+  }
+  .nest-mark span:nth-child(1) { top: 34px; transform: rotate(3deg); }
+  .nest-mark span:nth-child(2) { top: 52px; transform: rotate(-2deg); }
+  .nest-mark span:nth-child(3) { top: 70px; transform: rotate(2deg); }
+  .nest-mark span:nth-child(4) { top: 88px; transform: rotate(-3deg); }
   /* Bloom the empty nest in on the same cues as the collage, reusing the tile
      keyframe (gtile-in): the nest fades + scales, the status line trails it. */
   .empty-nest.entering .nest-img {
@@ -1614,3 +1639,73 @@
  * See avian/forwarding/. */
 body.av-local #dd-locked { display: none; }
 body.av-local #dd-items  { display: block; }
+
+/* ============ iPad Air / Safari touch layout ============
+   iPad Air portrait is wider than the phone breakpoint, but still needs
+   touch-sized controls and tablet-friendly card sizing. The coarse-pointer
+   query keeps this from changing a narrow desktop browser window. */
+@media (pointer: coarse) and (max-width: 1024px) {
+  html, body { min-height: 100%; }
+  .stage { height: 100vh; height: 100dvh; }
+  .view#v0, .gcollage { visibility: visible; opacity: 1; }
+  .gcollage { min-height: 1px; }
+  .top {
+    top: max(16px, env(safe-area-inset-top));
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-right: max(20px, env(safe-area-inset-right));
+  }
+  .static-head { padding-top: 92px; }
+  .view { padding-left: 28px; padding-right: 28px; }
+  .view#v0, .view#v1 { padding-left: 24px; padding-right: 24px; }
+
+  .top .window-pick button { min-height: 40px; padding-left: 14px; padding-right: 14px; }
+  .menu-btn { min-height: 40px; padding-left: 16px; padding-right: 16px; }
+  .slider {
+    bottom: max(18px, env(safe-area-inset-bottom));
+  }
+  .slider button { min-height: 42px; padding-left: 18px; padding-right: 18px; }
+
+  /* Two-up atlas cards are easier to scan and tap in portrait. */
+  .atlas-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .atlas-grid .bird-card { min-height: 0; padding: 14px; }
+  .atlas-grid .bird-card .actions { display: none; }
+
+  #menu-dd {
+    top: calc(64px + env(safe-area-inset-top));
+    right: max(16px, env(safe-area-inset-right));
+    max-height: calc(100dvh - 88px);
+  }
+  #detail-modal, #about-modal { padding: 20px; }
+  .modal-card { max-height: calc(100dvh - 40px); }
+}
+
+@supports not (height: 100dvh) {
+  @media (pointer: coarse) and (max-width: 1024px) {
+    .stage { height: 100vh; }
+    #menu-dd { max-height: calc(100vh - 88px); }
+    .modal-card { max-height: calc(100vh - 40px); }
+  }
+}
+
+/*
+ * COLLAGE CANVAS DEBUG BOX
+ * This outline marks the exact area where the circular bird collage is laid
+ * out. Adjust the collage canvas size/position around this rule while tuning
+ * the iPad landscape view. Remove this rule when sizing is finalized.
+ */
+#v0 .gcollage {
+  outline: 2px dashed rgba(190, 45, 45, 0.75);
+  outline-offset: -2px;
+}
+
+/* Legacy Safari can collapse the flex child that contains the absolute
+   collage tiles to one pixel. Give tablet-sized viewports an explicit canvas
+   height so the already-rendered bird images have room to paint. */
+@media (max-width: 1100px) {
+  /* COLLAGE BOX TABLET SIZE: fallback height for tablet-sized viewports. */
+  #v0 .gcollage {
+    height: calc(100vh - 190px) !important;
+    min-height: 320px;
+    flex: 0 0 auto;
+  }
+}

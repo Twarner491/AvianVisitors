@@ -62,6 +62,10 @@
   function setTitleForView(i) {
     var next = VIEW_TITLES[i];
     if (!staticTitle || staticTitle.textContent === next) return;
+    if (!staticHead) {
+      staticTitle.textContent = next;
+      return;
+    }
     // Fade out -> swap text -> fade in. The opacity transition is 240ms;
     // we swap at ~half that so the eye doesn't catch the text change.
     staticHead.classList.add('swap-out');
@@ -147,6 +151,9 @@
   applyTheme(readLS('bird:theme', 'light'));
   var winBtns = [].slice.call(winPick.querySelectorAll('button'));
   var currentHours = +readLS('bird:window', '24') || 24;
+  var oneHourFallbackTimer = null;
+  var oneHourFallbackActive = false;
+  var automaticWindowChange = false;
   winBtns.forEach(function (b) {
     b.setAttribute('aria-current', (+b.dataset.h === currentHours) ? 'true' : 'false');
   });
@@ -154,6 +161,12 @@
     b.addEventListener('click', function () {
       winBtns.forEach(function (x) { x.setAttribute('aria-current', x === b ? 'true' : 'false'); });
       currentHours = +b.dataset.h;
+      if (!automaticWindowChange) {
+        oneHourFallbackActive = false;
+        clearTimeout(oneHourFallbackTimer);
+        oneHourFallbackTimer = null;
+      }
+      automaticWindowChange = false;
       writeLS('bird:window', String(currentHours));
       syncPill(winPick);
       // Actual data refresh is wired below via refreshRecent().
@@ -209,19 +222,29 @@
   // rectangles touching - actual polygon-aware packing.
 
   var collage = document.getElementById('collage');
+  // iOS 12 Safari is noticeably less reliable with the large mask table and
+  // the per-pixel packing pass. Keep the detailed layout for modern browsers,
+  // but use a lightweight rectangular fallback on that older Safari.
+  // iOS 12 may report an iPad as MacIntel and may omit maxTouchPoints when
+  // Safari is using the desktop-site user agent. Platform detection is the
+  // reliable fallback for this legacy browser.
+  // The collage canvas has an explicit height in index.html, so the original
+  // circular mask-based layout can safely run on iPad as well.
+  var SIMPLE_COLLAGE = false;
   // DIMS[slug]=[w,h] (aspect) and MASKS[slug]={w,h,bits} (1-bit silhouette)
   // are built offline by scripts/build_masks.py and fetched from dims.json /
   // masks.json at load. They live in their own files (one key per line) so a
   // species-add is a clean diff and two contributors' additions don't collide,
   // instead of rewriting one ~800KB line and conflicting on every merge.
-  var DIMS = {}, MASKS = {}, tablesReady = false;
+  var DIMS = {}, MASKS = {}, tablesReady = SIMPLE_COLLAGE;
   (function loadTables() {
     var q = '?v=' + SKETCH_VERSION;
-    Promise.all([
-      fetch('./dims.json' + q).then(function (r) { return r.json(); }),
-      fetch('./masks.json' + q).then(function (r) { return r.json(); })
-    ]).then(function (t) {
-      DIMS = t[0]; MASKS = t[1]; tablesReady = true;
+    var tableRequests = [fetch('./dims.json' + q).then(function (r) { return r.json(); })];
+    if (!SIMPLE_COLLAGE) {
+      tableRequests.push(fetch('./masks.json' + q).then(function (r) { return r.json(); }));
+    }
+    Promise.all(tableRequests).then(function (t) {
+      DIMS = t[0]; MASKS = t[1] || {}; tablesReady = true;
       // renderCollage defers its first pack until the silhouettes exist (see
       // the tablesReady gate); render now that they are here.
       try { renderCollageFromData(); } catch (e) { }
@@ -269,7 +292,10 @@
       ellipseAspectBias: 2.1,
     };
   }
-  var GRID_STRIDE = 4; // viewport px per occupancy cell; smaller = slower
+  // A 4px occupancy grid is detailed but expensive on iPad Safari. Use a
+  // coarser grid for touch devices so mask packing cannot monopolize the
+  // main thread before the collage paints. Desktop keeps the original detail.
+  var GRID_STRIDE = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ? 8 : 4;
   var COLLAGE_PAD = 3; // breathing room (grid cells) around each bird;
   // eased on narrow screens where birds are smaller.
   var FLY_PROB = 0.15; // chance a bird shows in its flight pose (rare); perched
@@ -430,6 +456,64 @@
     return placed;
   }
 
+  function renderSimpleCollage(items, animate) {
+    collage.innerHTML = '';
+    collagePlaced = [];
+    collage.style.position = 'relative';
+    collage.style.display = 'block';
+    collage.style.visibility = 'visible';
+    collage.style.opacity = '1';
+    if (!items.length) return renderCollage(items, animate);
+    var W = collage.clientWidth || 320;
+    var H = collage.clientHeight || 420;
+    var cols = 2;
+    var gap = 8;
+    // Reserve a larger, centered slot for the first (most recent) bird.
+    // Everything else is calculated from the available height so the final
+    // row cannot run below the iOS 12 Safari viewport.
+    var leadH = Math.min(H * 0.32, W * 0.42);
+    var rest = Math.max(0, items.length - 1);
+    var rows = Math.max(1, Math.ceil(rest / cols));
+    var restH = Math.max(1, (H - leadH - gap * (rows + 1)) / rows);
+    var tileW = Math.max(1, (W - gap * (cols - 1)) / cols);
+    var tileH = Math.min(120, restH);
+    var leadW = Math.min(W - gap * 2, leadH * 1.45);
+    var leadY = Math.max(0, (H - (leadH + gap + rows * tileH + (rows - 1) * gap)) / 2);
+    var gridY = leadY + leadH + gap;
+    var gridX = Math.max(0, (W - (cols * tileW + (cols - 1) * gap)) / 2);
+    items.forEach(function (s, i) {
+      var col = (i - 1) % cols, row = Math.floor((i - 1) / cols);
+      // Use a plain element on legacy Safari. Older WebKit can apply native
+      // button styling/clipping to absolutely-positioned image buttons.
+      var btn = document.createElement('div');
+      btn.className = 'gtile';
+      btn.setAttribute('data-sci', s.sci);
+      btn.setAttribute('aria-label', s.com || s.sci);
+      if (i === 0) {
+        btn.style.left = ((W - leadW) / 2) + 'px';
+        btn.style.top = leadY + 'px';
+        btn.style.width = leadW + 'px';
+        btn.style.height = leadH + 'px';
+      } else {
+        btn.style.left = (gridX + col * (tileW + gap)) + 'px';
+        btn.style.top = (gridY + row * (tileH + gap)) + 'px';
+        btn.style.width = tileW + 'px';
+        btn.style.height = tileH + 'px';
+      }
+      btn.style.pointerEvents = 'auto';
+      var birdImg = document.createElement('img');
+      birdImg.src = './avian/api/cutout.php?sci=' + encodeURIComponent(s.sci) +
+        (s.com ? '&com=' + encodeURIComponent(s.com) : '') + '&v=' + IMG_VERSION;
+      birdImg.alt = s.com || s.sci;
+      birdImg.style.display = 'block';
+      birdImg.style.width = '100%';
+      birdImg.style.height = '100%';
+      birdImg.style.objectFit = 'contain';
+      btn.appendChild(birdImg);
+      collage.appendChild(btn);
+    });
+  }
+
   function renderCollage(items, animate) {
     collage.innerHTML = '';
     // Drop the previous render's hit-test tiles up front so a click or hover on
@@ -443,7 +527,7 @@
       // the status line beneath it. The frame (shoot.py) overrides the .empty
       // text for the e-ink panel; the nest illustration is shared by both.
       collage.innerHTML = '<div class="empty-nest">' +
-        '<img class="nest-img" src="nest.webp" alt="an empty nest" decoding="async">' +
+        '<div class="nest-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>' +
         '<p class="empty">no birds heard in this window.</p></div>';
       // Bloom the nest in on the same cues as the collage (first load, window
       // change, view switch); a silent poll/resize renders without animate. The
@@ -461,6 +545,17 @@
     // they arrive we cannot pack. Defer and retry, like the !W/!H case below.
     // (The empty-nest path above needs no silhouettes and already returned.)
     if (!tablesReady) { setTimeout(function () { renderCollage(items, animate); }, 80); return; }
+
+    // iOS 12 Safari can report zero height for a flex child inside the fixed
+    // stage during its first layout pass. The simple fallback must not wait
+    // on that value, because it does not need the mask packer's dimensions.
+    if (SIMPLE_COLLAGE) {
+      if (collage.clientHeight <= 1) {
+        collage.style.height = Math.max(320, (window.innerHeight || 600) - 180) + 'px';
+      }
+      renderSimpleCollage(items, animate);
+      return;
+    }
     var W = collage.clientWidth, H = collage.clientHeight;
     if (!W || !H) { setTimeout(function () { renderCollage(items, animate); }, 80); return; }
 
@@ -488,6 +583,9 @@
       var slug = pose === 2 ? base + '-2' : base;
       var mask = loadMask(slug);
       if (!mask && pose === 2) { pose = 1; slug = base; mask = loadMask(slug); collagePose[s.sci] = 1; }
+      // A one-cell mask preserves the normal tile sizing and image creation
+      // while avoiding mask decoding/packing on iOS 12.
+      if (!mask && SIMPLE_COLLAGE) mask = { w: 1, h: 1, cells: [[0, 0]] };
       if (!mask) return null;
       var d = DIMS[slug];
       var n = +s.n; if (!n || isNaN(n)) n = 1;
@@ -604,7 +702,12 @@
       btn.style.top = r.y + 'px';
       btn.style.width = r.fullW + 'px';
       btn.style.height = r.fullH + 'px';
-      btn.innerHTML = '<img loading="lazy" decoding="async" src="' + img + '" alt="' + s.com + '">';
+      // The collage is an absolutely-positioned layer inside a fixed,
+      // overflow-hidden viewport. Safari on iPad can treat these images as
+      // outside the viewport when loading="lazy", leaving the tiles blank.
+      // Keep collage assets eager; the number of visible tiles is bounded by
+      // the layout packer and this makes the first render reliable on Safari.
+      btn.innerHTML = '<img loading="eager" decoding="sync" src="' + img + '" alt="' + s.com + '">';
       r.el = btn;
       collage.appendChild(btn);
     });
@@ -740,6 +843,9 @@
   // genuinely-hit silhouette gets .is-hover / receives the click.
   var collagePlaced = [];
   var collageHovered = null;
+  var collageTouchTimer = null;
+  var collageLastTouch = null;
+  var collageTouchSuppressUntil = 0;
   function maskHitTest(clientX, clientY) {
     var box = collage.getBoundingClientRect();
     var px = clientX - box.left, py = clientY - box.top;
@@ -760,28 +866,36 @@
     }
     return null;
   }
-  collage.addEventListener('mousemove', function (ev) {
-    var hit = maskHitTest(ev.clientX, ev.clientY);
+  function setCollageHover(hit) {
     if (hit === collageHovered) return;
     if (collageHovered && collageHovered.el) collageHovered.el.classList.remove('is-hover');
     collageHovered = hit;
     if (hit && hit.el) hit.el.classList.add('is-hover');
     collage.style.cursor = hit ? 'pointer' : 'default';
     var tip = document.getElementById('collageTip');
-    if (tip) {
-      if (hit) {
-        var s = hit.data;
-        var n = +s.n || 0;
-        var noun = (n === 1) ? 'call' : 'calls';
-        tip.innerHTML = '<span class="ct-name">' + (s.com || s.sci) + '</span>'
-          + '<span class="ct-w"> - </span>'
-          + '<span class="ct-n">' + fmtN(n) + '</span>'
-          + '<span class="ct-w"> ' + noun + ' ' + windowLabel(currentHours) + '</span>';
-        tip.setAttribute('aria-hidden', 'false');
-      } else {
-        tip.setAttribute('aria-hidden', 'true');
-      }
+    if (!tip) return;
+    if (hit) {
+      var s = hit.data, n = +s.n || 0;
+      tip.innerHTML = '<span class="ct-name">' + (s.com || s.sci) + '</span>'
+        + '<span class="ct-w"> - </span><span class="ct-n">' + fmtN(n) + '</span>'
+        + '<span class="ct-w"> ' + (n === 1 ? 'call' : 'calls') + ' ' + windowLabel(currentHours) + '</span>';
+      tip.setAttribute('aria-hidden', 'false');
+    } else {
+      tip.setAttribute('aria-hidden', 'true');
     }
+  }
+  function clearCollageHover() {
+    clearTimeout(collageTouchTimer);
+    collageTouchTimer = null;
+    setCollageHover(null);
+  }
+  function openCollageBird(hit) {
+    if (!hit) return;
+    location.hash = '#sci=' + encodeURIComponent(hit.data.sci);
+    go(2);
+  }
+  collage.addEventListener('mousemove', function (ev) {
+    setCollageHover(maskHitTest(ev.clientX, ev.clientY));
   });
   collage.addEventListener('mouseleave', function () {
     if (collageHovered && collageHovered.el) collageHovered.el.classList.remove('is-hover');
@@ -790,10 +904,34 @@
     if (tip) tip.setAttribute('aria-hidden', 'true');
   });
   collage.addEventListener('click', function (ev) {
+    if (Date.now() < collageTouchSuppressUntil) return;
     var hit = maskHitTest(ev.clientX, ev.clientY);
-    if (!hit) return;
-    location.hash = '#sci=' + encodeURIComponent(hit.data.sci);
-    go(2);
+    openCollageBird(hit);
+  });
+  // Touch interaction: first tap behaves like mouse-over; a second tap on
+  // the same silhouette within 360ms opens its detail page. The highlight
+  // remains visible for 60 seconds unless another bird is selected.
+  collage.addEventListener('touchend', function (ev) {
+    if (!ev.changedTouches || !ev.changedTouches.length) return;
+    var touch = ev.changedTouches[0];
+    var hit = maskHitTest(touch.clientX, touch.clientY);
+    if (!hit) { clearCollageHover(); return; }
+    ev.preventDefault();
+    collageTouchSuppressUntil = Date.now() + 500;
+    var now = Date.now();
+    if (collageLastTouch && collageLastTouch.hit === hit && now - collageLastTouch.time < 360) {
+      collageLastTouch = null;
+      clearCollageHover();
+      openCollageBird(hit);
+      return;
+    }
+    collageLastTouch = { hit: hit, time: now };
+    setCollageHover(hit);
+    clearTimeout(collageTouchTimer);
+    collageTouchTimer = setTimeout(function () {
+      collageLastTouch = null;
+      clearCollageHover();
+    }, 60000);
   });
 
   // Debug hook - call __layout({ slugs, weights, n }) from devtools to
@@ -825,6 +963,10 @@
   // a "no detections in this window" message.
   function renderCollageFromData(animate) {
     var items = (DATA.recent && DATA.recent.species) || [];
+    if (SIMPLE_COLLAGE && items.length) {
+      renderSimpleCollage(items, animate);
+      return;
+    }
     renderCollage(items, animate);
   }
   var rTimer;
@@ -1396,8 +1538,50 @@
       .then(function (j) {
         if (forHours !== currentHours) return; // window changed mid-flight
         DATA.recent = j; renderWindowDependent(animate);
+        handleOneHourWindow(j);
       })
       .catch(function (e) { console.warn('recent fetch failed', e); });
+  }
+  function selectWindow(hours) {
+    var btn = winBtns.filter(function (b) { return +b.dataset.h === hours; })[0];
+    if (!btn) return;
+    automaticWindowChange = true;
+    btn.click();
+    refreshRecent(true);
+  }
+  function handleOneHourWindow(recent) {
+    if (currentHours !== 1) return;
+    if (recent && recent.species && recent.species.length) {
+      clearTimeout(oneHourFallbackTimer);
+      oneHourFallbackTimer = null;
+      return;
+    }
+    if (oneHourFallbackTimer || oneHourFallbackActive) return;
+    oneHourFallbackTimer = setTimeout(function () {
+      oneHourFallbackTimer = null;
+      if (currentHours !== 1) return;
+      fetchJson('./avian/api/birdnet-api.php?action=recent&hours=1').then(function (j) {
+        if (currentHours !== 1) return;
+        if (j && j.species && j.species.length) {
+          DATA.recent = j;
+          renderWindowDependent(true);
+        } else {
+          oneHourFallbackActive = true;
+          selectWindow(12);
+        }
+      }).catch(function () { });
+    }, 30000);
+  }
+  function checkOneHourForReturn() {
+    if (!oneHourFallbackActive || currentHours === 1) return;
+    fetchJson('./avian/api/birdnet-api.php?action=recent&hours=1').then(function (j) {
+      if (!oneHourFallbackActive || currentHours !== 12) return;
+      if (j && j.species && j.species.length) {
+        oneHourFallbackActive = false;
+        DATA.recent = j;
+        selectWindow(1);
+      }
+    }).catch(function () { });
   }
   function refreshAll(animate) {
     var forHours = currentHours;
@@ -1418,6 +1602,8 @@
       recomputeDerived();
       renderTimeIndependent(animate);
       renderCollageFromData(animate);
+      if (forHours === currentHours) handleOneHourWindow(parts[4]);
+      checkOneHourForReturn();
     });
   }
 
@@ -2018,6 +2204,7 @@
     var n = +pose || 1;
     return n > 1 ? base + '&pose=' + n : base;
   }
+  var detailAutoCloseTimer = null;
   function openDetailModal(sci) {
     if (!sci) return;
     var modal = document.getElementById('detail-modal');
@@ -2108,6 +2295,11 @@
       : null;
     modal.setAttribute('aria-hidden', 'false');
     document.body.style.overflow = 'hidden';
+    clearTimeout(detailAutoCloseTimer);
+    detailAutoCloseTimer = setTimeout(function () {
+      detailAutoCloseTimer = null;
+      if (modal.getAttribute('aria-hidden') === 'false') closeDetailModal();
+    }, 30000);
     morphModalOpen(modal.querySelector('.modal-card'), sourceCard);
 
     // Species detail (lifelist row + every detection).
@@ -2167,6 +2359,8 @@
   }
   function closeDetailModal() {
     var modal = document.getElementById('detail-modal');
+    clearTimeout(detailAutoCloseTimer);
+    detailAutoCloseTimer = null;
     stopModalAudio();
     // Reverse-morph back into the source atlas card so the modal
     // appears to *retract* to where it came from. Look the card up
@@ -2713,7 +2907,8 @@
       if (location.hash) { location.hash = ''; } else { closeAbout(); }
     }
   });
-  document.getElementById('aboutLink').addEventListener('click', function () {
+  var aboutLink = document.getElementById('aboutLink');
+  if (aboutLink) aboutLink.addEventListener('click', function () {
     location.hash = '#about';
   });
 
