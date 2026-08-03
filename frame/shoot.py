@@ -72,7 +72,7 @@ def _safe_continue(route):
         pass
 
 
-def _make_api_handler(floor_frac, window_hours, auth, species=None):
+def _make_api_handler(floor_frac, window_hours, auth, species=None, daily=False):
     """Re-window action=recent (to preview busy days) and floor the rarest
     counts so the packer draws them a little larger. With `species` set
     (--bird-weather), serve that list for recent and an empty body for the
@@ -87,7 +87,11 @@ def _make_api_handler(floor_frac, window_hours, auth, species=None):
             if species is not None:
                 data = {"hours": int(window_hours or 24), "species": species, "as_of": ""}
             else:
-                url = re.sub(r"hours=\d+", f"hours={int(window_hours)}", req.url) if window_hours else req.url
+                url = req.url
+                if window_hours:
+                    url = re.sub(r"hours=\d+", f"hours={int(window_hours)}", url)
+                if daily:
+                    url += "&daily=1" if "?" in url else "?daily=1"
                 kw = {"url": url}
                 if auth:
                     kw["headers"] = {**req.headers, "authorization": auth}
@@ -167,7 +171,7 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
           mat=0.04, collage_vh=52, cluster_xbias=1.0, cluster_ybias=1.2,
           count_exp=0.4, cluster_pad=1, small_floor=0.04, window_hours=None,
           timeout_ms=45000, user=None, password=None, species=None, cutout_base=None,
-          cutout_local=None, empty_text="listening for birds…"):
+          cutout_local=None, empty_text="listening for birds…", daily=False):
     pad_side, pad_top, pad_bottom = int(vw * mat), int(vh * mat * 0.92), int(vh * mat)
     auth = "Basic " + base64.b64encode(f"{user}:{password or ''}".encode()).decode() if user else None
 
@@ -179,7 +183,7 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
                 ctx_kw["http_credentials"] = {"username": user, "password": password or ""}
             page = browser.new_context(**ctx_kw).new_page()
             misses = []
-            page.route("**/birdnet-api.php**", _make_api_handler(small_floor, window_hours, auth, species))
+            page.route("**/birdnet-api.php**", _make_api_handler(small_floor, window_hours, auth, species, daily))
             page.route("**/apt.js*", _make_js_handler(cluster_xbias, cluster_ybias, count_exp, cluster_pad, auth, misses))
             if cutout_base:
                 page.route("**/cutout.php*", _make_cutout_handler(cutout_base, cutout_local))
