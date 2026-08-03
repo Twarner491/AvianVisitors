@@ -138,6 +138,14 @@ def _paper(img):
 # of the panel that rectangle covers -- 0.7071 reproduces an A5 matboard
 # opening (default), raise it toward ~0.96 to fill a bare panel.
 def opening_size(opening):
+    if isinstance(opening, bool):
+        raise ValueError("opening must be greater than 0 and at most 1")
+    try:
+        opening = float(opening)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("opening must be greater than 0 and at most 1") from exc
+    if not 0 < opening <= 1:
+        raise ValueError("opening must be greater than 0 and at most 1")
     h = PANEL_H * opening
     w = h / 1.41421
     return w, h
