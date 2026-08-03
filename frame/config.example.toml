@@ -23,6 +23,8 @@ shoot = true
 # shoot = true         # this Pi renders the collage
 
 hours = 24             # window shown on the frame
+# daily_reset = true   # instead of the rolling `hours` window, show birds since local midnight
+                       # (resets daily at the device timezone's midnight)
 
 # --- Titles and look (used when this Pi renders, i.e. shoot = true) ----------
 shoot_title = "Avian Visitors"
