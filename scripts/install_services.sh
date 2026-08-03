@@ -78,8 +78,14 @@ create_necessary_dirs() {
   sudo -u ${USER} ln -fs $my_dir/scripts/todays_detections.php ${EXTRACTED}
   sudo -u ${USER} ln -fs $my_dir/scripts/history.php ${EXTRACTED}
   sudo -u ${USER} ln -fs $my_dir/weekly_report.php ${EXTRACTED}
-  source "$my_dir/scripts/link_webroot.sh"
-  link_avian_visitors_webroot "$my_dir" "${EXTRACTED}" "${USER}"
+  if ! source "$my_dir/scripts/link_webroot.sh"; then
+    echo "Could not load the AvianVisitors webroot helper" >&2
+    exit 1
+  fi
+  if ! link_avian_visitors_webroot "$my_dir" "${EXTRACTED}" "${USER}"; then
+    echo "Could not create the AvianVisitors webroot links" >&2
+    exit 1
+  fi
   sudo -u ${USER} ln -fs ${HOME}/phpsysinfo ${EXTRACTED}
   sudo -u ${USER} ln -fs $my_dir/templates/phpsysinfo.ini ${HOME}/phpsysinfo/
   sudo -u ${USER} ln -fs $my_dir/templates/green_bootstrap.css ${HOME}/phpsysinfo/templates/
