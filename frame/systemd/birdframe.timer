@@ -2,11 +2,10 @@
 Description=Update the e-ink bird frame on a schedule
 
 [Timer]
-# OnActiveSec makes a plain "systemctl start birdframe.timer" self-bootstrap.
-# Without it the schedule can deadlock: OnUnitActiveSec only counts from the
-# service's last activation and OnBootSec only fires once per boot, so a
-# timer stopped and started mid-boot (say, around a manual display.py run)
-# sits "active (elapsed)" forever and the frame silently never updates again.
+# Give every timer activation its own bootstrap deadline. A persistent timer
+# remembers that its earlier OnBootSec deadline fired, while OnUnitActiveSec
+# depends on the service's in-memory activation time. If both units are stopped
+# and later unloaded, restarting the timer can otherwise leave no next deadline.
 OnActiveSec=2min
 OnBootSec=2min
 OnUnitActiveSec=15min
