@@ -16,7 +16,7 @@ The main repo ships a Western-US set reviewed by hand. Other people have generat
 
 ## South America
 
-- 
+- **Pereira/Cartago, Colombia**: ships in the main repo, 210 species (`avian/assets/illustrations/`), generated for a live BirdNET-Pi station in Cerritos, Pereira - see #54 for the latest batch.
 
 ## Oceania
 
