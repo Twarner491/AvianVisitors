@@ -5,6 +5,7 @@ The main repo ships a Western-US set reviewed by hand. Other people have generat
 ## North America
 
 - **Western US**: ships in the main repo
+- **Florida, US (US-FL)**: [SupraBitKid's fork](https://github.com/SupraBitKid/AvianVisitors), 574 added species
 
 ## Europe
 
