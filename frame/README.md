@@ -78,6 +78,44 @@ birdframe-names off
 
 For an `--image-url` frame, the command adds `labels=1` or `labels=0` to the source URL. The source must honor that setting; otherwise its image will not change.
 
+### Let the mic Pi render (publish mode)
+
+Shooting the collage takes 70–120s and ~1GB of Chromium on a Zero 2 W. If your BirdNET mic is a Pi 4 or 5, let *it* render instead and have the frame just download the finished PNG.
+
+On the **mic Pi**:
+
+```bash
+cd ~/BirdNET-Pi/frame
+./install-publish.sh                     # every 5 min
+./install-publish.sh --interval 15min    # easier on a Pi 3 or a busy box
+```
+
+It installs Playwright, publishes to `/frame.png` on the site Caddy already serves, and prints the URL to use next. No SPI, no panel driver, no reboot. You can also opt in during a fresh BirdNET-Pi install — inside `bash -c`, so the variable reaches the installer rather than `curl`:
+
+```bash
+FRAME_PUBLISH=15min bash -c "$(curl -s https://raw.githubusercontent.com/Twarner491/AvianVisitors/avian-visitors/newinstaller.sh)"
+```
+
+`FRAME_PUBLISH` takes an interval (`5min`, `1h`); `1`, `yes` or `true` mean "just use the default".
+
+A tick that finds no new birds costs ~0.3s on a Pi 5 and never starts a browser; a full render is ~1.8s. The interval is a freshness knob, not a cost one — worst-case bird-to-panel latency is this interval plus the frame Pi's own 15-minute poll.
+
+Then on the **frame Pi**, point the normal installer at that URL:
+
+```bash
+./install.sh --image-url http://<mic-pi>/frame.png
+```
+
+Any URL the frame Pi can resolve works — a LAN address, a [Tailscale](https://tailscale.com) MagicDNS name, a Cloudflare Tunnel hostname (see [`avian/forwarding/`](../avian/forwarding/)). If both Pis are on a tailnet, `tailscale serve --bg 80` on the mic Pi publishes it at `https://<node>.<tailnet>.ts.net/frame.png` with a real certificate and no port forwarding; `install-publish.sh` detects that and prints the tailnet URL for you.
+
+Only the mic Pi decides when to re-render, so `frame.png` changes only when the birds do. The frame Pi asks for it conditionally and skips the panel refresh entirely when the image hasn't changed — no second guess at the same question on a second clock.
+
+Retune titles in `/etc/birdframe/publish.env` and run `sudo systemctl start birdframe-publish`. Keys you add there survive re-runs. If the whole site is behind basic auth, set `FRAME_USER`/`FRAME_PASSWORD` there too — without them the change check gets a 401 every tick, which reads as "nothing new" and freezes the frame on one image.
+
+To remove it: `./install-publish.sh --uninstall` (`scripts/uninstall.sh` discovers units by scanning `install_services.sh`, so it cannot see this one).
+
+**Labels and this source.** `birdframe-names` appends `labels=1` to the image URL, but the publisher serves one pre-rendered PNG and ignores the parameter, so toggling names on a frame pointed at it changes nothing. Set the names on the mic Pi instead, or run the frame in a rendering mode. Publishing a second labelled variant is tracked separately.
+
 BirdWeather mode renders on the Pi from this repo's illustrations on GitHub, so there is no image set to copy over. ZIP codes with no station nearby fall back to the closest ones. If you are far from any BirdWeather station, add `--ebird-key <key>` (a free key from [ebird.org/api/keygen](https://ebird.org/api/keygen)) and the frame fills from eBird sightings instead.
 
 The bundled illustrations center on the western U.S. If birds near your ZIP aren't in the set you cloned, the installer flags them and the frame skips them until they exist. To generate them, run [`generate_illustrations.py`](generate_illustrations.py) on a laptop or workstation (it uses the same rembg cutout as the rest of the pipeline, which the Pi can't fit in memory), passing your ZIP and a paid Google Gemini key, then commit the new cutouts or copy them to the Pi:
