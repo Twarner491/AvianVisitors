@@ -36,6 +36,9 @@ IdentifiedSoFar.txt.bak
 Birders_Guide_Installer_Configuration.txt
 birdnet/
 templates/*.service
+# Written per-host by install_birdnet_mount(), with the filename derived from
+# RECS_DIR - same reason the generated .service units above are not committed.
+templates/*.mount
 scripts/*.txt
 scripts/*.db
 analyzing_now.txt
@@ -57,3 +60,11 @@ whitelist_species_list.txt
 avian/assets/references/
 # Superseded assets retained locally
 avian/assets/_legacy/
+
+# --- Generated at install time, never committed ---
+# get_tf_whl() curls the wheel matching this machine's arch and Python version,
+# then rewrites requirements.txt into requirements_custom.txt pointing at it.
+# Both are per-machine build output; committing either would pin every install
+# to whatever hardware happened to produce them.
+tflite_runtime-*.whl
+requirements_custom.txt
