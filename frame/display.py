@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Frame-Pi client: turn a collage screenshot into Inky panel pixels.
 
-Runs on the frame Pi (a 3 A+ or Zero 2 W) on a systemd timer. Each run it decides whether a
-refresh is worth it (the species set or call-count brackets changed, and it
-is not quiet hours), then crops the title and collage from the screenshot,
-centres and mats them, and pushes the result to the Inky Impression 13.3".
-``--preview out.png`` writes an approximate 6-ink dither instead, so the
+Runs on the frame Pi (a 3 A+ or Zero 2 W) on a systemd timer. Each run it decides
+whether a refresh is worth it, then crops the title and collage from the
+screenshot, centres and mats them, and pushes the result to the Inky Impression
+13.3". ``--preview out.png`` writes an approximate 6-ink dither instead, so the
 look can be checked on any machine without the panel.
+
+How "worth it" is decided depends on where the image comes from. When this Pi
+renders (local or birdweather mode) it hashes the species set and call-count
+brackets. When the mic Pi publishes a PNG for us (image_url mode) the published
+bytes are the signal instead: a conditional GET, and a 304 means nothing to do.
+Re-deriving the answer from the API there would be a second gate on a second
+clock, which can fire on a bird the downloaded image predates. Either way a
+refresh is suppressed during quiet hours.
 """
 from __future__ import annotations
 
@@ -22,6 +29,7 @@ import re
 import statistics
 import sys
 import time
+import urllib.error   # explicit: urllib.request happens to pull it in, but the 304 path relies on it
 import urllib.request
 from datetime import datetime
 
@@ -111,13 +119,58 @@ def fetch_species(cfg, auth=None):
 
 
 # --- image ------------------------------------------------------------------
+NOT_MODIFIED = object()   # sentinel: the server says the bytes have not changed
+
+
+def _http_image(url, timeout, auth=None, validators=None):
+    """Download the frame, optionally conditionally.
+
+    `validators` is the {"etag", "last_modified"} recorded from the previous
+    fetch; when given, this sends a conditional request and returns
+    NOT_MODIFIED instead of a body if the server answers 304. Returns
+    (Image | NOT_MODIFIED, validators from this response).
+    """
+    req = urllib.request.Request(url, headers={"User-Agent": "AvianVisitors-frame/1.0"})
+    if auth:
+        req.add_header("Authorization", auth)
+    if validators:
+        if validators.get("etag"):
+            req.add_header("If-None-Match", validators["etag"])
+        if validators.get("last_modified"):
+            req.add_header("If-Modified-Since", validators["last_modified"])
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            body = r.read(20_000_000)
+            ctype = (r.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            # Only real values: a dict of two Nones is still truthy, so keeping
+            # them would make the next run take the conditional branch, send no
+            # conditional headers, and get a 200 every time - a gate that has
+            # silently turned itself off while logging "refresh: changed"
+            # forever. Empty means "cannot gate", and says so below.
+            got = {k: v for k, v in (("etag", r.headers.get("ETag")),
+                                     ("last_modified", r.headers.get("Last-Modified"))) if v}
+    except urllib.error.HTTPError as e:
+        if e.code == 304:
+            return NOT_MODIFIED, validators
+        raise
+    # A missing frame.png does NOT 404 on a BirdNET-Pi: Caddy's try_files falls
+    # through to index.php, so an unpublished frame - or a dangling symlink -
+    # comes back as 200 with the HTML shell. Match on markup rather than on
+    # "not image/*", because some object stores and workers serve a perfectly
+    # good PNG as application/octet-stream.
+    if ctype.startswith("text/") or ctype.endswith(("html", "xml", "json")):
+        raise RuntimeError(
+            f"{url} returned {ctype}, not an image - is the publisher running?")
+    if not got:
+        print(f"{url} sends no ETag or Last-Modified; refreshing every run",
+              file=sys.stderr)
+    return Image.open(io.BytesIO(body)).convert("RGB"), got
+
+
 def get_image(src, timeout, auth=None):
     if re.match(r"^https?://", src):
-        req = urllib.request.Request(src, headers={"User-Agent": "AvianVisitors-frame/1.0"})
-        if auth:
-            req.add_header("Authorization", auth)
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return Image.open(io.BytesIO(r.read(20_000_000))).convert("RGB")
+        img, _ = _http_image(src, timeout, auth)
+        return img
     return Image.open(os.path.expanduser(src)).convert("RGB")
 
 
@@ -294,12 +347,15 @@ def load_state(path):
         return {"signature": None, "last_refresh": 0}
 
 
-def save_state(path, sig, when):
+def save_state(path, sig, when, validators=None):
+    """`validators` is image mode's {etag, last_modified}; keeping it here is
+    what lets the next run send a conditional request. Optional so publish.py
+    and the other three modes can keep calling this with three arguments."""
     path = os.path.expanduser(path)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
-        json.dump({"signature": sig, "last_refresh": when}, f)
+        json.dump({"signature": sig, "last_refresh": when, "validators": validators}, f)
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)  # atomic: a power cut can't leave a half-written file
@@ -361,25 +417,60 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
     state = load_state(cfg["state"])
     sig = None
     species = None
-    if use_signature:
-        try:
-            species = fetch_species(cfg, _auth(cfg))
-            sig = signature(species)
-        except Exception as e:
-            print(f"signature fetch failed: {e}", file=sys.stderr)  # treat as no change
+    fetched = None                        # image mode downloads during its gate
+    validators = state.get("validators")
     heal_due = now - state.get("last_refresh", 0) >= cfg["heal_hours"] * 3600
-    changed = (not use_signature) or (sig is not None and sig != state.get("signature"))
-    if not force and not preview:
-        if in_quiet_hours(cfg, datetime.now().hour):
-            print("quiet hours; skip")
+
+    # In image mode the published PNG *is* the signal. The mic Pi's publisher
+    # only re-renders when the birds change, so unchanged bytes mean there is
+    # nothing new to draw. Asking the API here instead would be a second gate on
+    # a second clock: it can flip on a bird the downloaded image predates, which
+    # strands a stale collage on the panel until the next species change or the
+    # daily heal, with both machines logging success. It also drops this mode's
+    # dependence on base_url being reachable at all.
+    gate_on_image = (use_signature and bool(cfg["image_url"]) and not cfg["shoot"]
+                     and cfg.get("species_source") != "birdweather")
+
+    if not force and not preview and in_quiet_hours(cfg, datetime.now().hour):
+        print("quiet hours; skip")
+        return
+
+    if gate_on_image:
+        # Send the validators only when a 304 would actually let us stop. On a
+        # heal we want the bytes back even though nothing changed, so the panel
+        # redraws and clears its ghosting.
+        conditional = None if (force or preview or heal_due) else validators
+        try:
+            fetched, got = _http_image(cfg["image_url"], cfg["timeout"], _auth(cfg), conditional)
+        except Exception as e:
+            print(f"could not get image: {e}", file=sys.stderr)  # keep last panel image
             return
-        if not changed and not heal_due:
+        if fetched is NOT_MODIFIED:
             print("no change; skip")
             return
-        print("refresh:", "changed" if changed else "heal")
+        # `got`, not `got or validators`: we just downloaded new bytes, so the
+        # old validators describe an image that is no longer the one on the
+        # panel. Keeping them would send a stale If-None-Match and could take a
+        # 304 for the wrong image.
+        validators = got or None
+        if not force and not preview:
+            print("refresh:", "heal" if heal_due else "changed")
+    else:
+        if use_signature:
+            try:
+                species = fetch_species(cfg, _auth(cfg))
+                sig = signature(species)
+            except Exception as e:
+                print(f"signature fetch failed: {e}", file=sys.stderr)  # treat as no change
+        changed = (not use_signature) or (sig is not None and sig != state.get("signature"))
+        if not force and not preview:
+            if not changed and not heal_due:
+                print("no change; skip")
+                return
+            print("refresh:", "changed" if changed else "heal")
 
     try:
-        img = fit_panel(obtain_image(cfg, species))
+        img = fit_panel(fetched if fetched is not None else obtain_image(cfg, species))
     except Exception as e:
         print(f"could not get image: {e}", file=sys.stderr)  # keep last panel image
         return
@@ -396,7 +487,7 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
     except Exception as e:
         print(f"panel push failed: {e}", file=sys.stderr)
         return
-    save_state(cfg["state"], sig if sig is not None else state.get("signature"), now)
+    save_state(cfg["state"], sig if sig is not None else state.get("signature"), now, validators)
     print("panel updated")
 
 
