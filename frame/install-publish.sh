@@ -351,11 +351,14 @@ if [ -n "$INTERVAL" ]; then
 #
 # The bare assignment first is load-bearing: these are LIST-valued settings, so
 # a plain OnUnitActiveSec= in a drop-in APPENDS a second trigger instead of
-# replacing the shipped 15min one. Without the reset, a longer interval would
-# silently do nothing (15min still elapses first) while the installer claimed
-# otherwise. The reset also clears OnBootSec=, so it is restated here.
+# replacing the shipped one. Without the reset, a longer interval would silently
+# do nothing (the shipped value still elapses first) while the installer claimed
+# otherwise. The reset clears the whole monotonic list, so OnActiveSec= and
+# OnBootSec= have to be restated - dropping OnActiveSec here would reintroduce
+# the stopped-and-restarted deadlock the shipped timer exists to avoid.
 [Timer]
 OnUnitActiveSec=
+OnActiveSec=3min
 OnBootSec=3min
 OnUnitActiveSec=$INTERVAL
 DROPIN

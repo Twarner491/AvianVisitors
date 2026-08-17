@@ -2,6 +2,13 @@
 Description=Re-render the published bird frame on a schedule
 
 [Timer]
+# Give every activation its own bootstrap deadline. OnBootSec= fires once per
+# boot and OnUnitActiveSec= counts from the service's last activation, so that
+# pair alone leaves no pending trigger if the timer is stopped and started again
+# without a reboot - it sits 'active (elapsed)' with no next deadline and the
+# frame silently stops updating. Same fix as birdframe.timer (#47), which traced
+# two multi-day frame stalls to exactly this.
+OnActiveSec=3min
 # 3 min, not 2: caddy, php-fpm and the first analysis pass all have to be up, or
 # the first frame of every boot is a screenshot of a 502.
 OnBootSec=3min
