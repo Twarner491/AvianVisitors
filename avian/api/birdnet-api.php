@@ -96,15 +96,25 @@ switch ($action) {
         // "ALL" button can turn off the time filter without needing a
         // separate code path.
         $hours = max(1, min(1000000, (int)($_GET['hours'] ?? 24)));
+        // daily=1 switches to a calendar-day window (since local midnight)
+        // instead of the rolling hours window - the frame's "Heard Today".
+        $daily = ($_GET['daily'] ?? '') === '1';
+        if ($daily) {
+            $window = "Date = DATE('now','localtime')";
+            $bind   = [];
+        } else {
+            $window = "(julianday('now','localtime') - julianday(Date||' '||Time)) * 24 <= :hrs";
+            $bind   = [':hrs' => $hours];
+        }
         // species-collapsed view: one row per species seen in the window,
         // with the file of its highest-confidence detection inside the window.
         $rs = rows($db,
           "SELECT Sci_Name AS sci, Com_Name AS com, COUNT(*) AS n, MAX(Confidence) AS best_conf, "
         . "       MAX(Date||' '||Time) AS last_seen "
         . "FROM detections "
-        . "WHERE (julianday('now','localtime') - julianday(Date||' '||Time)) * 24 <= :hrs "
+        . "WHERE $window "
         . "GROUP BY Sci_Name ORDER BY last_seen DESC",
-          [':hrs' => $hours]
+          $bind
         );
         // for each row, attach the file of the top-confidence detection in the window
         foreach ($rs as &$r) {
@@ -112,14 +122,14 @@ switch ($action) {
               "SELECT File_Name AS file, Date AS d, Time AS t, Confidence AS conf "
             . "FROM detections "
             . "WHERE Sci_Name = :sn "
-            . "AND (julianday('now','localtime') - julianday(Date||' '||Time)) * 24 <= :hrs "
+            . "AND $window "
             . "ORDER BY Confidence DESC LIMIT 1",
-              [':sn' => $r['sci'], ':hrs' => $hours]
+              $daily ? [':sn' => $r['sci']] : [':sn' => $r['sci'], ':hrs' => $hours]
             );
             $r['top_file'] = $best['file'] ?? null;
             $r['top_at']   = isset($best['d']) ? ($best['d'].' '.$best['t']) : null;
         }
-        echo json_encode(['hours' => $hours, 'species' => $rs, 'as_of' => date('c')]);
+        echo json_encode(['hours' => $hours, 'daily' => $daily, 'species' => $rs, 'as_of' => date('c')]);
         break;
     }
 

@@ -23,6 +23,8 @@ shoot = true
 # shoot = true         # this Pi renders the collage
 
 hours = 24             # window shown on the frame
+# daily_reset = true   # instead of the rolling `hours` window, show birds since local midnight
+                       # (resets daily at the device timezone's midnight)
 
 # --- Titles and look (used when this Pi renders, i.e. shoot = true) ----------
 shoot_title = "Avian Visitors"
@@ -40,6 +42,9 @@ saturation = 0.6       # Inky colour saturation, 0 to 1
 mat = 0.0              # extra shrink of the content inside the A5 opening (0 = none)
 opening = 0.7071       # fraction of panel height the opening covers; 0.7071 = A5 matboard (default). Raise toward ~0.96-0.98 if you have no matboard and want to fill the bare panel.
 # panel = "el133uf1"   # force the 13.3" driver if auto-detect ever fails
+# panel = "waveshare13in3e"   # Waveshare 13.3" e-Paper HAT+ (E) instead of the
+#                      # Inky Impression. Same Spectra 6 panel, different control
+#                      # pins, and no EEPROM for auto-detect to read.
 
 # --- Refresh cadence --------------------------------------------------------
 # The panel refreshes only when the species set or a count bracket changes,

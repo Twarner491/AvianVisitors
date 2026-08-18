@@ -46,6 +46,8 @@ DEFAULTS = {
     "bw_days": 7,           # BirdWeather lookback window, in days
     "bw_country": "us",     # geocoder country for the ZIP
     "hours": 24,
+    "daily_reset": False,   # True = "Heard Today" window is since local midnight,
+                            # not the last `hours`; resets daily at the device TZ's midnight
     "image": "",            # local PNG written by the shooter
     "image_url": "",        # or a published screenshot URL
     "shoot": False,         # or capture inline (needs a browser; the 3 A+ and Zero 2 W both handle it)
@@ -56,7 +58,8 @@ DEFAULTS = {
     "opening": 0.7071,      # fraction of panel height the opening covers; 0.7071 = A5 matboard (default). Raise toward ~0.96 to fill a bare panel with no matboard.
     "rotate": 90,           # 90 or 270 if the frame hangs the other way up
     "saturation": 0.6,
-    "panel": "",            # "el133uf1" forces the 13.3" driver if auto() fails
+    "panel": "",            # "el133uf1" forces the 13.3" driver if auto() fails;
+                            # "waveshare13in3e" for the Waveshare 13.3" HAT+ (E)
     "quiet_start": 0, "quiet_end": 0,    # 0/0 = no quiet hours
     "heal_hours": 24,
     "state": "~/.birdframe/state.json",
@@ -85,8 +88,10 @@ def _bucket(n):
     return 8
 
 
-def fetch_recent(base, hours, timeout, auth=None):
+def fetch_recent(base, hours, timeout, auth=None, daily=False):
     url = f"{base.rstrip('/')}/avian/api/birdnet-api.php?action=recent&hours={hours}"
+    if daily:
+        url += "&daily=1"
     req = urllib.request.Request(url, headers={"User-Agent": "AvianVisitors-frame/1.0"})
     if auth:
         req.add_header("Authorization", auth)
@@ -106,7 +111,8 @@ def fetch_species(cfg, auth=None):
     if cfg.get("species_source") == "birdweather":
         import birdweather
         return birdweather.species_for_zip(cfg["zip"], country=cfg["bw_country"], days=cfg["bw_days"])
-    return fetch_recent(cfg["base_url"], cfg["hours"], cfg["timeout"], auth)
+    return fetch_recent(cfg["base_url"], cfg["hours"], cfg["timeout"], auth,
+                        daily=cfg.get("daily_reset", False))
 
 
 # --- image ------------------------------------------------------------------
@@ -267,13 +273,39 @@ def _draw_mat_box(img, opening):
 
 
 # --- hardware ---------------------------------------------------------------
+# The Waveshare 13.3" e-Paper HAT+ (E) carries the same EL133UF1 Spectra 6 panel
+# as the Inky Impression 13.3", so the Inky driver runs it once the control pins
+# are remapped. It has no EEPROM, so inky.auto() can't identify it.
+WAVESHARE_PINS = {"cs_pin_0": 8, "cs_pin_1": 7, "dc_pin": 25,
+                  "reset_pin": 17, "busy_pin": 24}
+WAVESHARE_PWR_PIN = 18
+
+
+def hold_power(pin):
+    """The Waveshare HAT+ gates panel power behind a GPIO the Inky driver knows
+    nothing about. Drive it high and hand back the request: releasing it drops
+    the rail, so the caller holds it until the refresh is done."""
+    import gpiod
+    import gpiodevice
+    from gpiod.line import Direction, Value
+    chip = gpiodevice.find_chip_by_platform()
+    return chip.request_lines(consumer="birdframe-pwr", config={
+        chip.line_offset_from_id(pin): gpiod.LineSettings(
+            direction=Direction.OUTPUT, output_value=Value.ACTIVE)})
+
+
 def push_panel(img, rotate, saturation, panel=""):
     """Rotate to the panel's landscape buffer and push. Lazy import so this
     module still loads on a machine without the Inky library."""
     if rotate not in (90, 270):
         print(f"rotate must be 90 or 270, not {rotate}; using 90", file=sys.stderr)
         rotate = 90
-    if panel == "el133uf1":
+    pwr = None
+    if panel == "waveshare13in3e":
+        from inky.inky_el133uf1 import Inky
+        pwr = hold_power(WAVESHARE_PWR_PIN)
+        dev = Inky(resolution=(1600, 1200), **WAVESHARE_PINS)
+    elif panel == "el133uf1":
         from inky.inky_el133uf1 import Inky
         dev = Inky(resolution=(1600, 1200))
     else:
@@ -285,6 +317,8 @@ def push_panel(img, rotate, saturation, panel=""):
     kw = {"saturation": saturation} if "saturation" in inspect.signature(dev.set_image).parameters else {}
     dev.set_image(buf, **kw)
     dev.show()
+    if pwr:
+        pwr.release()
 
 
 # --- state ------------------------------------------------------------------
@@ -333,7 +367,7 @@ def obtain_image(cfg, species=None):
               headline_px=cfg["shoot_headline_px"], eyebrow_px=cfg["shoot_eyebrow_px"],
               lowercase=cfg["shoot_lowercase"], mat=cfg["shoot_mat"],
               small_floor=cfg["shoot_small_floor"], count_exp=cfg["shoot_count_exp"], timeout_ms=cfg["timeout"] * 1000,
-              user=cfg["basic_user"], password=cfg["basic_pass"])
+              user=cfg["basic_user"], password=cfg["basic_pass"], daily=cfg.get("daily_reset", False))
         return Image.open(out).convert("RGB")
     src = cfg["image_url"] or cfg["image"]
     if not src:
