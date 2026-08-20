@@ -2180,6 +2180,7 @@ body.postcard-open { overflow: hidden; }
   .atlas-artwork-toggle button {
     width: auto; padding: 0 11px;
     font: 10px ui-monospace, Menlo, monospace; letter-spacing: 0.04em;
+    font-variant: small-caps;
   }
   .atlas-sort button:hover { color: var(--ink); }
   .atlas-sort button[aria-current="true"] { color: var(--ink); }

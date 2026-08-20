@@ -13,8 +13,8 @@
 function systemTheme(){try{return window.matchMedia&&window.matchMedia(q).matches?'dark':'light';}catch(e){return'light';}}
 function preference(){try{var v=localStorage.getItem('bird:theme:v2');if(v==='auto'||v==='light'||v==='dark')return v;var old=localStorage.getItem('bird:theme');return old==='light'||old==='dark'?old:'auto';}catch(e){return'auto';}}
 var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemTheme());})();</script>
-<link rel="stylesheet" href="./styles.css?v=r168">
-  <link rel="stylesheet" href="./stamps.css?v=r359">
+<link rel="stylesheet" href="./styles.css?v=r167">
+  <link rel="stylesheet" href="./stamps.css?v=r356">
   <link rel="stylesheet" href="./stamp-batch-root.css?v=r254">
   <link rel="stylesheet" href="./stamp-batch-a.css?v=r257">
     <link rel="stylesheet" href="./stamp-batch-b.css?v=r319">
@@ -390,6 +390,6 @@ var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemT
 <script src="./stamp-batch-a.js?v=r341"></script>
   <script src="./stamp-batch-b.js?v=r318"></script>
 <script src="./stamp-batch-c.js?v=r234"></script>
-<script src="./apt.js?v=r185"></script>
+<script src="./apt.js?v=r180"></script>
 </body>
 </html>
