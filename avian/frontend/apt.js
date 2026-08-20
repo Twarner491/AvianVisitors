@@ -3590,7 +3590,7 @@
   function atlasRects(root) {
     var out = {};
     if (!root) return out;
-    root.querySelectorAll('.stamp-card[data-sci]').forEach(function (card) {
+    root.querySelectorAll('.stamp-card[data-sci], .atlas-image-card[data-sci]').forEach(function (card) {
       if (getComputedStyle(card).display === 'none') return;
       out[card.dataset.sci] = card.getBoundingClientRect();
     });
@@ -4009,7 +4009,7 @@
     if (!root || !before || matchMedia('(prefers-reduced-motion:reduce)').matches) return;
     var duration = Number(options.duration) || 480;
     var startOpacity = options.solid ? 1 : .72;
-    root.querySelectorAll('.stamp-card[data-sci]').forEach(function (card) {
+    root.querySelectorAll('.stamp-card[data-sci], .atlas-image-card[data-sci]').forEach(function (card) {
       var old = before[card.dataset.sci];
       if (!old || getComputedStyle(card).display === 'none') return;
       var now = card.getBoundingClientRect();
@@ -4411,7 +4411,7 @@
     if (!grid) return;
     var artworkMode = atlasArtworkPreference();
     grid.dataset.artwork = artworkMode;
-    var priorRects = artworkMode === 'stamps' ? atlasRects(grid) : {};
+    var priorRects = atlasRects(grid);
 
     function showAtlasEmpty(message, hint) {
       // A packed wall owns an inline pixel height. If a later time window has
@@ -4564,6 +4564,7 @@
       if (isFamilyView) grid.innerHTML = atlasFamilyMarkup(species, cardHtml);
       else grid.innerHTML = cardHtml.join('');
       requestAnimationFrame(function () {
+        animateAtlasFlip(grid, priorRects);
         queueAtlasOverflowState();
         queueCompactHeader();
       });
