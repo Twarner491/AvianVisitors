@@ -4532,42 +4532,45 @@
         + '</article>';
     });
 
+    function atlasFamilyMarkup(species, cardHtml) {
+      var out = '', run = [], cur = null;
+      function flush() {
+        if (!run.length) return;
+        out += '<section class="fam-block">'
+             + '<h2 class="atlas-fam"><span>' + cur + '</span><i></i>'
+             + '<em>' + run.length + ' species</em></h2>'
+             + '<div class="atlas-fam-grid">' + run.join('') + '</div></section>';
+        run = [];
+      }
+      species.forEach(function (sp, i) {
+        var fam = window.STAMPS.familyOf(sp.sci);
+        if (fam !== cur) { flush(); cur = fam; }
+        run.push(cardHtml[i]);
+      });
+      flush();
+      return out;
+    }
+
+    var isFamilyView = sortMode === 'family' && window.STAMPS;
     if (artworkMode === 'cutouts') {
       // Cutout cards use the original responsive field-guide grid;
       // clear the stamp packer's inline geometry before committing them.
       grid.classList.remove('is-packed');
       grid.style.removeProperty('height');
       grid.style.removeProperty('--pack-gap');
-      grid.removeAttribute('data-mode');
+      if (isFamilyView) grid.dataset.mode = 'family';
+      else grid.removeAttribute('data-mode');
       grid.dataset.sort = sortMode;
-      grid.innerHTML = cardHtml.join('');
+      if (isFamilyView) grid.innerHTML = atlasFamilyMarkup(species, cardHtml);
+      else grid.innerHTML = cardHtml.join('');
       requestAnimationFrame(function () {
         queueAtlasOverflowState();
         queueCompactHeader();
       });
     } else {
-      // A spanning heading inside an auto-fill grid collapses the track count,
-      // so the family view is built as one section per family instead.
-      if (sortMode === 'family' && window.STAMPS) {
-        var out = '', run = [], cur = null;
-        function flush() {
-          if (!run.length) return;
-          out += '<section class="fam-block">'
-               + '<h2 class="atlas-fam"><span>' + cur + '</span><i></i>'
-               + '<em>' + run.length + ' species</em></h2>'
-               + '<div class="atlas-fam-grid">' + run.join('') + '</div></section>';
-          run = [];
-        }
-        species.forEach(function (sp, i) {
-          var fam = window.STAMPS.familyOf(sp.sci);
-          if (fam !== cur) { flush(); cur = fam; }
-          run.push(cardHtml[i]);
-        });
-        flush();
-        commitAtlasMarkup(grid, out, sortMode, true);
-      } else {
-        commitAtlasMarkup(grid, cardHtml.join(''), sortMode, false);
-      }
+      commitAtlasMarkup(grid,
+        isFamilyView ? atlasFamilyMarkup(species, cardHtml) : cardHtml.join(''),
+        sortMode, isFamilyView);
 
       packAtlasGrids(grid);
       requestAnimationFrame(function () {

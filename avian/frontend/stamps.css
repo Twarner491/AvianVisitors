@@ -554,7 +554,9 @@
 /* The cutouts setting restores the responsive field-guide layout underneath
    the stamp album. This lives here (after styles.css) so its explicit grid
    wins over the stamp packer's base geometry. */
-.atlas-grid[data-artwork="cutouts"] {
+.atlas-grid[data-artwork="cutouts"],
+.atlas-grid[data-artwork="cutouts"] .atlas-fam-grid {
+  display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   grid-auto-rows: auto;
   grid-auto-flow: row;
@@ -807,7 +809,8 @@ canvas.fxc{
   .atlas-fam-grid {
     --pack-gap: 5px;
   }
-  .atlas-grid[data-artwork="cutouts"] {
+  .atlas-grid[data-artwork="cutouts"],
+  .atlas-grid[data-artwork="cutouts"] .atlas-fam-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
   }
