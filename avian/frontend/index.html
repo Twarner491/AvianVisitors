@@ -13,8 +13,8 @@
 function systemTheme(){try{return window.matchMedia&&window.matchMedia(q).matches?'dark':'light';}catch(e){return'light';}}
 function preference(){try{var v=localStorage.getItem('bird:theme:v2');if(v==='auto'||v==='light'||v==='dark')return v;var old=localStorage.getItem('bird:theme');return old==='light'||old==='dark'?old:'auto';}catch(e){return'auto';}}
 var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemTheme());})();</script>
-<link rel="stylesheet" href="./styles.css?v=r166">
-  <link rel="stylesheet" href="./stamps.css?v=r355">
+<link rel="stylesheet" href="./styles.css?v=r168">
+  <link rel="stylesheet" href="./stamps.css?v=r358">
   <link rel="stylesheet" href="./stamp-batch-root.css?v=r254">
   <link rel="stylesheet" href="./stamp-batch-a.css?v=r257">
     <link rel="stylesheet" href="./stamp-batch-b.css?v=r319">
@@ -177,6 +177,11 @@ var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemT
     <!-- ========== View 3 - Atlas ========== -->
     <section class="view" id="v2" aria-label="Atlas">
       <div class="atlas-controls">
+        <div class="atlas-sort atlas-artwork-toggle" id="atlasArtwork" role="tablist" aria-label="atlas artwork">
+          <i class="seg-pill" aria-hidden="true"></i>
+          <button data-atlas-artwork="stamps" type="button">stamps</button>
+          <button data-atlas-artwork="cutouts" type="button">cutouts</button>
+        </div>
         <div class="atlas-sort" id="atlasSort" role="tablist" aria-label="sort atlas">
           <i class="seg-pill" aria-hidden="true"></i>
           <button data-sort="life" type="button" aria-current="true" aria-label="life list">
@@ -385,6 +390,6 @@ var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemT
 <script src="./stamp-batch-a.js?v=r341"></script>
   <script src="./stamp-batch-b.js?v=r318"></script>
 <script src="./stamp-batch-c.js?v=r234"></script>
-<script src="./apt.js?v=r179"></script>
+<script src="./apt.js?v=r183"></script>
 </body>
 </html>

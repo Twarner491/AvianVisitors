@@ -551,6 +551,17 @@
   gap: var(--pack-gap);
   align-items: start;
 }
+/* The cutouts setting restores the responsive field-guide layout underneath
+   the stamp album. This lives here (after styles.css) so its explicit grid
+   wins over the stamp packer's base geometry. */
+.atlas-grid[data-artwork="cutouts"] {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-auto-rows: auto;
+  grid-auto-flow: row;
+  justify-content: stretch;
+  gap: 22px;
+  align-items: stretch;
+}
 .atlas-grid.is-packed,
 .atlas-fam-grid.is-packed {
   display:block;
@@ -795,6 +806,10 @@ canvas.fxc{
   .atlas-grid,
   .atlas-fam-grid {
     --pack-gap: 5px;
+  }
+  .atlas-grid[data-artwork="cutouts"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
   /* Scale the complete issue, not only its visible artwork. This keeps the
      geometry-synced fringe contour, paper and responsive card locked to the

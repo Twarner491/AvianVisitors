@@ -198,6 +198,25 @@
   function readLS(k, fallback) { try { return localStorage.getItem(k) || fallback; } catch (e) { return fallback; } }
   function writeLS(k, v) { try { localStorage.setItem(k, v); } catch (e) { } }
 
+  // Atlas artwork is a per-device presentation preference, like the theme:
+  // each station can keep its stamp collection while another uses the bird
+  // illustrations shipped in avian/assets/illustrations.
+  var ATLAS_ARTWORK_STORAGE_KEY = 'bird:atlasArtwork:v1';
+  function atlasArtworkPreference() {
+    var saved = readLS(ATLAS_ARTWORK_STORAGE_KEY, '');
+    // Preserve selections made before the bird-illustration mode was renamed.
+    if (saved === 'birds') {
+      writeLS(ATLAS_ARTWORK_STORAGE_KEY, 'cutouts');
+      return 'cutouts';
+    }
+    return saved === 'cutouts' ? 'cutouts' : 'stamps';
+  }
+  function applyAtlasArtwork(preference) {
+    writeLS(ATLAS_ARTWORK_STORAGE_KEY, preference === 'cutouts' ? 'cutouts' : 'stamps');
+    renderAtlas(false);
+    queueAtlasOverflowState();
+  }
+
   // Remember the last confirmed illustration pose independently for each
   // species. Keep a validated in-memory copy so the preference still works
   // for this visit when storage is unavailable (private mode / quota errors).
@@ -339,6 +358,17 @@
   });
 
   // Initial pill placement (after layout settles) + on resize.
+  // Atlas controls are independent, matching pill-on-recess segments.
+  var atlasArtworkEl = document.getElementById('atlasArtwork');
+  var atlasArtworkBtns = atlasArtworkEl ? [].slice.call(atlasArtworkEl.querySelectorAll('button')) : [];
+  atlasArtworkBtns.forEach(function (b) {
+    b.setAttribute('aria-current', b.dataset.atlasArtwork === atlasArtworkPreference() ? 'true' : 'false');
+    b.addEventListener('click', function () {
+      atlasArtworkBtns.forEach(function (x) { x.setAttribute('aria-current', x === b ? 'true' : 'false'); });
+      applyAtlasArtwork(b.dataset.atlasArtwork);
+      syncPill(atlasArtworkEl);
+    });
+  });
   // Atlas sort segmented control - same pill-on-recess pattern.
   var atlasSortEl = document.getElementById('atlasSort');
   var atlasSortBtns = atlasSortEl ? [].slice.call(atlasSortEl.querySelectorAll('button')) : [];
@@ -362,10 +392,12 @@
   // Open-space click advances these segmented toggles to the next option.
   wireToggleAdvance(slider);
   wireToggleAdvance(winPick);
+  wireToggleAdvance(atlasArtworkEl);
   wireToggleAdvance(atlasSortEl);
   wireToggleAdvance(document.getElementById('modalPoseToggle'));
   function syncAllPills() {
     syncPill(slider); syncPill(winPick);
+    if (atlasArtworkEl) syncPill(atlasArtworkEl);
     if (atlasSortEl) syncPill(atlasSortEl);
     var cp = document.getElementById('chartPick');
     if (cp) syncPill(cp);
@@ -4347,10 +4379,39 @@
     setTimeout(function () { clearInterval(t); }, 120000);
   }
 
+  function atlasIllustrationSrc(sci) {
+    return './avian/assets/illustrations/' + encodeURIComponent(slugify(sci)) + '.png?v=' + IMG_VERSION;
+  }
+  function atlasImageCardMarkup(s, total, win, isLifer, needsArt) {
+    var imageSrc = needsArt ? './nest-eggs.webp' : atlasIllustrationSrc(s.sci);
+    var audioSrc = './avian/api/recording.php?sci=' + encodeURIComponent(s.sci);
+    var ebird = ebirdUrl(s.sci);
+    var statRows = currentHours >= 1000000
+      ? '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">all time</span></div>'
+      : '<div><span class="n">' + fmtNK(win) + '</span><span class="lbl-inline">' + windowLabel(currentHours) + '</span></div>'
+      + '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">all time</span></div>';
+    return ''
+      + '<article class="bird-card atlas-image-card' + (needsArt ? ' needs-art' : '') + '"'
+      + ' data-sci="' + escHtml(s.sci) + '" data-audio="' + escHtml(audioSrc) + '">'
+      + (isLifer ? '<span class="lifer-badge" title="new to the life list in this window">lifer</span>' : '')
+      + '<div class="stat">' + statRows + '</div>'
+      + '<div class="img-wrap"><img loading="lazy" decoding="async" src="' + imageSrc + '" alt="' + escHtml(s.com || s.sci) + '"></div>'
+      + '<h3>' + escHtml(s.com || s.sci) + '</h3>'
+      + '<div class="sci">' + escHtml(s.sci) + '</div>'
+      + '<div class="spectro-wrap" aria-hidden="true"></div>'
+      + '<div class="actions">'
+      + '<button type="button" class="chip play" data-action="play" aria-label="play recording">' + ICON_PLAY + '<span>play</span></button>'
+      + '<a class="chip ext" href="' + wikiUrl(s.sci) + '" target="_blank" rel="noopener" aria-label="Wikipedia">wiki</a>'
+      + (ebird ? '<a class="chip ext" href="' + ebird + '" target="_blank" rel="noopener" aria-label="eBird">ebird</a>' : '')
+      + '</div></article>';
+  }
+
   function renderAtlas(animate) {
     var grid = document.getElementById('atlasGrid');
     if (!grid) return;
-    var priorRects = atlasRects(grid);
+    var artworkMode = atlasArtworkPreference();
+    grid.dataset.artwork = artworkMode;
+    var priorRects = artworkMode === 'stamps' ? atlasRects(grid) : {};
 
     function showAtlasEmpty(message, hint) {
       // A packed wall owns an inline pixel height. If a later time window has
@@ -4435,21 +4496,16 @@
       var win = winBySci[s.sci] || 0;
       var firstMs = Date.parse((s.first_seen || '').replace(' ', 'T'));
       var isLifer = !isAllWindow && !isNaN(firstMs) && firstMs >= windowStartMs;
+      // Waiting on tablesReady keeps either presentation from flashing an
+      // absent bird before dimensions have landed.
+      var needsArt = tablesReady && !DIMS[slugify(s.sci)];
+      if (artworkMode === 'cutouts') {
+        return atlasImageCardMarkup(s, total, win, isLifer, needsArt);
+      }
       var sketchSrc = './avian/api/cutout.php?sci=' + encodeURIComponent(s.sci) +
         (s.com ? '&com=' + encodeURIComponent(s.com) : '') +
         '&v=' + SKETCH_VERSION;
       var audioSrc = './avian/api/recording.php?sci=' + encodeURIComponent(s.sci);
-      // The "all time" window makes the windowed count identical to the
-      // all-time count - collapse to a single stat rather than print the
-      // same number twice. Otherwise label the count with its span.
-      var statRows = currentHours >= 1000000
-        ? '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">all time</span></div>'
-        : '<div><span class="n">' + fmtNK(win) + '</span><span class="lbl-inline">' + windowLabel(currentHours) + '</span></div>'
-        + '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">all time</span></div>';
-      // Heard but never drawn: issue the bird's real family stamp with the
-      // egg nest occupying its artwork plate. Waiting on tablesReady keeps
-      // a card from flashing the placeholder before dims.json lands.
-      var needsArt = tablesReady && !DIMS[slugify(s.sci)];
       var fresh = justGenerated[s.sci] ? '&t=' + justGenerated[s.sci] : '';
       // Each species prints as a stamp whose design is set by its family.
       // The card stays the click target so the detail modal, highlighting
@@ -4476,47 +4532,62 @@
         + '</article>';
     });
 
-    // A spanning heading inside an auto-fill grid collapses the track count,
-    // so the family view is built as one section per family instead.
-    if (sortMode === 'family' && window.STAMPS) {
-      var out = '', run = [], cur = null;
-      function flush() {
-        if (!run.length) return;
-        out += '<section class="fam-block">'
-             + '<h2 class="atlas-fam"><span>' + cur + '</span><i></i>'
-             + '<em>' + run.length + ' species</em></h2>'
-             + '<div class="atlas-fam-grid">' + run.join('') + '</div></section>';
-        run = [];
-      }
-      species.forEach(function (sp, i) {
-        var fam = window.STAMPS.familyOf(sp.sci);
-        if (fam !== cur) { flush(); cur = fam; }
-        run.push(cardHtml[i]);
+    if (artworkMode === 'cutouts') {
+      // Cutout cards use the original responsive field-guide grid;
+      // clear the stamp packer's inline geometry before committing them.
+      grid.classList.remove('is-packed');
+      grid.style.removeProperty('height');
+      grid.style.removeProperty('--pack-gap');
+      grid.removeAttribute('data-mode');
+      grid.dataset.sort = sortMode;
+      grid.innerHTML = cardHtml.join('');
+      requestAnimationFrame(function () {
+        queueAtlasOverflowState();
+        queueCompactHeader();
       });
-      flush();
-      commitAtlasMarkup(grid, out, sortMode, true);
     } else {
-      commitAtlasMarkup(grid, cardHtml.join(''), sortMode, false);
+      // A spanning heading inside an auto-fill grid collapses the track count,
+      // so the family view is built as one section per family instead.
+      if (sortMode === 'family' && window.STAMPS) {
+        var out = '', run = [], cur = null;
+        function flush() {
+          if (!run.length) return;
+          out += '<section class="fam-block">'
+               + '<h2 class="atlas-fam"><span>' + cur + '</span><i></i>'
+               + '<em>' + run.length + ' species</em></h2>'
+               + '<div class="atlas-fam-grid">' + run.join('') + '</div></section>';
+          run = [];
+        }
+        species.forEach(function (sp, i) {
+          var fam = window.STAMPS.familyOf(sp.sci);
+          if (fam !== cur) { flush(); cur = fam; }
+          run.push(cardHtml[i]);
+        });
+        flush();
+        commitAtlasMarkup(grid, out, sortMode, true);
+      } else {
+        commitAtlasMarkup(grid, cardHtml.join(''), sortMode, false);
+      }
+
+      packAtlasGrids(grid);
+      requestAnimationFrame(function () {
+        animateAtlasFlip(grid, priorRects);
+        queueCompactHeader();
+      });
+
+      // The stamp designs that use a real pixel treatment (cyanotype, halftone,
+      // low-poly, engraving) paint onto a canvas once it has been laid out.
+      if (window.FX) {
+        requestAnimationFrame(function () { window.FX.run(grid); });
+        setTimeout(function () { window.FX.run(grid); }, 400);
+      }
+
+      // Species heard since the last time the atlas was opened are stuck on
+      // one at a time, oldest arrival first, instead of wearing a badge.
+      // Runs once per page load, and only once the atlas is actually on
+      // screen, so the moment is never spent behind another view.
+      maybeStickNewStamps(grid, accession);
     }
-
-    packAtlasGrids(grid);
-    requestAnimationFrame(function () {
-      animateAtlasFlip(grid, priorRects);
-      queueCompactHeader();
-    });
-
-    // The stamp designs that use a real pixel treatment (cyanotype, halftone,
-    // low-poly, engraving) paint onto a canvas once it has been laid out.
-    if (window.FX) {
-      requestAnimationFrame(function () { window.FX.run(grid); });
-      setTimeout(function () { window.FX.run(grid); }, 400);
-    }
-
-    // Species heard since the last time the atlas was opened are stuck on
-    // one at a time, oldest arrival first, instead of wearing a badge.
-    // Runs once per page load, and only once the atlas is actually on
-    // screen, so the moment is never spent behind another view.
-    maybeStickNewStamps(grid, accession);
 
     // Wire audio playback + spectrogram load.
     // - Only one card plays at a time. Clicking play on a different card
@@ -4671,13 +4742,13 @@
       }
       atlasResizeSettling = false;
       var grid = document.getElementById('atlasGrid');
-      if (grid) packAtlasGrids(grid);
+      if (grid && atlasArtworkPreference() === 'stamps') packAtlasGrids(grid);
     }, 140);
     if (atlasResizeFrame) return;
     atlasResizeFrame = requestAnimationFrame(function () {
       atlasResizeFrame = 0;
       var grid = document.getElementById('atlasGrid');
-      if (grid) packAtlasGrids(grid);
+      if (grid && atlasArtworkPreference() === 'stamps') packAtlasGrids(grid);
     });
   }, { passive: true });
 

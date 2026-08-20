@@ -1264,7 +1264,7 @@
        the view, under the title, as they did before it was pinned. */
     position: sticky; top: 0; z-index: 10;
     max-width: 1280px; margin: 0 auto 18px;
-    display: flex; justify-content: flex-end; align-items: center;
+    display: flex; justify-content: space-between; align-items: center;
     pointer-events: none;
   }
 .stage.is-compact .atlas-controls {
@@ -2175,6 +2175,12 @@ body.postcard-open { overflow: hidden; }
     transition: color 200ms ease;
   }
   .atlas-sort button svg { width: 13px; height: 13px; display: block; }
+  /* Text options share the sort pill's material treatment, but retain
+     enough horizontal room to read as a separate presentation control. */
+  .atlas-artwork-toggle button {
+    width: auto; padding: 0 11px;
+    font: 10px ui-monospace, Menlo, monospace; letter-spacing: 0.04em;
+  }
   .atlas-sort button:hover { color: var(--ink); }
   .atlas-sort button[aria-current="true"] { color: var(--ink); }
   .atlas-sort button .tip {
