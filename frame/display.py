@@ -347,15 +347,17 @@ def load_state(path):
         return {"signature": None, "last_refresh": 0}
 
 
-def save_state(path, sig, when, validators=None):
-    """`validators` is image mode's {etag, last_modified}; keeping it here is
-    what lets the next run send a conditional request. Optional so publish.py
-    and the other three modes can keep calling this with three arguments."""
+def save_state(path, sig, when, validators=None, url=None):
+    """`validators` is image mode's {etag, last_modified} and `url` is the
+    address they describe; keeping both is what lets the next run send a
+    conditional request and know when it must not. Optional so publish.py and
+    the other three modes can keep calling this with three arguments."""
     path = os.path.expanduser(path)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
-        json.dump({"signature": sig, "last_refresh": when, "validators": validators}, f)
+        json.dump({"signature": sig, "last_refresh": when,
+                   "validators": validators, "url": url}, f)
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)  # atomic: a power cut can't leave a half-written file
@@ -418,6 +420,7 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
     sig = None
     species = None
     fetched = None                        # image mode downloads during its gate
+    resolved_url = state.get("url")       # the URL those validators describe
     validators = state.get("validators")
     heal_due = now - state.get("last_refresh", 0) >= cfg["heal_hours"] * 3600
 
@@ -436,12 +439,23 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
         return
 
     if gate_on_image:
+        # Ask the source for names the same way obtain_image does. The gate path
+        # bypasses obtain_image entirely, so without this the label preference
+        # would silently never reach an image_url source.
+        src = frame_url(cfg["image_url"], cfg["bird_names"])
+        # A validator only means anything for the URL it came from. Toggling
+        # labels changes the URL but not the file caddy serves, so the ETag is
+        # unchanged and a stale validator would take a 304 for an image rendered
+        # under the other setting. State written before this key existed has no
+        # url, which has to mean "drop them once", not "assume they match".
+        if state.get("url") != src:
+            validators = None
         # Send the validators only when a 304 would actually let us stop. On a
         # heal we want the bytes back even though nothing changed, so the panel
         # redraws and clears its ghosting.
         conditional = None if (force or preview or heal_due) else validators
         try:
-            fetched, got = _http_image(cfg["image_url"], cfg["timeout"], _auth(cfg), conditional)
+            fetched, got = _http_image(src, cfg["timeout"], _auth(cfg), conditional)
         except Exception as e:
             print(f"could not get image: {e}", file=sys.stderr)  # keep last panel image
             return
@@ -453,6 +467,7 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
         # panel. Keeping them would send a stale If-None-Match and could take a
         # 304 for the wrong image.
         validators = got or None
+        resolved_url = src
         if not force and not preview:
             print("refresh:", "heal" if heal_due else "changed")
     else:
@@ -487,7 +502,8 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
     except Exception as e:
         print(f"panel push failed: {e}", file=sys.stderr)
         return
-    save_state(cfg["state"], sig if sig is not None else state.get("signature"), now, validators)
+    save_state(cfg["state"], sig if sig is not None else state.get("signature"), now,
+               validators, resolved_url)
     print("panel updated")
 
 
