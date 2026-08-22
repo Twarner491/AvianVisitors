@@ -2141,6 +2141,11 @@
 
   function renderCollage(items, animate) {
     collage.innerHTML = '';
+    // Which data this render came from. The frame's shoot waits for "data"
+    // before trusting what it sees: the boot render draws the empty nest before
+    // the recent payload has even been requested, and a screenshot taken off
+    // that would ship a nest for a station full of birds.
+    collage.setAttribute('data-rendered', DATA && DATA.recent ? 'data' : 'boot');
     // Drop the previous render's hit-test tiles up front so a click or hover on
     // the empty-nest state (or a collage that hasn't laid out yet) resolves to
     // nothing, not to a stale bird from the last populated render. The populated
@@ -2209,6 +2214,15 @@
         score: Math.pow(Math.max(1, n), T.countExp),
       };
     }).filter(Boolean);
+    if (!tiles.length) {
+      // Birds were heard but none has an illustration yet (a new station, or
+      // species outside the bundled set). Leave the nest up rather than a blank
+      // collage - and give the frame an .empty to capture instead of a timeout.
+      collage.innerHTML = '<div class="empty-nest">' +
+        '<img class="nest-img" src="nest.webp" alt="an empty nest" decoding="async">' +
+        '<p class="empty window-empty">birds heard, none with a picture yet</p></div>';
+      return;
+    }
     // Reroll on re-entry: forget pose choices for species no longer in window.
     var present = {}; items.forEach(function (s) { present[s.sci] = 1; });
     Object.keys(collagePose).forEach(function (k) { if (!present[k]) delete collagePose[k]; });
