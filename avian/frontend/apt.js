@@ -823,9 +823,27 @@
   // little of that permission as the complaint allows.
   var LABEL_CURL = 68;
   var labelParam = /[?&]labels=(1|0)\b/.exec(location.search);
+  // Three layers, like the theme: ?labels=1|0 (how a frame's shoot forces a
+  // value without localStorage), then this device's own choice, then the
+  // station's COLLAGE_LABELS - which rides on the recent payload because this
+  // page is anonymous and config.php is not. Absent means on, the historic
+  // default, so a collage against an older station looks exactly as before.
+  function siteLabels() {
+    var r = DATA && DATA.recent;
+    return (r && typeof r.labels === 'boolean') ? r.labels : true;
+  }
+  // 'site' | 'on' | 'off'. A device that never touched the switch has no key
+  // and follows the site; one that did keeps its choice, because the old
+  // handler only ever wrote on a click, so a stored value is a real decision.
+  function labelPreference() {
+    var v = readLS('bird:labels', 'site');
+    return (v === 'on' || v === 'off') ? v : 'site';
+  }
   function labelsOn() {
     if (labelParam) return labelParam[1] === '1';
-    return readLS('bird:labels', 'on') === 'on';
+    var pref = labelPreference();
+    if (pref !== 'site') return pref === 'on';
+    return siteLabels();
   }
   var labelCtx = document.createElement('canvas').getContext('2d');
   var edgeFitCache = {};
@@ -6273,31 +6291,15 @@
   // Client-side collage-label switch. It applies instantly and remains a
   // browser preference rather than part of the Pi config save flow.
   function labelsRow() {
-    // Same default as labelsOn(), or the switch reads off on a fresh device
-    // while the collage is drawing names.
-    var cur = readLS('bird:labels', 'on');
+    var cur = labelPreference();
+    var btn = function (v, label) {
+      return '<button type="button" data-labels="' + v + '" aria-current="' + (cur === v ? 'true' : 'false') + '">' + label + '</button>';
+    };
     return ''
       + '<div class="menu-row">'
-      + '  <div><span class="label">Bird names</span><span class="hint">show names alongside birds in the collage</span></div>'
-      + '  <button type="button" class="switch" role="switch" aria-label="Show bird names"'
-      + '    aria-checked="' + (cur === 'on' ? 'true' : 'false') + '" data-labels-switch></button>'
+      + '  <div><span class="label">Bird names on this device</span><span class="hint">site follows the station setting below</span></div>'
+      + '  <div class="seg" data-labels-seg><i class="seg-pill" aria-hidden="true"></i>' + btn('site', 'site') + btn('off', 'off') + btn('on', 'on') + '</div>'
       + '</div>';
-  }
-  function wireLabelsPreference(scope) {
-    var labelsSwitch = scope.querySelector('[data-labels-switch]');
-    if (!labelsSwitch) return;
-    labelsSwitch.addEventListener('click', function () {
-      var on = labelsSwitch.getAttribute('aria-checked') !== 'true';
-      labelsSwitch.setAttribute('aria-checked', on ? 'true' : 'false');
-      writeLS('bird:labels', on ? 'on' : 'off');
-      if (document.fonts && document.fonts.load) {
-        document.fonts.load('600 16px Hand').then(function () {
-          labelFontReady = true; renderCollageFromData();
-        }).catch(function () { labelFontReady = true; renderCollageFromData(); });
-      } else {
-        labelFontReady = true; renderCollageFromData();
-      }
-    });
   }
   function atlasAlwaysAllRow() {
     var on = atlasAlwaysAll();
@@ -7139,7 +7141,7 @@
   }
   function wireSettingsControls(scope) {
     scope = scope || document;
-    scope.querySelectorAll('.switch:not([data-labels-switch]):not([data-atlas-always-all]):not([data-atlas-classic]):not([data-lan-auth]):not([data-birdweather-toggle]):not([data-birdweather-audio]):not([data-archive-toggle])').forEach(function (sw) {
+    scope.querySelectorAll('.switch:not([data-atlas-always-all]):not([data-atlas-classic]):not([data-lan-auth]):not([data-birdweather-toggle]):not([data-birdweather-audio]):not([data-archive-toggle])').forEach(function (sw) {
       sw.addEventListener('click', function () {
         var on = sw.getAttribute('aria-checked') !== 'true';
         sw.setAttribute('aria-checked', on ? 'true' : 'false');
@@ -7227,6 +7229,9 @@
             applySiteName(submitted.SITE_NAME);
           }
           setSaveState('saved ✓', 'ok');
+          // COLLAGE_LABELS travels on the recent payload, so re-fetch it and
+          // the collage follows at once instead of on the next timer.
+          try { refreshRecent(false); } catch (e) { }
           setTimeout(function () { setSaveState(''); }, 1800);
         } else {
           restoreSubmittedSettings(submitted);
@@ -9246,6 +9251,10 @@
           + '<section>'
           + themeRow()
           + labelsRow()
+          + settingsSegmented('COLLAGE_LABELS', 'Bird names', 'the station default: every device set to site, and every frame rendered from this station', v.COLLAGE_LABELS || 'on', [
+            { v: 'off', label: 'off' },
+            { v: 'on', label: 'on' },
+          ])
           + atlasAlwaysAllRow()
           + atlasClassicRow()
           + settingsText('SITE_NAME', 'Station name', v.SITE_NAME || 'BirdNET-Pi', 60)
@@ -9325,10 +9334,26 @@
             x.setAttribute('aria-current', x === b ? 'true' : 'false');
           });
         });
-        // Bird names apply and persist immediately without entering the Pi
-        // settings queue. Loading the handwriting face triggers the second
-        // render with its final measured metrics.
-        wireLabelsPreference(adminBody);
+        // Labels switcher applies + persists immediately too. The second
+        // render after the handwriting face loads swaps the measured
+        // fallback metrics for the real ones.
+        var labelsSeg = adminBody.querySelector('[data-labels-seg]');
+        if (labelsSeg) labelsSeg.addEventListener('click', function (ev) {
+          var b = ev.target.closest('button[data-labels]');
+          if (!b) return;
+          var chosen = b.getAttribute('data-labels');
+          writeLS('bird:labels', (chosen === 'on' || chosen === 'off') ? chosen : 'site');
+          [].forEach.call(labelsSeg.querySelectorAll('button'), function (x) {
+            x.setAttribute('aria-current', x === b ? 'true' : 'false');
+          });
+          if (document.fonts && document.fonts.load) {
+            document.fonts.load('600 16px Hand').then(function () {
+              labelFontReady = true; renderCollageFromData();
+            }).catch(function () { labelFontReady = true; renderCollageFromData(); });
+          } else {
+            labelFontReady = true; renderCollageFromData();
+          }
+        });
         // Atlas-only preference: apply immediately without touching the
         // shared time picker or sending a station settings request.
         var atlasAllSwitch = adminBody.querySelector('[data-atlas-always-all]');

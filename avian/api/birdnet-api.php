@@ -62,6 +62,17 @@ function publicSiteName(string $path): string {
 
 if (defined('AVIAN_BIRDNET_API_LIBRARY_ONLY')) return;
 
+// The site-wide label preference rides on the recent payload because every
+// consumer already reads it there: the collage fetches it before each render,
+// a frame's screenshot intercepts and re-serves it, and both change gates poll
+// it. config.php cannot carry it - that endpoint is admin-only and the collage
+// page is anonymous. Absent means on, matching the collage's own default.
+require_once __DIR__ . '/admin-auth.php';
+function collage_labels_default(): bool {
+    $v = avian_conf_value(dirname(__DIR__, 2) . '/birdnet.conf', 'COLLAGE_LABELS');
+    return !in_array(strtolower(trim((string)$v)), ['off', '0', 'false', 'no'], true);
+}
+
 if (!file_exists($DB_PATH)) {
     http_response_code(503);
     echo json_encode(['error' => 'birds.db not found']);
@@ -197,7 +208,9 @@ switch ($action) {
         echo json_encode([
             'hours' => $hours, 'date' => $ctx['date'], 'station_date' => $ctx['today'],
             'is_today' => $ctx['is_today'], 'anchor' => $ctx['anchor'],
-            'species' => $rs, 'site_name' => publicSiteName($CONF_PATH), 'as_of' => date('c')
+            'species' => $rs, 'site_name' => publicSiteName($CONF_PATH),
+            'as_of' => date('c'),
+            'labels' => collage_labels_default()
         ]);
         break;
     }
