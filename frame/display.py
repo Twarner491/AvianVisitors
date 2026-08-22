@@ -60,7 +60,7 @@ DEFAULTS = {
     "shoot_title": None, "shoot_subtitle": None,
     "shoot_headline_px": 42, "shoot_eyebrow_px": 18, "shoot_lowercase": False,
     "shoot_mat": 0.04, "shoot_small_floor": 0.04, "shoot_count_exp": 0.65,
-    "bird_names": False,
+    "bird_names": "",       # "" = follow the station's COLLAGE_LABELS; true/false override
     "mat": 0.0,             # extra global shrink of the content inside the A5 opening
     "opening": 0.7071,      # opening height as a panel fraction; 0.7071 preserves A5
     "rotate": 90,           # 90 or 270 if the frame hangs the other way up
@@ -73,6 +73,23 @@ DEFAULTS = {
     "timeout": 180,      # seconds; a Zero 2 W needs ~70-120s to shoot the collage
     "basic_user": None, "basic_pass": None,
 }
+
+
+def labels_pref(cfg):
+    """The frame's label override, or None to follow the station.
+
+    TOML has no "unset" a user can type, so "" (what install.sh and
+    birdframe-names auto write), "auto" and "site" all mean follow; booleans
+    and on/off/true/false are explicit overrides."""
+    v = cfg.get("bird_names")
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, int):      # bird_names = 0 / 1 in TOML; bool is checked first
+        return bool(v)
+    s = str(v or "").strip().lower()
+    if s in ("", "auto", "site", "follow"):
+        return None
+    return s in ("1", "true", "on", "yes")
 
 
 def _auth(cfg):
@@ -94,13 +111,20 @@ def _bucket(n):
     return 8
 
 
-def fetch_recent(base, hours, timeout, auth=None):
+def fetch_recent_payload(base, hours, timeout, auth=None):
+    """The whole recent payload: species for the signature, plus the station's
+    `labels` default, which the gate has to watch separately - a label flip
+    changes the picture without changing a single bird."""
     url = f"{base.rstrip('/')}/avian/api/birdnet-api.php?action=recent&hours={hours}"
     req = urllib.request.Request(url, headers={"User-Agent": "AvianVisitors-frame/1.0"})
     if auth:
         req.add_header("Authorization", auth)
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read(2_000_000)).get("species", [])
+        return json.loads(r.read(2_000_000))
+
+
+def fetch_recent(base, hours, timeout, auth=None):
+    return fetch_recent_payload(base, hours, timeout, auth).get("species", [])
 
 
 def signature(species):
@@ -347,7 +371,7 @@ def load_state(path):
         return {"signature": None, "last_refresh": 0}
 
 
-def save_state(path, sig, when, validators=None, url=None):
+def save_state(path, sig, when, validators=None, url=None, labels=None):
     """`validators` is image mode's {etag, last_modified} and `url` is the
     address they describe; keeping both is what lets the next run send a
     conditional request and know when it must not. Optional so publish.py and
@@ -357,7 +381,7 @@ def save_state(path, sig, when, validators=None, url=None):
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         json.dump({"signature": sig, "last_refresh": when,
-                   "validators": validators, "url": url}, f)
+                   "validators": validators, "url": url, "labels": labels}, f)
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)  # atomic: a power cut can't leave a half-written file
@@ -371,8 +395,11 @@ def in_quiet_hours(cfg, hour):
 
 
 def frame_url(url, bird_names):
-    """Set the frame's label preference without disturbing other URL state."""
+    """Set the frame's label preference without disturbing other URL state.
+    None means follow the station: leave the URL alone."""
     import urllib.parse
+    if bird_names is None:
+        return url
     parts = urllib.parse.urlsplit(url)
     query = [(k, v) for k, v in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
              if k != "labels"]
@@ -389,7 +416,7 @@ def obtain_image(cfg, species=None):
         out = os.path.join(os.path.expanduser(cfg["cache"]), "frame.png")
         os.makedirs(os.path.dirname(out), exist_ok=True)
         shoot_birdweather(out, species, title=cfg["shoot_title"], subtitle=cfg["shoot_subtitle"],
-                          timeout_ms=cfg["timeout"] * 1000, bird_names=cfg["bird_names"])
+                          timeout_ms=cfg["timeout"] * 1000, bird_names=labels_pref(cfg))
         return Image.open(out).convert("RGB")
     if cfg["shoot"]:
         from shoot import shoot
@@ -400,7 +427,7 @@ def obtain_image(cfg, species=None):
               lowercase=cfg["shoot_lowercase"], mat=cfg["shoot_mat"],
               small_floor=cfg["shoot_small_floor"], count_exp=cfg["shoot_count_exp"], timeout_ms=cfg["timeout"] * 1000,
               user=cfg["basic_user"], password=cfg["basic_pass"], window_hours=cfg["hours"],
-              bird_names=cfg["bird_names"])
+              bird_names=labels_pref(cfg))
         return Image.open(out).convert("RGB")
     src = cfg["image_url"] or cfg["image"]
     if not src:
@@ -410,7 +437,7 @@ def obtain_image(cfg, species=None):
     # parameter ignores it and sends what it always sent, so this is safe
     # against anything. URLs only: a local file path has no query string.
     if cfg["image_url"]:
-        src = frame_url(src, cfg["bird_names"])
+        src = frame_url(src, labels_pref(cfg))
     return get_image(src, cfg["timeout"], _auth(cfg))
 
 
@@ -421,6 +448,7 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
     species = None
     fetched = None                        # image mode downloads during its gate
     resolved_url = state.get("url")       # the URL those validators describe
+    resolved_labels = state.get("labels")  # what the last render drew names as
     validators = state.get("validators")
     heal_due = now - state.get("last_refresh", 0) >= cfg["heal_hours"] * 3600
 
@@ -442,7 +470,7 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
         # Ask the source for names the same way obtain_image does. The gate path
         # bypasses obtain_image entirely, so without this the label preference
         # would silently never reach an image_url source.
-        src = frame_url(cfg["image_url"], cfg["bird_names"])
+        src = frame_url(cfg["image_url"], labels_pref(cfg))
         # A validator only means anything for the URL it came from. Toggling
         # labels changes the URL but not the file caddy serves, so the ETag is
         # unchanged and a stale validator would take a 304 for an image rendered
@@ -471,13 +499,32 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
         if not force and not preview:
             print("refresh:", "heal" if heal_due else "changed")
     else:
+        site_labels = None
         if use_signature:
             try:
-                species = fetch_species(cfg, _auth(cfg))
+                if cfg.get("species_source") == "birdweather":
+                    species = fetch_species(cfg, _auth(cfg))
+                else:
+                    payload = fetch_recent_payload(cfg["base_url"], cfg["hours"], cfg["timeout"], _auth(cfg))
+                    species = payload.get("species", [])
+                    site_labels = payload.get("labels")
                 sig = signature(species)
             except Exception as e:
                 print(f"signature fetch failed: {e}", file=sys.stderr)  # treat as no change
         changed = (not use_signature) or (sig is not None and sig != state.get("signature"))
+        # Labels are tracked beside the signature, not inside it: the hash must
+        # stay identical on every machine, and a flip of the station's default
+        # changes the picture without moving a single bird. Resolve like the
+        # page: explicit override, else the station, else on.
+        if sig is not None:
+            override = labels_pref(cfg)
+            resolved_labels = override if override is not None else (
+                site_labels if isinstance(site_labels, bool) else True)
+            # A state file with no labels key predates this gate; treat it as a
+            # flip so the first tick after an upgrade draws whatever the station
+            # says now, rather than waiting for a bird or the daily heal.
+            if resolved_labels != state.get("labels"):
+                changed = True
         if not force and not preview:
             if not changed and not heal_due:
                 print("no change; skip")
@@ -503,7 +550,7 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
         print(f"panel push failed: {e}", file=sys.stderr)
         return
     save_state(cfg["state"], sig if sig is not None else state.get("signature"), now,
-               validators, resolved_url)
+               validators, resolved_url, resolved_labels)
     print("panel updated")
 
 

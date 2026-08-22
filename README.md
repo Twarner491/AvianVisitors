@@ -147,7 +147,7 @@ Everything outside `avian/` and `frame/` is upstream BirdNET-Pi.
 
 ## Wall frame
 
-An optional e-ink frame mirrors the last 24h of birds onto a panel by your window. Build it from [`frame/`](frame/README.md). It can run off your own BirdNET mic, or standalone from BirdWeather data for any ZIP code with no mic at all — or the mic Pi can render and publish the image itself, so the frame Pi needs no browser.
+An optional e-ink frame mirrors the last 24h of birds onto a panel by your window. Build it from [`frame/`](frame/README.md). It can run off your own BirdNET mic, or standalone from BirdWeather data for any ZIP code with no mic at all — or the mic Pi can render and publish the image itself, so the frame Pi needs no browser. Bird names are one setting for all of it — **Bird names** in the web admin — and the collage, the published image and a self-rendering frame all follow it.
 
 For that last one, run [`frame/install-publish.sh`](frame/install-publish.sh) on the mic Pi whenever you like, or opt in at install time. Note the env var has to go inside `bash -c`, or it applies to `curl` and is silently lost:
 

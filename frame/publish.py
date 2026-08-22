@@ -37,7 +37,7 @@ from shoot import shoot
 # that ever corrects a disagreement. display.py imports PIL at module scope
 # (hence Pillow in requirements-publish.txt) but imports inky lazily inside
 # push_panel, so this is safe on a machine with no panel.
-from display import _auth, fetch_recent, signature, load_state, save_state
+from display import _auth, fetch_recent_payload, signature, load_state, save_state
 
 # The panel is 1200x1600 and display.py silently resizes anything else, so a
 # viewport or device-scale-factor regression would ship soft with no error.
@@ -142,8 +142,14 @@ def publish(url, out, **look):
     return size
 
 
-def changed(url, out, state_path, hours, timeout_ms, heal_hours, auth=None):
-    """(should_render, signature) - has the bird set moved since the last publish?
+def changed(url, out, state_path, hours, timeout_ms, heal_hours, auth=None, labels_pref=None):
+    """(should_render, signature, labels) - has the bird set moved since the
+    last publish, or the label setting the frame is drawn with?
+
+    Labels are compared beside the signature, never folded into it: the hash
+    has to stay identical on both machines, and flipping the station's
+    COLLAGE_LABELS changes the picture without moving a single bird. Resolved
+    like the page does - explicit override, else the station, else on.
 
     The signature is fetched even when we already know we must render (no frame
     on disk yet), so the first successful publish records it and the second tick
@@ -164,11 +170,18 @@ def changed(url, out, state_path, hours, timeout_ms, heal_hours, auth=None):
         # 401s every tick, which reads as "no change" and freezes the frame on
         # whatever the first run published - forever, with both machines
         # reporting success. That is the exact failure this file exists to avoid.
-        sig = signature(fetch_recent(url, hours, timeout_ms / 1000, auth))
+        payload = fetch_recent_payload(url, hours, timeout_ms / 1000, auth)
+        sig = signature(payload.get("species", []))
     except Exception as e:
         print(f"signature fetch failed: {e}", file=sys.stderr)
-        return first_run or due, None
-    return first_run or due or sig != state.get("signature"), sig
+        return first_run or due, None, None
+    site = payload.get("labels")
+    labels = labels_pref if labels_pref is not None else (site if isinstance(site, bool) else True)
+    # No labels key means the state predates this gate: one render after the
+    # upgrade, so the published frame matches the station now rather than at
+    # the next bird or the daily heal.
+    flipped = labels != state.get("labels")
+    return first_run or due or flipped or sig != state.get("signature"), sig, labels
 
 
 def env_default(name, fallback, cast=str):
@@ -215,6 +228,13 @@ def main():
     ap.add_argument("--timeout", type=int,
                     default=env_default("FRAME_TIMEOUT_MS", DEFAULT_TIMEOUT_MS, int),
                     help="milliseconds, applied per Playwright step")
+    # Tri-state, like the frame's own config: unset follows the station's
+    # COLLAGE_LABELS (the normal case - the mic is the one place to set it),
+    # --bird-names / --no-bird-names force it for this publisher only.
+    names_env = env_default("FRAME_BIRD_NAMES", "", str).strip().lower()
+    ap.add_argument("--bird-names", action=argparse.BooleanOptionalAction,
+                    default=None if names_env in ("", "auto", "site") else names_env in ("1", "true", "on", "yes"),
+                    help="force names on/off; unset follows the station's COLLAGE_LABELS")
     ap.add_argument("--heal-hours", type=float,
                     default=env_default("FRAME_HEAL_HOURS", DEFAULT_HEAL_HOURS, float),
                     help="re-render at least this often even with no bird change")
@@ -250,7 +270,8 @@ def main():
     # The signature is fetched even under --force, so a hand-forced render still
     # records where the birds were; otherwise the next timer tick sees the stale
     # recorded signature and renders a second time for nothing.
-    moved, sig = changed(a.url, out, state_path, a.hours, a.timeout, a.heal_hours, auth)
+    moved, sig, labels = changed(a.url, out, state_path, a.hours, a.timeout, a.heal_hours, auth,
+                                 labels_pref=a.bird_names)
     if not (a.force or moved):
         print("no change; skip")
         return
@@ -263,7 +284,7 @@ def main():
                        # The gate hashes `hours` of detections, so the render has
                        # to cover the same window or a change outside the drawn
                        # window triggers a full repaint of an identical collage.
-                       window_hours=a.hours,
+                       window_hours=a.hours, bird_names=a.bird_names,
                        user=a.user, password=a.password)
     except Exception as e:
         # Non-zero so `systemctl --failed` surfaces it. The previous frame.png is
@@ -274,7 +295,7 @@ def main():
     # Only after a successful publish, so a failed render is retried next tick
     # instead of being recorded as done.
     if sig is not None:
-        save_state(state_path, sig, time.time())
+        save_state(state_path, sig, time.time(), labels=labels)
     print(f"published {out} ({size} bytes)")
 
 

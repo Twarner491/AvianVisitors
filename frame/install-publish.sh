@@ -319,6 +319,9 @@ FRAME_URL="http://127.0.0.1/"
 FRAME_OUT="$OUT"
 FRAME_TITLE="Avian Visitors"
 FRAME_SUBTITLE="Heard Today"
+# Bird names follow the station's COLLAGE_LABELS (set it in the web admin, once,
+# for the collage and every frame). on/off here forces it for this publisher only.
+# FRAME_BIRD_NAMES=""
 # If the whole site is behind basic auth, set these too - without them the
 # change-detection fetch 401s every tick and the frame freezes on one image:
 # FRAME_USER="..."

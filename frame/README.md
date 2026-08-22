@@ -69,14 +69,18 @@ Each one enables SPI + I2C, installs the deps and a systemd timer, writes `~/.bi
 
 The default layout matches the A5 opening in the frame listed above. If you use a different mat or a bare panel, set `opening` in `~/.birdframe/config.toml`; `0.7071` preserves the current A5 dimensions, while values up to about `0.98` use more of the panel.
 
-Bird names are off on the frame by default. Turn them on or off at any time; the command saves the preference and requests an immediate refresh:
+Bird names are decided once, on the mic Pi: open the web admin and set **Bird names**, or put `COLLAGE_LABELS=on|off` in `birdnet.conf`. The collage, a frame rendering from that site, and a frame showing its published image all follow it — a flip shows up on the panel at the next check, no new bird needed. A single device can still pick its own in the collage's settings row, and a frame can override with:
 
 ```bash
-birdframe-names on
+birdframe-names on      # names on this frame, whatever the station says
 birdframe-names off
+birdframe-names auto    # follow the station again (the default)
+birdframe-names status
 ```
 
-For an `--image-url` frame, the command adds `labels=1` or `labels=0` to the source URL. The source must honor that setting; otherwise its image will not change.
+Overriding is only possible on a frame that renders for itself. A frame pointed at a published image shows whatever the mic Pi drew, and the command says so instead of pretending.
+
+Two consequences of "follow" worth knowing: a BirdWeather frame has no station, so `auto` there means the page's own default, names on; and a frame updated before its mic Pi sees no setting yet and likewise draws names until the mic Pi catches up. Use `birdframe-names off` if either is not what you want.
 
 ### Let the mic Pi render (publish mode)
 
@@ -114,7 +118,7 @@ Retune titles in `/etc/birdframe/publish.env` and run `sudo systemctl start bird
 
 To remove it: `./install-publish.sh --uninstall` (`scripts/uninstall.sh` discovers units by scanning `install_services.sh`, so it cannot see this one).
 
-**Labels and this source.** `birdframe-names` appends `labels=1` to the image URL, but the publisher serves one pre-rendered PNG and ignores the parameter, so toggling names on a frame pointed at it changes nothing. Set the names on the mic Pi instead, or run the frame in a rendering mode. Publishing a second labelled variant is tracked separately.
+Bird names on the published frame follow the station's **Bird names** setting like everything else, and the publisher re-renders when it changes. `FRAME_BIRD_NAMES=on|off` in `publish.env` forces it for the publisher alone, which is rarely what you want.
 
 BirdWeather mode renders on the Pi from this repo's illustrations on GitHub, so there is no image set to copy over. ZIP codes with no station nearby fall back to the closest ones. If you are far from any BirdWeather station, add `--ebird-key <key>` (a free key from [ebird.org/api/keygen](https://ebird.org/api/keygen)) and the frame fills from eBird sightings instead.
 
