@@ -51,10 +51,16 @@ git -C "$seed" add .
 git -C "$seed" commit -qm base
 
 git -C "$seed" switch -qc avian-visitors
-mkdir -p "$seed/avian/frontend"
+mkdir -p "$seed/avian/frontend" "$seed/avian/assets/illustrations" \
+  "$seed/avian/assets/cutouts"
 printf 'one\n' >"$seed/version.txt"
-printf 'mask-one\n' >"$seed/avian/frontend/masks.json"
-printf 'dims-one\n' >"$seed/avian/frontend/dims.json"
+printf '{"shared-bird":{"w":1,"h":1,"bits":"AA=="},"identical-bird":{"w":1,"h":1,"bits":"AA=="}}\n' \
+  >"$seed/avian/frontend/masks.json"
+printf '{"shared-bird":[1,1],"identical-bird":[1,1]}\n' \
+  >"$seed/avian/frontend/dims.json"
+printf 'official shared art\n' >"$seed/avian/assets/illustrations/shared-bird.png"
+printf 'official identical art\n' >"$seed/avian/assets/illustrations/identical-bird.png"
+printf 'official shared cutout\n' >"$seed/avian/assets/cutouts/shared-photo.png"
 printf 'official collision\n' >"$seed/avian/legacy.txt"
 printf 'fail-filter.txt filter=fail\n' >"$seed/.gitattributes"
 printf 'filter content\n' >"$seed/fail-filter.txt"
@@ -65,8 +71,19 @@ printf 'two\n' >"$seed/version.txt"
 git -C "$seed" add version.txt
 git -C "$seed" commit -qm release-two
 release_two=$(git -C "$seed" rev-parse HEAD)
+printf 'three\n' >"$seed/version.txt"
+printf 'release-three shared art\n' >"$seed/avian/assets/illustrations/shared-bird.png"
+printf 'release-three Swiss collision\n' >"$seed/avian/assets/illustrations/swiss-only.png"
+printf '{"shared-bird":{"w":1,"h":1,"bits":"AA=="},"identical-bird":{"w":1,"h":1,"bits":"AA=="},"swiss-only":{"w":1,"h":1,"bits":"AA=="}}\n' \
+  >"$seed/avian/frontend/masks.json"
+printf '{"shared-bird":[1,1],"identical-bird":[1,1],"swiss-only":[1,1]}\n' \
+  >"$seed/avian/frontend/dims.json"
+git -C "$seed" add .
+git -C "$seed" commit -qm release-three
+release_three=$(git -C "$seed" rev-parse HEAD)
 
 git clone -q --bare "$seed" "$remote"
+git -C "$remote" update-ref refs/heads/avian-visitors "$release_two"
 git -C "$remote" symbolic-ref HEAD refs/heads/main
 git clone -q --bare "$seed" "$missing_remote"
 git -C "$missing_remote" update-ref -d refs/heads/avian-visitors
@@ -86,6 +103,7 @@ setup_case() {
   station_home=$test_root/$name/home
   repo_dir=$station_home/BirdNET-Pi
   case_log=$test_root/$name.log
+  rm -f /run/lock/avian-generation.lock
   id "$station_user" >/dev/null 2>&1 \
     || useradd -M -d "$station_home" -s /bin/bash "$station_user"
   mkdir -p "$station_home"
@@ -219,6 +237,56 @@ grep -q 'another update is already running' "$case_log" \
 flock -u 8
 exec 8>&-
 
+setup_case generating release-one
+generation_lock=/run/lock/avian-generation.lock
+install -o root -g "$(id -g "$station_user")" -m 0660 /dev/null "$generation_lock"
+generation_ready=$station_home/generation.ready
+rm -f "$generation_ready"
+as_station "$station_user" "$station_home" \
+  flock "$generation_lock" sh -c "touch '$generation_ready'; sleep 10" &
+generation_pid=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -e "$generation_ready" ] && break
+  sleep 0.1
+done
+[ -e "$generation_ready" ] || fail 'could not hold the generation lock'
+expect_failure 'active illustration generation'
+grep -q 'bird illustration generation is running' "$case_log" \
+  || fail 'generation-lock error was unclear'
+kill "$generation_pid" 2>/dev/null || true
+wait "$generation_pid" 2>/dev/null || true
+
+setup_case generationhandoff release-one
+install -o root -g "$(id -g "$station_user")" -m 0660 /dev/null "$generation_lock"
+printf '{"running":true,"at":%s}\n' "$(date +%s)" \
+  >"$repo_dir/avian/assets/illustrations/.generate.state.json"
+chown "$station_user:$station_user" \
+  "$repo_dir/avian/assets/illustrations/.generate.state.json"
+expect_failure 'illustration worker handoff'
+grep -q 'bird illustration generation is starting' "$case_log" \
+  || fail 'generation-handoff error was unclear'
+printf '{"running":true,"at":1}\n' \
+  >"$repo_dir/avian/assets/illustrations/.generate.state.json"
+expect_success 'stale generation handoff'
+
+setup_case unsafegenerationlock release-one
+ln -s /etc/passwd /run/lock/avian-generation.lock
+expect_failure 'unsafe illustration generation lock'
+grep -q 'illustration generation lock is unsafe' "$case_log" \
+  || fail 'unsafe generation-lock error was unclear'
+rm -f /run/lock/avian-generation.lock
+
+setup_case hardlinkedgenerationlock release-one
+generation_lock_peer=/run/lock/avian-generation-lock-peer
+rm -f "$generation_lock_peer"
+install -o root -g "$(id -g "$station_user")" -m 0660 /dev/null \
+  "$generation_lock_peer"
+ln "$generation_lock_peer" /run/lock/avian-generation.lock
+expect_failure 'hard-linked illustration generation lock'
+grep -q 'illustration generation lock is unsafe' "$case_log" \
+  || fail 'hard-linked generation-lock error was unclear'
+rm -f /run/lock/avian-generation.lock "$generation_lock_peer"
+
 setup_case missinghelper release-one
 cp /usr/local/sbin/avian-service-refresh "$test_root/service-refresh.saved"
 rm -f /usr/local/sbin/avian-service-refresh
@@ -314,9 +382,39 @@ cat >/etc/gitconfig <<EOF
 EOF
 expect_failure 'fetch failure'
 
+setup_case badartindexes release-one
+printf 'preflight must preserve this art\n' \
+  >"$repo_dir/avian/assets/illustrations/shared-bird.png"
+printf '{"different-bird":{"w":2,"h":2,"bits":"AA=="}}\n' \
+  >"$repo_dir/avian/frontend/masks.json"
+printf '{"different-bird":[2,2]}\n' >"$repo_dir/avian/frontend/dims.json"
+chown "$station_user:$station_user" \
+  "$repo_dir/avian/assets/illustrations/shared-bird.png" \
+  "$repo_dir/avian/frontend/masks.json" "$repo_dir/avian/frontend/dims.json"
+bad_indexes_head=$(as_station "$station_user" "$station_home" \
+  git -C "$repo_dir" rev-parse HEAD)
+expect_failure 'custom illustration with stale generated indexes'
+grep -q 'masks.json is missing custom illustration: shared-bird' "$case_log" \
+  || fail 'stale custom-index error was unclear'
+[ "$(as_station "$station_user" "$station_home" git -C "$repo_dir" rev-parse HEAD)" \
+  = "$bad_indexes_head" ] \
+  || fail 'custom-index preflight failure moved HEAD'
+grep -qx 'preflight must preserve this art' \
+  "$repo_dir/avian/assets/illustrations/shared-bird.png" \
+  || fail 'custom-index preflight failure changed local art'
+grep -q '"different-bird"' "$repo_dir/avian/frontend/masks.json" \
+  || fail 'custom-index preflight failure changed masks.json'
+grep -q '"different-bird"' "$repo_dir/avian/frontend/dims.json" \
+  || fail 'custom-index preflight failure changed dims.json'
+
 setup_case standardrollback release-one
-printf 'rollback masks\n' >"$repo_dir/avian/frontend/masks.json"
-chown "$station_user:$station_user" "$repo_dir/avian/frontend/masks.json"
+printf '{"shared-bird":{"w":2,"h":2,"bits":"AA=="}}\n' \
+  >"$repo_dir/avian/frontend/masks.json"
+printf '{"shared-bird":[2,2]}\n' >"$repo_dir/avian/frontend/dims.json"
+printf 'rollback custom art\n' >"$repo_dir/avian/assets/illustrations/shared-bird.png"
+chown "$station_user:$station_user" \
+  "$repo_dir/avian/frontend/masks.json" "$repo_dir/avian/frontend/dims.json" \
+  "$repo_dir/avian/assets/illustrations/shared-bird.png"
 cat >"$repo_dir/.git/hooks/post-merge" <<EOF
 #!/usr/bin/env bash
 touch "$repo_dir/.git/config.lock"
@@ -329,8 +427,13 @@ rm -f "$repo_dir/.git/config.lock"
   || fail 'failed release update did not restore its branch ref'
 grep -qx 'one' "$repo_dir/version.txt" \
   || fail 'failed release update did not restore its worktree'
-grep -qx 'rollback masks' "$repo_dir/avian/frontend/masks.json" \
+grep -q '"shared-bird"' "$repo_dir/avian/frontend/masks.json" \
   || fail 'failed release update did not restore generated data'
+grep -q '"shared-bird"' "$repo_dir/avian/frontend/dims.json" \
+  || fail 'failed release update did not restore generated dimensions'
+grep -qx 'rollback custom art' \
+  "$repo_dir/avian/assets/illustrations/shared-bird.png" \
+  || fail 'failed release update did not restore custom bird art'
 
 setup_case repair release-one
 touch "$test_root/refresh.fail"
@@ -344,11 +447,50 @@ grep -q 'Already up to date.' "$case_log" \
 [ -e "$test_root/refresh.called" ] \
   || fail 'up-to-date rerun did not repair services'
 
+setup_case artwithoutindexes main
+mkdir -p "$repo_dir/avian/assets/illustrations"
+printf 'local Swiss art\n' >"$repo_dir/avian/assets/illustrations/shared-bird.png"
+chown -R "$station_user:$station_user" "$repo_dir/avian"
+expect_failure 'custom illustration without generated indexes'
+grep -q 'custom illustrations require local masks.json and dims.json' "$case_log" \
+  || fail 'missing custom-index error was unclear'
+[ "$(as_station "$station_user" "$station_home" \
+  git -C "$repo_dir" branch --show-current)" = main ] \
+  || fail 'custom-index refusal switched branches'
+grep -qx 'local Swiss art' "$repo_dir/avian/assets/illustrations/shared-bird.png" \
+  || fail 'custom-index refusal changed local art'
+
+setup_case identicalart main
+mkdir -p "$repo_dir/avian/assets/illustrations"
+printf 'official identical art\n' \
+  >"$repo_dir/avian/assets/illustrations/identical-bird.png"
+chown -R "$station_user:$station_user" "$repo_dir/avian"
+expect_success 'byte-identical illustration collision'
+[ "$(as_station "$station_user" "$station_home" \
+  git -C "$repo_dir" branch --show-current)" = avian-visitors ] \
+  || fail 'byte-identical collision did not migrate'
+as_station "$station_user" "$station_home" git -C "$repo_dir" diff --quiet -- \
+  avian/assets/illustrations/identical-bird.png \
+  || fail 'byte-identical collision became a dirty override'
+
 setup_case legacy main
-mkdir -p "$repo_dir/avian/frontend" "$repo_dir/custom"
+mkdir -p "$repo_dir/avian/frontend" "$repo_dir/avian/assets/illustrations" \
+  "$repo_dir/avian/assets/cutouts" "$repo_dir/custom"
 printf 'legacy local copy\n' >"$repo_dir/avian/legacy.txt"
-printf 'legacy masks\n' >"$repo_dir/avian/frontend/masks.json"
-printf 'legacy dims\n' >"$repo_dir/avian/frontend/dims.json"
+printf '{"shared-bird":{"w":2,"h":2,"bits":"AA=="},"identical-bird":{"w":1,"h":1,"bits":"AA=="},"swiss-only":{"w":2,"h":2,"bits":"AA=="}}\n' \
+  >"$repo_dir/avian/frontend/masks.json"
+printf '{"shared-bird":[2,2],"identical-bird":[1,1],"swiss-only":[2,2]}\n' \
+  >"$repo_dir/avian/frontend/dims.json"
+printf 'local Swiss shared art\n' \
+  >"$repo_dir/avian/assets/illustrations/shared-bird.png"
+printf 'official identical art\n' \
+  >"$repo_dir/avian/assets/illustrations/identical-bird.png"
+printf 'local Swiss-only art\n' \
+  >"$repo_dir/avian/assets/illustrations/swiss-only.png"
+printf 'local German shared cutout\n' \
+  >"$repo_dir/avian/assets/cutouts/shared-photo.png"
+printf 'local German-only cutout\n' \
+  >"$repo_dir/avian/assets/cutouts/german-only.png"
 printf 'keep inside avian\n' >"$repo_dir/avian/custom-local.txt"
 printf 'keep inside frontend\n' >"$repo_dir/avian/frontend/custom-local.json"
 printf 'keep me\n' >"$repo_dir/custom/notes.txt"
@@ -363,10 +505,25 @@ expect_success 'legacy migration'
   || fail 'legacy migration did not set the release upstream'
 grep -qx 'official collision' "$repo_dir/avian/legacy.txt" \
   || fail 'release file did not replace legacy collision'
-grep -qx 'legacy masks' "$repo_dir/avian/frontend/masks.json" \
+grep -q '"swiss-only"' "$repo_dir/avian/frontend/masks.json" \
   || fail 'legacy masks.json was not preserved'
-grep -qx 'legacy dims' "$repo_dir/avian/frontend/dims.json" \
+grep -q '"swiss-only"' "$repo_dir/avian/frontend/dims.json" \
   || fail 'legacy dims.json was not preserved'
+grep -qx 'local Swiss shared art' \
+  "$repo_dir/avian/assets/illustrations/shared-bird.png" \
+  || fail 'modified regional illustration collision was not preserved'
+grep -qx 'official identical art' \
+  "$repo_dir/avian/assets/illustrations/identical-bird.png" \
+  || fail 'byte-identical regional illustration collision was not preserved'
+grep -qx 'local Swiss-only art' \
+  "$repo_dir/avian/assets/illustrations/swiss-only.png" \
+  || fail 'unique regional illustration was not preserved'
+grep -qx 'local German shared cutout' \
+  "$repo_dir/avian/assets/cutouts/shared-photo.png" \
+  || fail 'modified regional cutout collision was not preserved'
+grep -qx 'local German-only cutout' \
+  "$repo_dir/avian/assets/cutouts/german-only.png" \
+  || fail 'unique regional cutout was not preserved'
 grep -qx 'keep inside avian' "$repo_dir/avian/custom-local.txt" \
   || fail 'noncolliding file inside a release directory was not preserved'
 grep -qx 'keep inside frontend' "$repo_dir/avian/frontend/custom-local.json" \
@@ -382,6 +539,38 @@ mkdir -p "$test_root/legacy-restore"
 tar -C "$test_root/legacy-restore" -xf "$legacy_backup/legacy-collisions.tar"
 grep -qx 'legacy local copy' "$test_root/legacy-restore/avian/legacy.txt" \
   || fail 'legacy backup did not preserve the collided file'
+tar -C "$test_root/legacy-restore" -xf "$legacy_backup/custom-bird-art.tar"
+grep -qx 'local Swiss shared art' \
+  "$test_root/legacy-restore/avian/assets/illustrations/shared-bird.png" \
+  || fail 'custom-art backup did not preserve the modified collision'
+grep -qx 'local German shared cutout' \
+  "$test_root/legacy-restore/avian/assets/cutouts/shared-photo.png" \
+  || fail 'custom-art backup did not preserve the cutout collision'
+
+# The next release updates an already-overridden tracked illustration and starts
+# tracking a formerly unique Swiss file. Both local assets must remain active.
+git -C "$remote" update-ref refs/heads/avian-visitors "$release_three"
+expect_success 'subsequent update with regional overrides'
+[ "$(as_station "$station_user" "$station_home" git -C "$repo_dir" rev-parse HEAD)" \
+  = "$release_three" ] \
+  || fail 'subsequent regional update did not reach the new release'
+grep -qx 'local Swiss shared art' \
+  "$repo_dir/avian/assets/illustrations/shared-bird.png" \
+  || fail 'subsequent update replaced a tracked regional override'
+grep -qx 'local Swiss-only art' \
+  "$repo_dir/avian/assets/illustrations/swiss-only.png" \
+  || fail 'subsequent update replaced a newly colliding regional illustration'
+grep -qx 'local German shared cutout' \
+  "$repo_dir/avian/assets/cutouts/shared-photo.png" \
+  || fail 'subsequent update replaced a tracked regional cutout override'
+grep -qx 'local German-only cutout' \
+  "$repo_dir/avian/assets/cutouts/german-only.png" \
+  || fail 'subsequent update changed a unique regional cutout'
+grep -q '"swiss-only"' "$repo_dir/avian/frontend/masks.json" \
+  || fail 'subsequent update replaced regional masks.json'
+grep -q '"swiss-only"' "$repo_dir/avian/frontend/dims.json" \
+  || fail 'subsequent update replaced regional dims.json'
+git -C "$remote" update-ref refs/heads/avian-visitors "$release_two"
 
 # Model a legacy Pi that first cloned main at depth one, then shallow-fetched
 # an early AvianVisitors release. Both boundaries remain in .git/shallow, so a
@@ -455,10 +644,16 @@ fi
   || fail 'failed migration did not restore the original fetch mapping'
 
 setup_case rollback main
-mkdir -p "$repo_dir/avian/frontend" "$repo_dir/custom"
+mkdir -p "$repo_dir/avian/frontend" "$repo_dir/avian/assets/illustrations" \
+  "$repo_dir/avian/assets/cutouts" "$repo_dir/custom"
 printf 'restore this copy\n' >"$repo_dir/avian/legacy.txt"
-printf 'restore masks\n' >"$repo_dir/avian/frontend/masks.json"
-printf 'restore dims\n' >"$repo_dir/avian/frontend/dims.json"
+printf '{"shared-bird":{"w":2,"h":2,"bits":"AA=="}}\n' \
+  >"$repo_dir/avian/frontend/masks.json"
+printf '{"shared-bird":[2,2]}\n' >"$repo_dir/avian/frontend/dims.json"
+printf 'restore custom Swiss art\n' \
+  >"$repo_dir/avian/assets/illustrations/shared-bird.png"
+printf 'restore custom German cutout\n' \
+  >"$repo_dir/avian/assets/cutouts/shared-photo.png"
 printf 'keep this too\n' >"$repo_dir/custom/notes.txt"
 chown -R "$station_user:$station_user" "$repo_dir/avian" "$repo_dir/custom"
 cat >"$repo_dir/.git/hooks/post-merge" <<EOF
@@ -480,10 +675,16 @@ if as_station "$station_user" "$station_home" git -C "$repo_dir" \
 fi
 grep -qx 'restore this copy' "$repo_dir/avian/legacy.txt" \
   || fail 'failed migration did not restore collision'
-grep -qx 'restore masks' "$repo_dir/avian/frontend/masks.json" \
+grep -q '"shared-bird"' "$repo_dir/avian/frontend/masks.json" \
   || fail 'failed migration did not restore masks.json'
-grep -qx 'restore dims' "$repo_dir/avian/frontend/dims.json" \
+grep -q '"shared-bird"' "$repo_dir/avian/frontend/dims.json" \
   || fail 'failed migration did not restore dims.json'
+grep -qx 'restore custom Swiss art' \
+  "$repo_dir/avian/assets/illustrations/shared-bird.png" \
+  || fail 'failed migration did not restore custom illustration collision'
+grep -qx 'restore custom German cutout' \
+  "$repo_dir/avian/assets/cutouts/shared-photo.png" \
+  || fail 'failed migration did not restore custom cutout collision'
 grep -qx 'keep this too' "$repo_dir/custom/notes.txt" \
   || fail 'failed migration changed unrelated file'
 

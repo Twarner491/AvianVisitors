@@ -217,6 +217,33 @@
     queueAtlasOverflowState();
   }
 
+  // Atlas can either follow the shared collage/stats window or stay on the
+  // complete life list. This is a browser preference, like theme and bird
+  // names: it must never enter the Pi config save flow or restart services.
+  var ATLAS_ALWAYS_ALL_KEY = 'bird:atlasAlwaysAll:v1';
+  var sessionAtlasAlwaysAll = null;
+  function atlasAlwaysAll() {
+    if (sessionAtlasAlwaysAll !== null) return sessionAtlasAlwaysAll;
+    return readLS(ATLAS_ALWAYS_ALL_KEY, 'off') === 'on';
+  }
+  function atlasWindowHours() {
+    return atlasAlwaysAll() ? 1000000 : currentHours;
+  }
+  function syncAtlasAlwaysAll() {
+    var on = atlasAlwaysAll();
+    document.querySelectorAll('[data-atlas-always-all]').forEach(function (sw) {
+      sw.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+    // The all-time life list is already loaded for accession numbers and
+    // totals, so changing this preference needs no second API request.
+    if (DATA && DATA.lifelist) renderAtlas(false);
+  }
+  function applyAtlasAlwaysAll(on) {
+    sessionAtlasAlwaysAll = !!on;
+    writeLS(ATLAS_ALWAYS_ALL_KEY, on ? 'on' : 'off');
+    syncAtlasAlwaysAll();
+  }
+
   // Remember the last confirmed illustration pose independently for each
   // species. Keep a validated in-memory copy so the preference still works
   // for this visit when storage is unavailable (private mode / quota errors).
@@ -340,6 +367,10 @@
     if (ev.key === THEME_KEY || ev.key === LEGACY_THEME_KEY || ev.key === null) {
       sessionThemePreference = null;
       syncTheme();
+    }
+    if (ev.key === ATLAS_ALWAYS_ALL_KEY || ev.key === null) {
+      sessionAtlasAlwaysAll = null;
+      syncAtlasAlwaysAll();
     }
   });
   var winBtns = [].slice.call(winPick.querySelectorAll('button'));
@@ -4382,13 +4413,13 @@
   function atlasIllustrationSrc(sci) {
     return './avian/assets/illustrations/' + encodeURIComponent(slugify(sci)) + '.png?v=' + IMG_VERSION;
   }
-  function atlasImageCardMarkup(s, total, win, isLifer, needsArt) {
+  function atlasImageCardMarkup(s, total, win, isLifer, needsArt, atlasHours) {
     var imageSrc = needsArt ? './nest-eggs.webp' : atlasIllustrationSrc(s.sci);
     var audioSrc = './avian/api/recording.php?sci=' + encodeURIComponent(s.sci);
     var ebird = ebirdUrl(s.sci);
-    var statRows = currentHours >= 1000000
+    var statRows = atlasHours >= 1000000
       ? '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">all time</span></div>'
-      : '<div><span class="n">' + fmtNK(win) + '</span><span class="lbl-inline">' + windowLabel(currentHours) + '</span></div>'
+      : '<div><span class="n">' + fmtNK(win) + '</span><span class="lbl-inline">' + windowLabel(atlasHours) + '</span></div>'
       + '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">all time</span></div>';
     return ''
       + '<article class="bird-card atlas-image-card' + (needsArt ? ' needs-art' : '') + '"'
@@ -4431,6 +4462,7 @@
 
     var lifelist = (DATA.lifelist && DATA.lifelist.species) || [];
     var recent = (DATA.recent && DATA.recent.species) || [];
+    var atlasHours = atlasWindowHours();
     // Window count lookup: sci -> count in current window.
     var winBySci = {};
     recent.forEach(function (s) { winBySci[s.sci] = +s.n; });
@@ -4443,7 +4475,7 @@
 
     // Time-window filter: when a windowed view is selected, only show
     // species heard in that window. ALL preserves the full lifelist.
-    var isAllWindow = currentHours >= 1000000;
+    var isAllWindow = atlasHours >= 1000000;
     var filtered = isAllWindow
       ? lifelist
       : lifelist.filter(function (s) { return (winBySci[s.sci] || 0) > 0; });
@@ -4489,7 +4521,7 @@
     // to the life list this 1h / 12h / 24h / 7d. Never shown for the ALL
     // window (every species would qualify against an open-ended span).
     var now = Date.now();
-    var windowStartMs = now - currentHours * 3600000;
+    var windowStartMs = now - atlasHours * 3600000;
 
     var cardHtml = species.map(function (s) {
       var total = +s.n || 0;
@@ -4500,12 +4532,19 @@
       // absent bird before dimensions have landed.
       var needsArt = tablesReady && !DIMS[slugify(s.sci)];
       if (artworkMode === 'cutouts') {
-        return atlasImageCardMarkup(s, total, win, isLifer, needsArt);
+        return atlasImageCardMarkup(s, total, win, isLifer, needsArt, atlasHours);
       }
       var sketchSrc = './avian/api/cutout.php?sci=' + encodeURIComponent(s.sci) +
         (s.com ? '&com=' + encodeURIComponent(s.com) : '') +
         '&v=' + SKETCH_VERSION;
       var audioSrc = './avian/api/recording.php?sci=' + encodeURIComponent(s.sci);
+      // The "all time" window makes the windowed count identical to the
+      // all-time count - collapse to a single stat rather than print the
+      // same number twice. Otherwise label the count with its span.
+      var statRows = isAllWindow
+        ? '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">all time</span></div>'
+        : '<div><span class="n">' + fmtNK(win) + '</span><span class="lbl-inline">' + windowLabel(atlasHours) + '</span></div>'
+        + '<div><span class="n">' + fmtNK(total) + '</span><span class="lbl-inline">all time</span></div>';
       var fresh = justGenerated[s.sci] ? '&t=' + justGenerated[s.sci] : '';
       // Each species prints as a stamp whose design is set by its family.
       // The card stays the click target so the detail modal, highlighting
@@ -5625,9 +5664,18 @@
       + '  <div class="seg" data-labels-seg><i class="seg-pill" aria-hidden="true"></i>' + btn('off', 'off') + btn('on', 'on') + '</div>'
       + '</div>';
   }
+  function atlasAlwaysAllRow() {
+    var on = atlasAlwaysAll();
+    return ''
+      + '<div class="menu-row">'
+      + '  <div><span class="label">Always show full atlas</span><span class="hint">show every unlocked stamp</span></div>'
+      + '  <button type="button" class="switch" role="switch" aria-label="Always show full atlas"'
+      + '    aria-checked="' + (on ? 'true' : 'false') + '" data-atlas-always-all></button>'
+      + '</div>';
+  }
   function wireSettingsControls(scope) {
     scope = scope || document;
-    scope.querySelectorAll('.switch').forEach(function (sw) {
+    scope.querySelectorAll('.switch:not([data-atlas-always-all])').forEach(function (sw) {
       sw.addEventListener('click', function () {
         var on = sw.getAttribute('aria-checked') !== 'true';
         sw.setAttribute('aria-checked', on ? 'true' : 'false');
@@ -7138,6 +7186,7 @@
           + '<section>'
           + themeRow()
           + labelsRow()
+          + atlasAlwaysAllRow()
           + '</section><section>'
           + settingsSlider('CONFIDENCE', 'Confidence threshold', 'min score to log a detection', v.CONFIDENCE, 0.1, 0.95, 0.05, 2, 0.7)
           + settingsSlider('SF_THRESH', 'Range filter', 'min likelihood a species is here this week', v.SF_THRESH, 0.001, 0.5, 0.001, 3, 0.03)
@@ -7215,6 +7264,12 @@
           } else {
             labelFontReady = true; renderCollageFromData();
           }
+        });
+        // Atlas-only preference: apply immediately without touching the
+        // shared time picker or sending a station settings request.
+        var atlasAllSwitch = adminBody.querySelector('[data-atlas-always-all]');
+        if (atlasAllSwitch) atlasAllSwitch.addEventListener('click', function () {
+          applyAtlasAlwaysAll(atlasAllSwitch.getAttribute('aria-checked') !== 'true');
         });
       })
       .catch(function (err) {

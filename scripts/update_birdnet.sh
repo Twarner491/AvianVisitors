@@ -12,6 +12,8 @@ readonly RELEASE_BRANCH='avian-visitors'
 readonly CONFIG_FILE='/etc/birdnet/birdnet.conf'
 readonly UPDATE_HELPER='/usr/local/sbin/avian-update-control'
 readonly REFRESH_HELPER='/usr/local/sbin/avian-service-refresh'
+readonly GENERATION_LOCK='/run/lock/avian-generation.lock'
+readonly GENERATION_STALE_SECONDS=900
 
 automatic=false
 
@@ -83,6 +85,8 @@ if [[ ! "$station_home" =~ ^/[A-Za-z0-9._/+@-]+$ ]] \
 fi
 repo_dir=$station_home/BirdNET-Pi
 [ -d "$repo_dir/.git" ] || die 'BirdNET-Pi checkout was not found'
+station_gid=$(id -g "$station_user") \
+  || die 'BirdNET-Pi group could not be resolved'
 
 if [ "$automatic" = true ]; then
   automatic_setting=$(conf_value "$CONFIG_FILE" AUTOMATIC_UPDATE)
@@ -133,6 +137,14 @@ read_git_lines() {
   rm -f "$output"
 }
 
+is_local_bird_art() {
+  [[ "$1" =~ ^avian/assets/(illustrations|cutouts)/[a-z0-9]+(-[a-z0-9]+)*[.]png$ ]]
+}
+
+is_local_illustration() {
+  [[ "$1" =~ ^avian/assets/illustrations/[a-z0-9]+(-[a-z0-9]+)*[.]png$ ]]
+}
+
 # The installed helper is the only process that mutates the checkout. Keep its
 # lock outside station- and web-writable paths.
 lock_file=/run/lock/avian-update.lock
@@ -145,6 +157,44 @@ if [ ! -f "$lock_file" ] || [ -L "$lock_file" ] \
 fi
 exec 9<>"$lock_file"
 flock -n 9 || die 'another update is already running'
+
+# Illustration generation mutates PNGs and their two geometry indexes as one
+# logical library. Keep its lock in /run/lock: the updater runs as root and
+# must not trust a lock inode that Caddy can replace inside the checkout.
+if [ ! -e "$GENERATION_LOCK" ] && [ ! -L "$GENERATION_LOCK" ]; then
+  install -o root -g "$station_gid" -m 0660 /dev/null "$GENERATION_LOCK"
+fi
+if [ ! -f "$GENERATION_LOCK" ] || [ -L "$GENERATION_LOCK" ] \
+  || [ "$(stat -c '%u:%g:%a:%h' "$GENERATION_LOCK")" != "0:$station_gid:660:1" ]; then
+  die "illustration generation lock is unsafe: $GENERATION_LOCK"
+fi
+exec 8<>"$GENERATION_LOCK"
+flock -n 8 || die 'bird illustration generation is running'
+
+# generate.php marks the job running before it releases the start lock and the
+# worker takes that lock for its lifetime. If this process wins that handoff,
+# refuse the fresh state and let the worker acquire the lock when we exit. A
+# stale state is safe here because a genuinely live worker still owns fd 8.
+generation_state=$repo_dir/avian/assets/illustrations/.generate.state.json
+if [ -e "$generation_state" ] || [ -L "$generation_state" ]; then
+  if [ ! -f "$generation_state" ] || [ -L "$generation_state" ]; then
+    die "illustration generation state is unsafe: $generation_state"
+  fi
+  generation_state_json=$(run_as_station head -c 65537 -- "$generation_state") \
+    || die 'illustration generation state could not be read'
+  [ "${#generation_state_json}" -le 65536 ] \
+    || die 'illustration generation state is too large'
+  if [[ "$generation_state_json" =~ \"running\"[[:space:]]*:[[:space:]]*true ]]; then
+    if [[ ! "$generation_state_json" =~ \"at\"[[:space:]]*:[[:space:]]*([0-9]{1,11})([[:space:],}]) ]]; then
+      die 'illustration generation state is invalid'
+    fi
+    generation_started=${BASH_REMATCH[1]}
+    generation_now=$(date +%s)
+    if [ "$generation_started" -gt "$((generation_now - GENERATION_STALE_SECONDS))" ]; then
+      die 'bird illustration generation is starting'
+    fi
+  fi
+fi
 safe_root_helper "$REFRESH_HELPER" \
   || die "root-owned service refresher is missing or unsafe: $REFRESH_HELPER"
 
@@ -220,13 +270,22 @@ read_git_nul staged_paths diff --cached --name-only -z HEAD
 changed_paths=()
 read_git_nul changed_paths diff --name-only -z HEAD
 tracked_generated_paths=()
+tracked_art_paths=()
 untracked_generated_paths=()
 for changed_path in "${changed_paths[@]}"; do
   case "$changed_path" in
     avian/frontend/masks.json|avian/frontend/dims.json)
-      [ -f "$repo_dir/$changed_path" ] \
+      [ -f "$repo_dir/$changed_path" ] && [ ! -L "$repo_dir/$changed_path" ] \
         || die "generated file is missing: $changed_path"
       tracked_generated_paths+=("$changed_path")
+      ;;
+    avian/assets/illustrations/*.png|avian/assets/cutouts/*.png)
+      is_local_bird_art "$changed_path" \
+        || die "tracked file has local changes: $changed_path"
+      if [ ! -f "$repo_dir/$changed_path" ] || [ -L "$repo_dir/$changed_path" ]; then
+        die "custom bird art is missing or unsafe: $changed_path"
+      fi
+      tracked_art_paths+=("$changed_path")
       ;;
     *) die "tracked file has local changes: $changed_path" ;;
   esac
@@ -247,9 +306,13 @@ fi
 backup_dir=''
 generated_archive=''
 collision_archive=''
+art_archive=''
 collision_paths=()
+untracked_art_collision_paths=()
+untracked_illustration_paths=()
 legacy_branch_created=false
 fetch_refspec_changed=false
+transaction_started=false
 transaction_complete=false
 last_archive=''
 
@@ -289,7 +352,8 @@ restore_archive() {
 rollback() {
   local result=$? current_branch current_ref rollback_failed=false worktree_ready=false
   trap - EXIT
-  if [ "$result" -ne 0 ] && [ "$transaction_complete" = false ]; then
+  if [ "$result" -ne 0 ] && [ "$transaction_started" = true ] \
+    && [ "$transaction_complete" = false ]; then
     set +e
     if [ "$original_branch" = "$RELEASE_BRANCH" ]; then
       current_branch=$(git_station symbolic-ref --quiet --short HEAD 2>/dev/null)
@@ -328,14 +392,22 @@ rollback() {
           git_station update-ref -d "refs/heads/$RELEASE_BRANCH" "$current_ref" \
             || rollback_failed=true
         fi
-        if [ -n "$collision_archive" ]; then
-          restore_archive "$collision_archive" >/dev/null 2>&1 \
-            || rollback_failed=true
-        fi
         worktree_ready=true
       else
         rollback_failed=true
       fi
+    fi
+    if [ -n "$collision_archive" ] && [ "$worktree_ready" = true ]; then
+      restore_archive "$collision_archive" >/dev/null 2>&1 \
+        || rollback_failed=true
+    elif [ -n "$collision_archive" ]; then
+      rollback_failed=true
+    fi
+    if [ -n "$art_archive" ] && [ "$worktree_ready" = true ]; then
+      restore_archive "$art_archive" >/dev/null 2>&1 \
+        || rollback_failed=true
+    elif [ -n "$art_archive" ]; then
+      rollback_failed=true
     fi
     if [ -n "$generated_archive" ] && [ "$worktree_ready" = true ]; then
       restore_archive "$generated_archive" >/dev/null 2>&1 \
@@ -362,10 +434,125 @@ rollback() {
 }
 trap rollback EXIT
 
+# Find untracked files that a verified release checkout would need to replace.
+# Ordinary legacy collisions are backed up but yield to the release. Bird art
+# is different: regional bundles and locally generated birds are intentional
+# station data, so exact, safe PNG paths are restored after the checkout.
+untracked_paths=()
+target_paths=()
+read_git_nul untracked_paths ls-files --others -z
+read_git_nul target_paths ls-tree -r --name-only -z "$target_ref"
+declare -A target_files=()
+declare -A target_directories=()
+for target_path in "${target_paths[@]}"; do
+  target_files["$target_path"]=1
+  target_parent=$target_path
+  while [[ "$target_parent" == */* ]]; do
+    target_parent=${target_parent%/*}
+    target_directories["$target_parent"]=1
+  done
+done
+for untracked_path in "${untracked_paths[@]}"; do
+  [[ "$untracked_path" != /* && "$untracked_path" != *$'\n'* \
+    && "/$untracked_path/" != *'/../'* ]] \
+    || die 'an unsafe untracked path blocks migration'
+  if is_local_illustration "$untracked_path"; then
+    if [ ! -f "$repo_dir/$untracked_path" ] || [ -L "$repo_dir/$untracked_path" ]; then
+      die "custom bird art is missing or unsafe: $untracked_path"
+    fi
+    untracked_illustration_paths+=("$untracked_path")
+  fi
+
+  path_collides=false
+  if [[ -n "${target_files[$untracked_path]+present}" \
+    || -n "${target_directories[$untracked_path]+present}" ]]; then
+    path_collides=true
+  else
+    probe=$untracked_path
+    while [[ "$probe" == */* ]]; do
+      probe=${probe%/*}
+      if [[ -n "${target_files[$probe]+present}" ]]; then
+        path_collides=true
+        break
+      fi
+    done
+  fi
+  [ "$path_collides" = true ] || continue
+
+  case "$untracked_path" in
+    avian/frontend/masks.json|avian/frontend/dims.json)
+      # These are archived and removed by the generated-index transaction.
+      ;;
+    avian/assets/illustrations/*.png|avian/assets/cutouts/*.png)
+      if is_local_bird_art "$untracked_path" \
+        && [[ -n "${target_files[$untracked_path]+present}" ]]; then
+        if [ ! -f "$repo_dir/$untracked_path" ] || [ -L "$repo_dir/$untracked_path" ]; then
+          die "custom bird art is missing or unsafe: $untracked_path"
+        fi
+        untracked_art_collision_paths+=("$untracked_path")
+      elif [ "$original_branch" = main ]; then
+        collision_paths+=("$untracked_path")
+      fi
+      ;;
+    *)
+      [ "$original_branch" != main ] || collision_paths+=("$untracked_path")
+      ;;
+  esac
+done
+
+# A custom illustration without matching locally generated geometry would make
+# the collage pack one bitmap using another bitmap's mask. Refuse that silent
+# mismatch. Byte-identical collisions can safely use the release's tables.
+custom_illustrations=()
+for illustration_path in "${tracked_art_paths[@]}" "${untracked_illustration_paths[@]}"; do
+  is_local_illustration "$illustration_path" || continue
+  local_oid=$(git_station hash-object -- "$repo_dir/$illustration_path") \
+    || die "could not inspect custom illustration: $illustration_path"
+  target_oid=''
+  if [[ -n "${target_files[$illustration_path]+present}" ]]; then
+    target_oid=$(git_station rev-parse --verify "$target_ref:$illustration_path") \
+      || die "could not inspect release illustration: $illustration_path"
+  fi
+  [ "$local_oid" = "$target_oid" ] || custom_illustrations+=("$illustration_path")
+done
+
+if [ "${#custom_illustrations[@]}" -gt 0 ]; then
+  for generated_path in avian/frontend/masks.json avian/frontend/dims.json; do
+    if [ ! -f "$repo_dir/$generated_path" ] || [ -L "$repo_dir/$generated_path" ]; then
+      die 'custom illustrations require local masks.json and dims.json; rebuild both before updating'
+    fi
+    generated_already_listed=false
+    for listed_path in "${tracked_generated_paths[@]}" "${untracked_generated_paths[@]}"; do
+      if [ "$listed_path" = "$generated_path" ]; then
+        generated_already_listed=true
+        break
+      fi
+    done
+    if [ "$generated_already_listed" = false ]; then
+      if git_station ls-files --error-unmatch -- "$generated_path" >/dev/null 2>&1; then
+        tracked_generated_paths+=("$generated_path")
+      else
+        untracked_generated_paths+=("$generated_path")
+      fi
+    fi
+  done
+  for illustration_path in "${custom_illustrations[@]}"; do
+    illustration_slug=${illustration_path##*/}
+    illustration_slug=${illustration_slug%.png}
+    run_as_station grep -Eq \
+      "\"$illustration_slug\"[[:space:]]*:" "$repo_dir/avian/frontend/masks.json" \
+      || die "masks.json is missing custom illustration: $illustration_slug"
+    run_as_station grep -Eq \
+      "\"$illustration_slug\"[[:space:]]*:" "$repo_dir/avian/frontend/dims.json" \
+      || die "dims.json is missing custom illustration: $illustration_slug"
+  done
+fi
+
 generated_paths=("${tracked_generated_paths[@]}" "${untracked_generated_paths[@]}")
 if [ "${#generated_paths[@]}" -gt 0 ]; then
   archive_paths generated "${generated_paths[@]}"
   generated_archive=$last_archive
+  transaction_started=true
   if [ "${#tracked_generated_paths[@]}" -gt 0 ]; then
     git_station restore --worktree -- "${tracked_generated_paths[@]}"
   fi
@@ -374,10 +561,33 @@ if [ "${#generated_paths[@]}" -gt 0 ]; then
   done
 fi
 
+preserved_art_paths=("${tracked_art_paths[@]}" "${untracked_art_collision_paths[@]}")
+if [ "${#preserved_art_paths[@]}" -gt 0 ]; then
+  archive_paths custom-bird-art "${preserved_art_paths[@]}"
+  art_archive=$last_archive
+  transaction_started=true
+  if [ "${#tracked_art_paths[@]}" -gt 0 ]; then
+    git_station restore --worktree -- "${tracked_art_paths[@]}"
+  fi
+  for art_path in "${untracked_art_collision_paths[@]}"; do
+    run_as_station rm -f -- "$repo_dir/$art_path"
+  done
+fi
+
+if [ "${#collision_paths[@]}" -gt 0 ]; then
+  archive_paths legacy-collisions "${collision_paths[@]}"
+  collision_archive=$last_archive
+  transaction_started=true
+  for collision_path in "${collision_paths[@]}"; do
+    run_as_station rm -f -- "$repo_dir/$collision_path"
+  done
+fi
+
 if [ "$original_branch" = "$RELEASE_BRANCH" ]; then
   git_station merge-base --is-ancestor "$original_head" "$target_commit" \
     || die "local $RELEASE_BRANCH has commits not present on origin"
   if [ "$original_head" != "$target_commit" ]; then
+    transaction_started=true
     git_station merge --ff-only "$target_ref"
   fi
 else
@@ -391,50 +601,11 @@ else
       || die "local $RELEASE_BRANCH has diverged from origin"
   fi
 
-  untracked_paths=()
-  target_paths=()
-  read_git_nul untracked_paths ls-files --others -z
-  read_git_nul target_paths ls-tree -r --name-only -z "$target_ref"
-  declare -A target_files=()
-  declare -A target_directories=()
-  for target_path in "${target_paths[@]}"; do
-    target_files["$target_path"]=1
-    target_parent=$target_path
-    while [[ "$target_parent" == */* ]]; do
-      target_parent=${target_parent%/*}
-      target_directories["$target_parent"]=1
-    done
-  done
-  for untracked_path in "${untracked_paths[@]}"; do
-    [[ "$untracked_path" != /* && "$untracked_path" != *$'\n'* \
-      && "/$untracked_path/" != *'/../'* ]] \
-      || die 'an unsafe untracked path blocks migration'
-    if [[ -n "${target_files[$untracked_path]+present}" \
-      || -n "${target_directories[$untracked_path]+present}" ]]; then
-      collision_paths+=("$untracked_path")
-      continue
-    fi
-    probe=$untracked_path
-    while [[ "$probe" == */* ]]; do
-      probe=${probe%/*}
-      if [[ -n "${target_files[$probe]+present}" ]]; then
-        collision_paths+=("$untracked_path")
-        break
-      fi
-    done
-  done
-
-  if [ "${#collision_paths[@]}" -gt 0 ]; then
-    archive_paths legacy-collisions "${collision_paths[@]}"
-    collision_archive=$last_archive
-    for collision_path in "${collision_paths[@]}"; do
-      run_as_station rm -f -- "$repo_dir/$collision_path"
-    done
-  fi
-
   if git_station show-ref --verify --quiet "refs/heads/$RELEASE_BRANCH"; then
+    transaction_started=true
     git_station switch "$RELEASE_BRANCH"
   else
+    transaction_started=true
     git_station switch --create "$RELEASE_BRANCH"
     legacy_branch_created=true
   fi
@@ -444,6 +615,7 @@ fi
 # Depth-limited legacy clones normally fetch only main. Replace every inherited
 # mapping with the exact release mapping before recording the new upstream.
 release_fetch_refspec="+refs/heads/$RELEASE_BRANCH:refs/remotes/origin/$RELEASE_BRANCH"
+transaction_started=true
 git_station config --replace-all remote.origin.fetch "$release_fetch_refspec" \
   || die 'could not configure the release fetch mapping'
 fetch_refspec_changed=true
@@ -451,6 +623,9 @@ git_station branch --set-upstream-to="origin/$RELEASE_BRANCH" "$RELEASE_BRANCH" 
 
 if [ -n "$generated_archive" ]; then
   restore_archive "$generated_archive"
+fi
+if [ -n "$art_archive" ]; then
+  restore_archive "$art_archive"
 fi
 transaction_complete=true
 
@@ -462,6 +637,9 @@ else
 fi
 if [ -n "$collision_archive" ]; then
   printf 'Legacy file backup: %s\n' "$backup_dir"
+fi
+if [ -n "$art_archive" ]; then
+  printf 'Preserved custom bird art: %s\n' "$backup_dir"
 fi
 
 safe_root_helper "$REFRESH_HELPER" \

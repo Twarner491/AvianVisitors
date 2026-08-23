@@ -9,6 +9,8 @@ fail() {
   exit 1
 }
 
+command -v flock >/dev/null 2>&1 || fail "flock is required for this smoke test"
+
 work=$(mktemp -d "${TMPDIR:-/tmp}/avian-generate-test.XXXXXX")
 fixture="$work/station"
 worker_log="$work/workers.log"
@@ -51,6 +53,8 @@ SQL
 
 cat >"$fixture/birdnet/bin/python3" <<'SH'
 #!/bin/sh
+exec 7<>"$AVIAN_GENERATION_LOCK"
+flock 7
 printf '%s\n' "$*" >>"$FAKE_WORKER_LOG"
 sleep 2
 SH
@@ -107,6 +111,7 @@ FAKE_WORKER_LOG="$worker_log" \
 FAKE_NOHUP_ARGV="$nohup_argv" \
 FAKE_NOHUP_ENV="$nohup_env" \
 FAKE_PS_SNAPSHOT="$ps_snapshot" \
+AVIAN_GENERATION_LOCK="$fixture/avian/assets/illustrations/.generate.lock" \
 PHP_CLI_SERVER_WORKERS=8 \
   php -d "auto_prepend_file=$work/sqlite-prepend.php" \
   -S "127.0.0.1:$port" -t "$fixture" >"$server_log" 2>&1 &
@@ -242,6 +247,9 @@ done
 [ -s "$worker_log" ] || fail "accepted request did not start a worker"
 [ "$(wc -l <"$worker_log" | tr -d ' ')" -eq 1 ] \
   || fail "parallel requests started more than one worker"
+if flock -n "$lock" true; then
+  fail "spawned worker did not retain the generation lock"
+fi
 [ "$(wc -l <"$fixture/avian/assets/illustrations/.generate.starts" | tr -d ' ')" -eq 1 ] \
   || fail "parallel requests recorded more than one start"
 php -r '

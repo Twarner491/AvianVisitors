@@ -46,6 +46,19 @@ repo_dir=$birdnet_home/BirdNET-Pi
   || { echo "BirdNET-Pi checkout cannot be a symbolic link" >&2; exit 1; }
 [ -d "$repo_dir/.git" ] || { echo "BirdNET-Pi checkout was not found" >&2; exit 1; }
 
+# Caddy and the station user may lock this inode, but only root can replace it.
+# It serializes asynchronous illustration workers with checkout updates.
+generation_lock=/run/lock/avian-generation.lock
+birdnet_gid=$(id -g "$birdnet_user")
+if [ ! -e "$generation_lock" ] && [ ! -L "$generation_lock" ]; then
+  install -o root -g "$birdnet_gid" -m 0660 /dev/null "$generation_lock"
+fi
+if [ ! -f "$generation_lock" ] || [ -L "$generation_lock" ] \
+  || [ "$(stat -c '%u:%g:%a:%h' "$generation_lock")" != "0:$birdnet_gid:660:1" ]; then
+  echo "Unsafe illustration generation lock: $generation_lock" >&2
+  exit 1
+fi
+
 legacy_state_dir=$repo_dir/scripts
 legacy_state_file=$legacy_state_dir/disk_check_exclude.txt
 if [ ! -d "$legacy_state_dir" ] || [ -L "$legacy_state_dir" ] \

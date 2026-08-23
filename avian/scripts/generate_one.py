@@ -19,6 +19,7 @@ Usage:
 """
 from __future__ import annotations
 import argparse
+import fcntl
 import json
 import os
 import subprocess
@@ -37,6 +38,9 @@ ILLUS = HERE.parent / "assets" / "illustrations"
 RAW = ILLUS / "raw"
 CUTS = ILLUS / "cuts.json"
 STATE = ILLUS / ".generate.state.json"
+GENERATION_LOCK = Path(os.environ.get(
+    "AVIAN_GENERATION_LOCK", "/run/lock/avian-generation.lock"
+))
 
 
 def write_state(**kw) -> None:
@@ -136,6 +140,18 @@ def main() -> int:
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
         print("error: GEMINI_API_KEY required in the environment", file=sys.stderr)
+        return 2
+
+    # generate.php holds this lock while spawning us. Blocking here is
+    # intentional: the API only waits for a live PID, releases its descriptor,
+    # and then this worker owns the same lock through every PNG/index mutation.
+    # The updater takes the lock only after its separate root update lock, while
+    # generation never takes that update lock, so there is no lock-order cycle.
+    try:
+        generation_lock = GENERATION_LOCK.open("r+")
+        fcntl.flock(generation_lock.fileno(), fcntl.LOCK_EX)
+    except OSError as exc:
+        print(f"error: illustration generation lock unavailable: {exc}", file=sys.stderr)
         return 2
 
     sci, com = args.sci.strip(), args.com.strip()

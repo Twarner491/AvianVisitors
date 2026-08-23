@@ -29,7 +29,10 @@ $BIRDNETPI_DIR = dirname(__DIR__, 2);
 $ILLUS   = "$BIRDNETPI_DIR/avian/assets/illustrations";
 $STATE   = "$ILLUS/.generate.state.json";
 $STARTS  = "$ILLUS/.generate.starts";
-$LOCK    = "$ILLUS/.generate.lock";
+$LOCK    = getenv('AVIAN_GENERATION_LOCK');
+if (!is_string($LOCK) || $LOCK === '') {
+    $LOCK = '/run/lock/avian-generation.lock';
+}
 $LOG     = "$ILLUS/.generate.log";
 $DB_PATH = "$BIRDNETPI_DIR/scripts/birds.db";
 $CONF    = "$BIRDNETPI_DIR/birdnet.conf";
@@ -226,7 +229,9 @@ if ($action === 'start') {
         echo json_encode(['error' => 'illustration directory unavailable']);
         exit;
     }
-    $generationLock = @fopen($LOCK, 'c');
+    // Provisioned root-owned by the installer. Caddy can lock the inode but
+    // cannot replace it, and the updater shares it for an atomic library view.
+    $generationLock = @fopen($LOCK, 'r+');
     if ($generationLock === false) {
         http_response_code(500);
         echo json_encode(['error' => 'generation lock unavailable']);

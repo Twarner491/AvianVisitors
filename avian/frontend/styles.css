@@ -1541,6 +1541,9 @@ body.postcard-open { overflow: hidden; }
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  /* Line clamp clips exactly at the final line box. Give serif descenders
+     their own ink allowance so g/j/p/q/y are not shaved off at that edge. */
+  padding-block-end: .16em;
   font: 500 clamp(24px, 2.5vw, 34px)/1.08 ui-serif, "Iowan Old Style", Georgia, serif;
   letter-spacing: -.045em;
   text-wrap: balance;

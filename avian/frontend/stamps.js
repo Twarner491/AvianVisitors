@@ -2261,9 +2261,9 @@ document.documentElement.setAttribute('data-stamps-stage', 'fx-ready');
   }
   TPL_LIST.forEach(function (t) { TPL[t.id] = t; });
 
-  /* ---- genus -> family group. BirdNET reports a binomial, so the genus
-     is enough to place a bird in its group; anything unknown falls back to
-     a stable hash so it still gets a consistent design. ---- */
+  /* ---- genus -> approved family issue. BirdNET reports a binomial, so the
+     genus is enough to place a bird in its reviewed issue. Unknown genera use
+     one deliberate shared issue; they never hash into retired experiments. ---- */
   var GENUS_GROUP = {
     // hummingbirds
     Calypte:'Hummingbirds', Archilochus:'Hummingbirds', Selasphorus:'Hummingbirds',
@@ -2278,14 +2278,19 @@ document.documentElement.setAttribute('data-stamps-stage', 'fx-ready');
     Anas:'Waterfowl', Aix:'Waterfowl', Branta:'Waterfowl', Anser:'Waterfowl',
     Aythya:'Waterfowl', Bucephala:'Waterfowl', Mergus:'Waterfowl',
     Lophodytes:'Waterfowl', Oxyura:'Waterfowl', Cygnus:'Waterfowl', Spatula:'Waterfowl',
+    Mareca:'Waterfowl',
     // owls
     Bubo:'Owls', Tyto:'Owls', Strix:'Owls', Megascops:'Owls', Athene:'Owls', Asio:'Owls',
     // hawks, eagles, falcons, vultures
     Buteo:'Hawks', Accipiter:'Hawks', Haliaeetus:'Hawks', Circus:'Hawks',
     Falco:'Hawks', Cathartes:'Hawks', Elanus:'Hawks', Pandion:'Hawks',
-    // gulls, terns, shorebirds
+    // gulls and terns
     Larus:'Gulls', Chroicocephalus:'Gulls', Sterna:'Gulls', Hydroprogne:'Gulls',
+    // kingfishers
+    Megaceryle:'Kingfishers',
     Charadrius:'Gulls', Actitis:'Gulls', Numenius:'Gulls', Calidris:'Gulls',
+    // sandpipers and allies
+    Tringa:'Shorebirds', Limnodromus:'Shorebirds',
     Himantopus:'Gulls', Recurvirostra:'Gulls', Pelecanus:'Gulls',
     Phalacrocorax:'Gulls', Nannopterum:'Gulls',
     // sparrows and towhees
@@ -2320,13 +2325,17 @@ document.documentElement.setAttribute('data-stamps-stage', 'fx-ready');
     Troglodytes:'Chickadees & Titmice', Thryomanes:'Chickadees & Titmice',
     Catherpes:'Chickadees & Titmice', Regulus:'Chickadees & Titmice',
     Corthylio:'Chickadees & Titmice', Chamaea:'Chickadees & Titmice',
-    // warblers, vireos, tanagers, grosbeaks, swallows, woodpeckers, quail
+    // treecreepers
+    Certhia:'Treecreepers',
+    // swallows
+    Hirundo:'Swallows', Tachycineta:'Swallows', Stelgidopteryx:'Swallows',
+    Petrochelidon:'Swallows',
+    // warblers, vireos, tanagers, grosbeaks, woodpeckers, quail
     Setophaga:'Warblers & Vireos', Geothlypis:'Warblers & Vireos',
     Cardellina:'Warblers & Vireos', Vireo:'Warblers & Vireos',
     Piranga:'Warblers & Vireos', Pheucticus:'Warblers & Vireos',
     Passerina:'Warblers & Vireos', Cardinalis:'Warblers & Vireos',
-    Hirundo:'Warblers & Vireos', Tachycineta:'Warblers & Vireos',
-    Petrochelidon:'Warblers & Vireos', Colaptes:'Warblers & Vireos',
+    Colaptes:'Warblers & Vireos',
     Picoides:'Warblers & Vireos', Dryobates:'Warblers & Vireos',
     Melanerpes:'Warblers & Vireos', Callipepla:'Warblers & Vireos',
     Zenaidura:'Doves & Pigeons'
@@ -2340,12 +2349,14 @@ document.documentElement.setAttribute('data-stamps-stage', 'fx-ready');
     'Doves & Pigeons':'Columbidae', 'Thrushes':'Turdidae', 'Flycatchers':'Tyrannidae',
     'Mockingbirds & Thrashers':'Mimidae', 'Waxwings':'Bombycillidae',
     'Blackbirds & Orioles':'Icteridae', 'Chickadees & Titmice':'Paridae',
-    'Warblers & Vireos':'Parulidae'
+    'Warblers & Vireos':'Parulidae', 'Kingfishers':'Alcedinidae',
+    'Shorebirds':'Scolopacidae', 'Swallows':'Hirundinidae',
+    'Treecreepers':'Certhiidae'
   };
 
   /* ---- One design language per family, so a family reads as one issue.
-     Families without an issue of their own fall back to the field guide,
-     which is the generic look by design rather than by accident. ---- */
+     Families without an issue of their own use the final shared issue,
+     with one approved core issue kept only as its load-failure fallback. ---- */
   var GROUP_STYLE = {
     'Hummingbirds':'geo',                 // low-poly geode
     'Crows & Jays':'mono',                // modernist black
@@ -2365,24 +2376,18 @@ document.documentElement.setAttribute('data-stamps-stage', 'fx-ready');
     'Hawks':'raptor',
     'Warblers & Vireos':'field'
   };
-  var ORDERED_STYLES = ['field','flock','dither','geo','mono','bundespost','zurichpink',
-    'mexico','kieler','linescreen','terraplana','opart','nzplate','editorial','minimal'];
-
   function groupFor(sci) {
     var genus = String(sci || '').split(' ')[0];
     if (GENUS_GROUP[genus]) return GENUS_GROUP[genus];
     return null;
   }
-  function hashPick(str, list) {
-    var h = 0, i;
-    for (i = 0; i < str.length; i++) { h = ((h << 5) - h + str.charCodeAt(i)) | 0; }
-    return list[Math.abs(h) % list.length];
-  }
   function styleFor(sci) {
     var g = groupFor(sci);
     if (g && GROUP_STYLE[g] && TPL[GROUP_STYLE[g]]) return TPL[GROUP_STYLE[g]];
-    // unknown genus: stable per-species pick so it never flickers between renders
-    return TPL[hashPick(String(sci || ''), ORDERED_STYLES)] || TPL.field;
+    // Batch C registers the final shared issue before apt.js renders the Atlas.
+    // If that asset fails, keep the species visible on the approved core geo
+    // issue rather than reviving a retired template or assigning by hash.
+    return TPL.ribbonbird || TPL.geo || null;
   }
   function familyOf(sci) { return groupFor(sci) || 'Other'; }
   function latinOf(sci) {
@@ -2619,10 +2624,14 @@ document.documentElement.setAttribute('data-stamps-stage', 'fx-ready');
 
   /* bird: {sci, com, index, count} -> the stamp's outer HTML */
   function markup(bird, cutoutUrl, template) {
+    if (!bird) return '';
     /* A saved/generated bird may explicitly carry the approved family issue.
        Prefer that over a fresh taxonomy lookup so a cached stamp and its live
        preview can never silently drift into a different design family. */
-    var t = template || (bird.template && TPL[bird.template]) || styleFor(bird.sci);
+    var directTemplate = template && template.id && template.html && template.ar
+      ? template : null;
+    var t = directTemplate || (bird.template && TPL[bird.template]) || styleFor(bird.sci);
+    if (!t) return '';
     var box = boxFor(t.ar);
     var fam = bird.family || familyOf(bird.sci), lat = bird.latin || latinOf(bird.sci);
     var commonParts = splitName(bird.com || bird.sci);

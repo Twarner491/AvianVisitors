@@ -26,7 +26,8 @@ old_release=4515065dd38a3f5e4c244398d30a6f872384cb87
 
 rm -rf "$test_root" "$station_home"
 mkdir -p "$seed/scripts" "$seed/avian/frontend/fonts" \
-  "$seed/avian/frontend/assets" "$seed/avian/assets" "$webroot" \
+  "$seed/avian/frontend/assets" "$seed/avian/assets/illustrations" \
+  "$seed/avian/assets/cutouts" "$webroot" \
   /etc/birdnet /etc/sudoers.d /usr/local/bin /usr/local/sbin
 id "$station_user" >/dev/null 2>&1 \
   || useradd -M -d "$station_home" -s /bin/bash "$station_user"
@@ -67,6 +68,11 @@ for frontend_file in \
   stamp-batch-c.css stamp-batch-c.js grain.png stats-press.png; do
   printf '%s\n' "$frontend_file" >"$seed/avian/frontend/$frontend_file"
 done
+printf '{"shared-bird":{"w":1,"h":1,"bits":"AA=="}}\n' \
+  >"$seed/avian/frontend/masks.json"
+printf '{"shared-bird":[1,1]}\n' >"$seed/avian/frontend/dims.json"
+printf 'official shared bird\n' \
+  >"$seed/avian/assets/illustrations/shared-bird.png"
 printf 'fixture\n' >"$seed/avian/frontend/fonts/.keep"
 printf 'fixture\n' >"$seed/avian/frontend/assets/.keep"
 printf 'favicon\n' >"$seed/avian/assets/favicon.png"
@@ -175,6 +181,7 @@ collision_home=/home/$collision_user
 collision_repo=$collision_home/BirdNET-Pi
 collision_webroot=$collision_home/BirdSongs/Extracted
 rm -rf "$collision_home"
+rm -f /run/lock/avian-generation.lock
 id "$collision_user" >/dev/null 2>&1 \
   || useradd -M -d "$collision_home" -s /bin/bash "$collision_user"
 mkdir -p "$collision_home"
@@ -185,10 +192,16 @@ runuser -u "$collision_user" -- env HOME="$collision_home" \
   git -C "$collision_repo" remote set-url origin "$official"
 runuser -u "$collision_user" -- env HOME="$collision_home" \
   git -C "$collision_repo" switch -q main
-mkdir -p "$collision_repo/avian/frontend" "$collision_repo/custom" "$collision_webroot"
+mkdir -p "$collision_repo/avian/frontend" \
+  "$collision_repo/avian/assets/illustrations" \
+  "$collision_repo/custom" "$collision_webroot"
 printf 'legacy page\n' >"$collision_repo/avian/frontend/index.html"
-printf 'legacy masks\n' >"$collision_repo/avian/frontend/masks.json"
-printf 'legacy dims\n' >"$collision_repo/avian/frontend/dims.json"
+printf '{"shared-bird":{"w":2,"h":2,"bits":"AA=="}}\n' \
+  >"$collision_repo/avian/frontend/masks.json"
+printf '{"shared-bird":[2,2]}\n' \
+  >"$collision_repo/avian/frontend/dims.json"
+printf 'local regional shared bird\n' \
+  >"$collision_repo/avian/assets/illustrations/shared-bird.png"
 printf 'keep local\n' >"$collision_repo/avian/frontend/local-note.txt"
 printf 'keep outside\n' >"$collision_repo/custom/notes.txt"
 chown -R "$collision_user:$collision_user" "$collision_home"
@@ -220,10 +233,13 @@ fi
   || fail 'v1 bootstrap did not reach the release commit'
 grep -qx index.html "$collision_repo/avian/frontend/index.html" \
   || fail 'release page did not replace its legacy collision'
-grep -qx 'legacy masks' "$collision_repo/avian/frontend/masks.json" \
+grep -q '"shared-bird"' "$collision_repo/avian/frontend/masks.json" \
   || fail 'v1 bootstrap did not preserve legacy masks'
-grep -qx 'legacy dims' "$collision_repo/avian/frontend/dims.json" \
+grep -q '"shared-bird"' "$collision_repo/avian/frontend/dims.json" \
   || fail 'v1 bootstrap did not preserve legacy dimensions'
+grep -qx 'local regional shared bird' \
+  "$collision_repo/avian/assets/illustrations/shared-bird.png" \
+  || fail 'v1 bootstrap did not preserve a regional illustration collision'
 grep -qx 'keep local' "$collision_repo/avian/frontend/local-note.txt" \
   || fail 'v1 bootstrap removed a nested noncollision'
 grep -qx 'keep outside' "$collision_repo/custom/notes.txt" \
