@@ -58,4 +58,22 @@ CURRENT_TIMEZONE=$(timedatectl show --value --property=Timezone)
 
 ./install_language_label.sh || exit 1
 
+# Optional: render frame.png here on a timer and publish it, so an e-ink wall
+# frame can run with no browser (frame/README.md). Off by default because it
+# pulls ~300MB of Chromium, so it is opt-in through the environment:
+#   FRAME_PUBLISH=15min ./newinstaller.sh
+# All the logic stays in frame/; this is only the hook. A failure here must not
+# fail the BirdNET install - the frame is an accessory.
+if [ -n "${FRAME_PUBLISH:-}" ]; then
+  # The variable takes an interval, but "=1" / "=yes" / "=true" are what people
+  # actually type for an opt-in flag. Treat those as "use the default" rather
+  # than failing validation inside a 20-40 minute install log nobody reads.
+  case "${FRAME_PUBLISH,,}" in
+    1|y|yes|true|on) FRAME_INTERVAL=15min ;;
+    *) FRAME_INTERVAL="$FRAME_PUBLISH" ;;
+  esac
+  "$HOME"/BirdNET-Pi/frame/install-publish.sh --interval "$FRAME_INTERVAL" \
+    || echo "frame publisher install failed; BirdNET-Pi itself is fine. See frame/README.md" >&2
+fi
+
 exit 0

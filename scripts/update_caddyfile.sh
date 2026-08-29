@@ -631,6 +631,14 @@ ${site_overlay_import}  root * $EXTRACTED
   @shell path / /index.html
   header @shell Cache-Control "no-cache"
 
+  # The published frame (frame/install-publish.sh) is re-rendered on a timer, so
+  # a heuristically-cached copy shows yesterday's birds. no-cache forces
+  # revalidation while still allowing the 304 the frame Pi's conditional GET
+  # relies on. A no-op where the publisher was never installed and the path does
+  # not exist.
+  @frame path /frame.png
+  header @frame Cache-Control "no-cache"
+
   # BirdNET-Pi's older PHP tools and reverse-proxied consoles do not share
   # AvianVisitors' session gate. Protect the whole legacy surface with the
   # configured password, or limit it to direct read pages when none exists.

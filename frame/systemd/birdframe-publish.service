@@ -1,0 +1,39 @@
+[Unit]
+Description=AvianVisitors: render frame.png and publish it in the web root
+Documentation=https://github.com/Twarner491/AvianVisitors
+# The shot is of this Pi's OWN site, so waiting for the network is not enough -
+# a run that fires before caddy is listening screenshots a 502.
+Wants=network-online.target
+After=network-online.target caddy.service
+
+[Service]
+Type=oneshot
+# This file ships unmodified and must be valid on any install, so it carries no
+# home directory, no user, and no schedule. install-publish.sh writes the three
+# machine-specific pieces instead:
+#   /usr/local/bin/birdframe-publish                  where the clone and venv are
+#   birdframe-publish.service.d/10-local.conf         User=
+#   /etc/birdframe/publish.env                        title, subtitle, url, out
+# Retune the frame by editing publish.env; `systemctl edit` for anything else.
+EnvironmentFile=-/etc/birdframe/publish.env
+ExecStart=/usr/local/bin/birdframe-publish
+# Unbuffered so shoot.py's stderr ("site returned 502", "some illustrations did
+# not finish loading") lands in the journal in order instead of after the exit.
+Environment=PYTHONUNBUFFERED=1
+# This Pi runs realtime tflite inference and writes WAV segments to the same
+# card. A screenshot must never win CPU or IO against either; a slow frame is
+# invisible, a dropped detection is not.
+Nice=10
+IOSchedulingClass=idle
+# No MemoryMax. Chromium here peaks well under what a 4/5 has spare, and a
+# cgroup kill is SIGKILL: it would skip publish.py's cleanup and leave
+# Playwright's profile in the /tmp tmpfs, i.e. in RAM, until reboot.
+#
+# publish.py applies its timeout to EACH Playwright step (goto, the tile wait,
+# the image wait), so the default 60s/step is ~200s worst case plus browser
+# launch. Keep systemd's kill above that or a slow render dies with nothing in
+# the journal to explain it.
+TimeoutStartSec=300
+
+# No [Install] section: this is driven by birdframe-publish.timer, not enabled
+# directly.

@@ -116,6 +116,34 @@ link_avian_visitors_webroot() {
     _avian_link_one "${run_user}" \
       "${sources[$index]}" "${web_root}/${targets[$index]}" || return 1
   done
+
+  # The published e-ink frame (frame/install-publish.sh), deliberately outside
+  # the manifest above. Its source is generated under RECS_DIR rather than
+  # shipped in the repo, and it is absent before the first publish and after
+  # clear_all_data.sh - inside the manifest a missing frame would fail the
+  # validation pass and leave the entire webroot unlinked.
+  #
+  # RECS_DIR is read here, not taken from the caller: every caller now invokes
+  # this file as an out-of-process helper, so nothing exports it.
+  if [ -x /usr/local/bin/birdframe-publish ]; then
+    local recs_conf=/etc/birdnet/birdnet.conf recs_dir=""
+    [ -r "$recs_conf" ] && recs_dir=$(awk -F= '/^[[:space:]]*RECS_DIR[[:space:]]*=/ {
+      value=$0; sub(/^[^=]*=/, "", value); gsub(/^[[:space:]"\047 ]+|[[:space:]"\047 ]+$/, "", value); print value; exit
+    }' "$recs_conf")
+    if [ -z "$recs_dir" ]; then
+      echo "Warning: RECS_DIR not found; skipping the frame link" >&2
+    elif [ -d "${web_root}/frame.png" ] && [ ! -L "${web_root}/frame.png" ]; then
+      echo "Refusing to replace directory: ${web_root}/frame.png" >&2
+    else
+      # Explicit mode: the update path runs under `umask 077`, which would leave
+      # this 0700 and stop caddy (a member of the station group) traversing it -
+      # /frame.png would then fall through to index.php and serve HTML.
+      if ! sudo -u "${run_user}" mkdir -m 0755 -p "${recs_dir}/frame" \
+        || ! sudo -u "${run_user}" ln -sfn "${recs_dir}/frame/frame.png" "${web_root}/frame.png"; then
+        echo "Warning: could not relink ${web_root}/frame.png" >&2
+      fi
+    fi
+  fi
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
