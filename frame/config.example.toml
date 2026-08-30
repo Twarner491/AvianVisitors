@@ -11,6 +11,11 @@ shoot = true
 # something that serves a frame image, e.g. a public Cloudflare Worker):
 # shoot = false
 # image_url = "https://bird.onethreenine.net/frame.png?k=YOUR_FRAME_KEY"
+# ...or let the mic Pi render it (run frame/install-publish.sh over there). The
+# panel then refreshes when the downloaded PNG itself changes, so base_url above
+# is written for reference only and is never fetched in this mode:
+# image_url = "http://birdnet.local/frame.png"
+# timeout = 30       # with image_url this only detects a stall, it is not a render budget
 # Or read a PNG a sibling process drops next to us:
 # image = "~/.birdframe/frame.png"
 
@@ -27,7 +32,7 @@ hours = 24             # window shown on the frame
 # --- Titles and look (used when this Pi renders, i.e. shoot = true) ----------
 shoot_title = "Avian Visitors"
 shoot_subtitle = "Heard Today"
-bird_names = false       # run `birdframe-names on` to show them
+bird_names = ""          # "" follows the station's COLLAGE_LABELS; true/false override (`birdframe-names on|off|auto`)
 # shoot_headline_px = 42
 # shoot_eyebrow_px = 18
 # shoot_lowercase = false

@@ -133,6 +133,14 @@ INFO_SITE="ALLABOUTBIRDS"
 
 COLOR_SCHEME="light"
 
+## COLLAGE_LABELS draws each bird's common name along its silhouette, on the
+## web collage and on every rendered e-ink frame alike. This is the one place
+## to set it: the collage reads it as its default (a device can still override
+## it in Settings), and frames that render from this site follow it.
+## on or off. default on
+
+COLLAGE_LABELS=on
+
 #------------------------------  Disk Management  ------------------------------#
 ## FULL_DISK can be set to configure how the system reacts to a full disk
 ## purge = Remove the oldest day's worth of recordings

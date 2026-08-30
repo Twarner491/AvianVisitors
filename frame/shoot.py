@@ -77,7 +77,13 @@ def _safe_continue(route):
 
 
 def _frame_url(url, bird_names):
-    """Set the frame's label preference without disturbing other URL state."""
+    """Set the frame's label preference without disturbing other URL state.
+
+    None means follow: leave the URL alone, and the page resolves labels the
+    way any new device does - from the station's COLLAGE_LABELS, carried on
+    the recent payload. True/False are explicit overrides via ?labels=."""
+    if bird_names is None:
+        return url
     parts = urllib.parse.urlsplit(url)
     query = [(key, value) for key, value in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
              if key != "labels"]
@@ -85,7 +91,7 @@ def _frame_url(url, bird_names):
     return urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(query)))
 
 
-def _make_api_handler(floor_frac, window_hours, auth, species=None):
+def _make_api_handler(floor_frac, window_hours, auth, species=None, seen=None):
     """Re-window action=recent (to preview busy days) and floor the rarest
     counts so the packer draws them a little larger. With `species` set
     (--bird-weather), serve that list for recent and an empty body for the
@@ -104,8 +110,24 @@ def _make_api_handler(floor_frac, window_hours, auth, species=None):
                 kw = {"url": url}
                 if auth:
                     kw["headers"] = {**req.headers, "authorization": auth}
-                data = route.fetch(**kw).json()
+                resp = route.fetch(**kw)
+                if not resp.ok:
+                    # Pass a station error through as-is. Re-serving it as 200
+                    # would hand the page a {"error":...} body it treats as a
+                    # birdless station, and the frame would print an empty nest
+                    # for a box that merely has its database locked. Untouched,
+                    # the page's own !r.ok guard leaves the collage unrendered,
+                    # the wait below times out, and the last good frame stays.
+                    return route.fulfill(response=resp)
+                data = resp.json()
             sp = data.get("species", [])
+            # Tell shoot() the payload has arrived, and the station's label
+            # default if it sent one. shoot() cannot infer either from the DOM:
+            # the page draws the empty nest *before* it asks for the payload.
+            if seen is not None:
+                seen["fired"] = True
+                if isinstance(data.get("labels"), bool):
+                    seen["labels"] = data["labels"]
             if sp and floor_frac > 0:
                 floor = max((s.get("n") or 1) for s in sp) * floor_frac
                 for s in sp:
@@ -114,6 +136,8 @@ def _make_api_handler(floor_frac, window_hours, auth, species=None):
             route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
         except Exception as e:
             print(f"recent-API rewrite skipped: {e}", file=sys.stderr)
+            if seen is not None:
+                seen["fired"] = True   # the page got its payload, we just did not see it
             _safe_continue(route)
     return handler
 
@@ -181,7 +205,7 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
           mat=0.04, collage_vh=52, cluster_xbias=1.0, cluster_ybias=1.2,
           count_exp=0.4, cluster_pad=1, label_min_px=11, small_floor=0.04, window_hours=None,
           timeout_ms=45000, user=None, password=None, species=None, cutout_base=None,
-          cutout_local=None, empty_text="listening for birds…", bird_names=False):
+          cutout_local=None, empty_text="listening for birds…", bird_names=None):
     pad_side, pad_top, pad_bottom = int(vw * mat), int(vh * mat * 0.92), int(vh * mat)
     auth = "Basic " + base64.b64encode(f"{user}:{password or ''}".encode()).decode() if user else None
 
@@ -197,15 +221,20 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
                 ctx_kw["http_credentials"] = {"username": user, "password": password or ""}
             page = browser.new_context(**ctx_kw).new_page()
             misses = []
-            page.route("**/birdnet-api.php**", _make_api_handler(small_floor, window_hours, auth, species))
+            seen = {}
+            page.route("**/birdnet-api.php**", _make_api_handler(small_floor, window_hours, auth, species, seen))
             page.route("**/apt.js*", _make_js_handler(
                 cluster_xbias, cluster_ybias, count_exp, cluster_pad,
                 label_min_px, auth, misses))
-            if bird_names:
-                hand_font = os.path.realpath(os.path.join(
-                    os.path.dirname(__file__), "..", "avian", "frontend", "fonts", "Caveat.ttf"))
-                if not os.path.isfile(hand_font):
-                    raise RuntimeError("collage label font is missing")
+            # In follow mode labels may turn out on only after the page has the
+            # recent payload, so the local font route goes in whenever they are
+            # not explicitly off. It only ever answers a request for Caveat.ttf,
+            # which a page without labels never makes, and a missing local copy
+            # just lets the page fetch the site's; the font check below is what
+            # makes a failed load fatal.
+            hand_font = os.path.realpath(os.path.join(
+                os.path.dirname(__file__), "..", "avian", "frontend", "fonts", "Caveat.ttf"))
+            if bird_names is not False and os.path.isfile(hand_font):
                 page.route("**/avian/frontend/fonts/Caveat.ttf*",
                            lambda route: route.fulfill(path=hand_font))
             if cutout_base:
@@ -220,18 +249,41 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
             resp = page.goto(_frame_url(url, bird_names), wait_until="domcontentloaded", timeout=timeout_ms)
             if resp is None or not resp.ok:
                 raise RuntimeError(f"site returned {resp.status if resp else 'no response'}")
-            if bird_names:
+            # Wait for the collage, or for the empty-state element the page shows
+            # when the mic has heard nothing yet, so a birdless frame renders a
+            # clean title card fast instead of hanging until the timeout. A page
+            # with neither still times out here and stays fatal (keep last frame).
+            page.wait_for_selector(".gtile, .empty", state="attached", timeout=timeout_ms)
+            # That selector alone is not proof the collage is drawn: the page
+            # renders the empty nest ~150ms in, *before* the recent payload
+            # answers (~220ms on a LAN, far longer on a Zero 2 W over WiFi), so
+            # a birdful station can satisfy ".empty" and ship a nest.
+            # The page stamps the collage with where its render came from, so
+            # wait for one drawn from the recent payload - then it holds tiles,
+            # or the nest for a station with nothing drawable - before reading
+            # anything off it. By then the handler has served the payload and
+            # recorded the station's label default.
+            page.wait_for_selector(
+                "#collage[data-rendered='data'] .gtile, #collage[data-rendered='data'] .empty",
+                state="attached", timeout=timeout_ms)
+            if not seen.get("fired"):
+                raise RuntimeError("the collage rendered without the recent payload passing the frame's handler")
+            # Resolve labels exactly as the page does: an explicit override, else
+            # the station's default as served, else the page's own on. After the
+            # payload has been seen, a missing field is an older station whose
+            # page really does draw names by default, so on is the true answer.
+            # (Not for BirdWeather: that payload is synthesized here and has no
+            # station to carry a default, so the note would print every render.)
+            if bird_names is None and "labels" not in seen and species is None:
+                print("station sends no label default; names follow the page default (on)", file=sys.stderr)
+            want_labels = bird_names if bird_names is not None else seen.get("labels", True)
+            if want_labels:
                 font_loaded = page.evaluate(
                     "async () => { const f = await document.fonts.load('600 16px Hand');"
                     " await document.fonts.ready;"
                     " return f.length > 0 && document.fonts.check('600 16px Hand'); }")
                 if not font_loaded:
                     raise RuntimeError("collage label font did not load")
-            # Wait for the collage, or for the empty-state element the page shows
-            # when the mic has heard nothing yet, so a birdless frame renders a
-            # clean title card fast instead of hanging until the timeout. A page
-            # with neither still times out here and stays fatal (keep last frame).
-            page.wait_for_selector(".gtile, .empty", state="attached", timeout=timeout_ms)
             if page.query_selector(".gtile") is not None:
                 try:
                     page.wait_for_function(
@@ -240,7 +292,7 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
                         timeout=timeout_ms)
                 except PWTimeout:
                     print("some illustrations did not finish loading; capturing anyway", file=sys.stderr)
-                if bird_names:
+                if want_labels:
                     missing_labels = page.evaluate(
                         "() => [...document.querySelectorAll('.gtile')]"
                         ".filter(t => !t.querySelector('.gtile-label text'))"
@@ -338,8 +390,9 @@ def main():
     ap.add_argument("--dsf", type=int, default=2)
     ap.add_argument("--user")
     ap.add_argument("--password")
-    ap.add_argument("--bird-names", action="store_true",
-                    help="show common names along the birds")
+    ap.add_argument("--bird-names", action=argparse.BooleanOptionalAction, default=None,
+                    help="force names on (--bird-names) or off (--no-bird-names); "
+                         "unset follows the station's COLLAGE_LABELS")
     ap.add_argument("--timeout", type=int, default=45000)
     a = ap.parse_args()
     if a.bird_weather:

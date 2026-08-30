@@ -69,14 +69,56 @@ Each one enables SPI + I2C, installs the deps and a systemd timer, writes `~/.bi
 
 The default layout matches the A5 opening in the frame listed above. If you use a different mat or a bare panel, set `opening` in `~/.birdframe/config.toml`; `0.7071` preserves the current A5 dimensions, while values up to about `0.98` use more of the panel.
 
-Bird names are off on the frame by default. Turn them on or off at any time; the command saves the preference and requests an immediate refresh:
+Bird names are decided once, on the mic Pi: open the web admin and set **Bird names**, or put `COLLAGE_LABELS=on|off` in `birdnet.conf`. The collage, a frame rendering from that site, and a frame showing its published image all follow it — a flip shows up on the panel at the next check, no new bird needed. A single device can still pick its own in the collage's settings row, and a frame can override with:
 
 ```bash
-birdframe-names on
+birdframe-names on      # names on this frame, whatever the station says
 birdframe-names off
+birdframe-names auto    # follow the station again (the default)
+birdframe-names status
 ```
 
-For an `--image-url` frame, the command adds `labels=1` or `labels=0` to the source URL. The source must honor that setting; otherwise its image will not change.
+Overriding is only possible on a frame that renders for itself. A frame pointed at a published image shows whatever the mic Pi drew, and the command says so instead of pretending.
+
+Two consequences of "follow" worth knowing: a BirdWeather frame has no station, so `auto` there means the page's own default, names on; and a frame updated before its mic Pi sees no setting yet and likewise draws names until the mic Pi catches up. Use `birdframe-names off` if either is not what you want.
+
+### Let the mic Pi render (publish mode)
+
+Shooting the collage takes 70–120s and ~1GB of Chromium on a Zero 2 W. If your BirdNET mic is a Pi 4 or 5, let *it* render instead and have the frame just download the finished PNG.
+
+On the **mic Pi**:
+
+```bash
+cd ~/BirdNET-Pi/frame
+./install-publish.sh                     # every 5 min
+./install-publish.sh --interval 15min    # easier on a Pi 3 or a busy box
+```
+
+It installs Playwright, publishes to `/frame.png` on the site Caddy already serves, and prints the URL to use next. No SPI, no panel driver, no reboot. You can also opt in during a fresh BirdNET-Pi install — inside `bash -c`, so the variable reaches the installer rather than `curl`:
+
+```bash
+FRAME_PUBLISH=15min bash -c "$(curl -s https://raw.githubusercontent.com/Twarner491/AvianVisitors/avian-visitors/newinstaller.sh)"
+```
+
+`FRAME_PUBLISH` takes an interval (`5min`, `1h`); `1`, `yes` or `true` mean "just use the default".
+
+A tick that finds no new birds costs ~0.3s on a Pi 5 and never starts a browser; a full render is ~1.8s. The interval is a freshness knob, not a cost one — worst-case bird-to-panel latency is this interval plus the frame Pi's own 15-minute poll.
+
+Then on the **frame Pi**, point the normal installer at that URL:
+
+```bash
+./install.sh --image-url http://<mic-pi>/frame.png
+```
+
+Any URL the frame Pi can resolve works — a LAN address, a [Tailscale](https://tailscale.com) MagicDNS name, a Cloudflare Tunnel hostname (see [`avian/forwarding/`](../avian/forwarding/)). If both Pis are on a tailnet, `tailscale serve --bg 80` on the mic Pi publishes it at `https://<node>.<tailnet>.ts.net/frame.png` with a real certificate and no port forwarding; `install-publish.sh` detects that and prints the tailnet URL for you.
+
+Only the mic Pi decides when to re-render, so `frame.png` changes only when the birds do. The frame Pi asks for it conditionally and skips the panel refresh entirely when the image hasn't changed — no second guess at the same question on a second clock.
+
+Retune titles in `/etc/birdframe/publish.env` and run `sudo systemctl start birdframe-publish`. Keys you add there survive re-runs. If the whole site is behind basic auth, set `FRAME_USER`/`FRAME_PASSWORD` there too — without them the change check gets a 401 every tick, which reads as "nothing new" and freezes the frame on one image.
+
+To remove it: `./install-publish.sh --uninstall` (`scripts/uninstall.sh` discovers units by scanning `install_services.sh`, so it cannot see this one).
+
+Bird names on the published frame follow the station's **Bird names** setting like everything else, and the publisher re-renders when it changes. `FRAME_BIRD_NAMES=on|off` in `publish.env` forces it for the publisher alone, which is rarely what you want.
 
 BirdWeather mode renders on the Pi from this repo's illustrations on GitHub, so there is no image set to copy over. ZIP codes with no station nearby fall back to the closest ones. If you are far from any BirdWeather station, add `--ebird-key <key>` (a free key from [ebird.org/api/keygen](https://ebird.org/api/keygen)) and the frame fills from eBird sightings instead.
 

@@ -62,6 +62,28 @@ function publicSiteName(string $path): string {
 
 if (defined('AVIAN_BIRDNET_API_LIBRARY_ONLY')) return;
 
+// The site-wide label preference rides on the recent payload because every
+// consumer already reads it there: the collage fetches it before each render,
+// a frame's screenshot intercepts and re-serves it, and both change gates poll
+// it. config.php cannot carry it - that endpoint is admin-only and the collage
+// page is anonymous. Absent means on, matching the collage's own default.
+// Read the single key here rather than pulling in the admin auth stack: this
+// endpoint is anonymous, and COLLAGE_LABELS is a public display preference
+// like SITE_NAME above. Commented lines never match, the last assignment
+// wins, and anything unparseable leaves the default in place.
+function collage_labels_default(): bool {
+    $path = dirname(__DIR__, 2) . '/birdnet.conf';
+    $value = '';
+    if (is_readable($path) && !is_dir($path)) {
+        $lines = @file($path, FILE_IGNORE_NEW_LINES);
+        foreach (is_array($lines) ? $lines : [] as $line) {
+            if (preg_match('/^\s*(?:export\s+)?COLLAGE_LABELS\s*=\s*["\']?([A-Za-z0-9_]*)/', $line, $match) !== 1) continue;
+            $value = $match[1];
+        }
+    }
+    return !in_array(strtolower(trim($value)), ['off', '0', 'false', 'no'], true);
+}
+
 if (!file_exists($DB_PATH)) {
     http_response_code(503);
     echo json_encode(['error' => 'birds.db not found']);
@@ -197,7 +219,9 @@ switch ($action) {
         echo json_encode([
             'hours' => $hours, 'date' => $ctx['date'], 'station_date' => $ctx['today'],
             'is_today' => $ctx['is_today'], 'anchor' => $ctx['anchor'],
-            'species' => $rs, 'site_name' => publicSiteName($CONF_PATH), 'as_of' => date('c')
+            'species' => $rs, 'site_name' => publicSiteName($CONF_PATH),
+            'as_of' => date('c'),
+            'labels' => collage_labels_default()
         ]);
         break;
     }

@@ -212,6 +212,7 @@ valid_config_value() {
       [ "$password_config_write" = 1 ] \
         && { [ -z "$value" ] || [[ "$value" =~ ^[A-Za-z0-9]{1,64}$ ]]; }
       ;;
+    COLLAGE_LABELS) [ "$value" = on ] || [ "$value" = off ] ;;
     SITE_NAME)
       [ "${#value}" -le 60 ] && [[ "$value" =~ ^[A-Za-z0-9\ _.,\047-]*$ ]]
       ;;

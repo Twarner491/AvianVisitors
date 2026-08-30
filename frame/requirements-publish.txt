@@ -1,0 +1,9 @@
+# Publish host: the BirdNET mic Pi, rendering frame.png for a frame Pi that has
+# no browser (frame/install-publish.sh). Same headless-Chromium requirement as
+# the screenshot host, plus Pillow - publish.py imports display.py's change
+# detection rather than duplicating its count bucketing, and display.py imports
+# PIL at module scope. Deliberately NOT requirements-frame.txt: this machine has
+# no panel and must not pull in inky/numpy/spidev.
+-r requirements-shoot.txt
+Pillow>=10,<12
+tomli; python_version < "3.11"
