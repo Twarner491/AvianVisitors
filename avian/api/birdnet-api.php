@@ -67,10 +67,21 @@ if (defined('AVIAN_BIRDNET_API_LIBRARY_ONLY')) return;
 // a frame's screenshot intercepts and re-serves it, and both change gates poll
 // it. config.php cannot carry it - that endpoint is admin-only and the collage
 // page is anonymous. Absent means on, matching the collage's own default.
-require_once __DIR__ . '/admin-auth.php';
+// Read the single key here rather than pulling in the admin auth stack: this
+// endpoint is anonymous, and COLLAGE_LABELS is a public display preference
+// like SITE_NAME above. Commented lines never match, the last assignment
+// wins, and anything unparseable leaves the default in place.
 function collage_labels_default(): bool {
-    $v = avian_conf_value(dirname(__DIR__, 2) . '/birdnet.conf', 'COLLAGE_LABELS');
-    return !in_array(strtolower(trim((string)$v)), ['off', '0', 'false', 'no'], true);
+    $path = dirname(__DIR__, 2) . '/birdnet.conf';
+    $value = '';
+    if (is_readable($path) && !is_dir($path)) {
+        $lines = @file($path, FILE_IGNORE_NEW_LINES);
+        foreach (is_array($lines) ? $lines : [] as $line) {
+            if (preg_match('/^\s*(?:export\s+)?COLLAGE_LABELS\s*=\s*["\']?([A-Za-z0-9_]*)/', $line, $match) !== 1) continue;
+            $value = $match[1];
+        }
+    }
+    return !in_array(strtolower(trim($value)), ['off', '0', 'false', 'no'], true);
 }
 
 if (!file_exists($DB_PATH)) {
