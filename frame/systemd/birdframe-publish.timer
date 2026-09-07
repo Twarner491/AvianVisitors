@@ -1,0 +1,28 @@
+[Unit]
+Description=Re-render the published bird frame on a schedule
+
+[Timer]
+# Give every activation its own bootstrap deadline. OnBootSec= fires once per
+# boot and OnUnitActiveSec= counts from the service's last activation, so that
+# pair alone leaves no pending trigger if the timer is stopped and started again
+# without a reboot - it sits 'active (elapsed)' with no next deadline and the
+# frame silently stops updating. Same fix as birdframe.timer (#47), which traced
+# two multi-day frame stalls to exactly this.
+OnActiveSec=3min
+# 3 min, not 2: caddy, php-fpm and the first analysis pass all have to be up, or
+# the first frame of every boot is a screenshot of a 502.
+OnBootSec=3min
+# Measured on a Pi 5: a gated tick that finds no new birds costs 0.27s (one JSON
+# request to 127.0.0.1, no browser), and a full render 1.8s. So the interval is
+# not a cost question, it is a freshness one: worst-case bird-to-panel latency is
+# this plus the frame Pi's own 15min poll. 5min keeps that around 20min without
+# the publisher being noticeable on a Pi also running realtime tflite inference.
+# Raise it on a Pi 3 or a busy box; `install-publish.sh --interval` writes a
+# drop-in, this file is never edited in place.
+OnUnitActiveSec=5min
+# Harmless here (Persistent= only acts on OnCalendar=), kept for symmetry with
+# birdframe.timer.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

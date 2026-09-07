@@ -163,7 +163,13 @@ Everything outside `avian/` and `frame/` is upstream BirdNET-Pi.
 
 ## Wall frame
 
-An optional e-ink frame puts the bird collage on a panel by your window. Build it from [`frame/`](frame/README.md). It can run off your own BirdNET mic, from BirdWeather around a ZIP code, or from one public BirdWeather station with `frame/install.sh --station-id <ID>`.
+An optional e-ink frame puts the bird collage on a panel by your window. Build it from [`frame/`](frame/README.md). It can run off your own BirdNET mic, from BirdWeather around a ZIP code, or from one public BirdWeather station with `frame/install.sh --station-id <ID>` — or the mic Pi can render and publish the image itself, so the frame Pi needs no browser.
+
+For that last one, run [`frame/install-publish.sh`](frame/install-publish.sh) on the mic Pi whenever you like, or opt in at install time. Note the env var has to go inside `bash -c`, or it applies to `curl` and is silently lost:
+
+```bash
+FRAME_PUBLISH=15min bash -c "$(curl -s https://raw.githubusercontent.com/Twarner491/AvianVisitors/avian-visitors/newinstaller.sh)"
+```
 
 ---
 

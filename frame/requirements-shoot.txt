@@ -1,4 +1,8 @@
 # Screenshot host: shoot.py. Any 64-bit machine that can run headless Chromium
 # (a Pi 4/5, a laptop, a small server). NOT a Pi Zero W (no ARMv6 browser).
+# On a BirdNET mic Pi publishing for a frame, install-publish.sh installs
+# requirements-publish.txt instead, which pulls this in.
 #   pip install -r requirements-shoot.txt && playwright install chromium
-playwright>=1.40
+# Note `frame/install.sh` installs playwright directly rather than through this
+# file, so the bound below only governs the publish host.
+playwright>=1.40,<2
