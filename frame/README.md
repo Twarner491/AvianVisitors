@@ -72,6 +72,42 @@ Each one enables SPI + I2C, installs the deps and a systemd timer, writes `~/.bi
 
 The default layout matches the A5 opening in the frame listed above. If you use a different mat or a bare panel, set `opening` in `~/.birdframe/config.toml`; `0.7071` preserves the current A5 dimensions, while values up to about `0.98` use more of the panel. This one setting scales a fixed 1:sqrt(2) opening, not width and height independently. For a B5 opening, `0.84` is a useful starting point, but check it against your physical mat.
 
+**Waveshare panel instead of an Inky:** the [13.3" e-Paper HAT+ (E)](https://www.waveshare.com/13.3inch-e-paper-hat-plus-e.htm) carries the same EL133UF1 Spectra 6 panel but is a different board, so the Inky driver needs a few retargets before it works. It has no EEPROM, so `inky.auto()` can't detect it — set `panel = "waveshare13in3e"` in `~/.birdframe/config.toml`.
+
+The HAT's control pins (BCM) and SPI bus differ from the Inky's:
+
+| Signal | GPIO |
+|--------|------|
+| CS, left half | 8 |
+| CS, right half | 7 |
+| DC | 25 |
+| RST | 17 |
+| BUSY | 24 |
+| PWR, panel power-enable | 18 |
+
+These sit on SPI0 (SCK 11, MOSI 10); the two CS lines are SPI0's CE0/CE1. Three things about this panel aren't obvious, and the frame handles them:
+
+- **BUSY is active-low** (low = refreshing, high = idle). The stock Inky driver waits the other way, so it returns before the ~19 s refresh actually finishes. The frame waits on the real polarity.
+- **The init values and reset differ** from the Pimoroni ones. This panel wants Waveshare's own `AN_TM`/`CDI`/`PSR`/boost values and a double reset pulse; the frame sends those.
+- **The panel is powered through PWR** (a 1-0-1 pulse to turn it on, dropped again after the refresh) and **deep-slept after each refresh**, per Waveshare's manual.
+
+**Wiring the panel — read this before plugging anything in.** Two rules, both learned the hard way:
+
+1. **Ribbon orientation: silver contacts face DOWN, towards the board**, at every FFC connection (panel ribbon into the HAT's connector, and any cable into the Pi's header adapter). Contacts up = pins mis-map and the panel does nothing.
+2. **Never put the Waveshare "e-Paper Adapter (B)" extension board in the chain.** It is built for the older 13.3" e-Paper **(B)** panel family and does not pass the (E) panel's pins through — BUSY lands on GND, so the panel never refreshes no matter how well it is seated. The (E) panel's ribbon connects **directly to the HAT+ (E)**.
+
+The panel ribbon reaches the HAT when the HAT is seated on the Pi's 40-pin header. If you need the panel farther from the Pi, do **not** extend on the panel side. Instead, keep the panel ribbon direct into the HAT and move the *HAT itself* off the Pi with the HAT's 10-pin cable: HAT → 10-pin breakout cable → Pi header pins (VCC to 3.3 V pin 1, GND to pin 6, DIN to GPIO10/pin 19, CLK to GPIO11/pin 23, CS_M to GPIO8/pin 24, CS_S to GPIO7/pin 26, DC to GPIO25/pin 22, RST to GPIO17/pin 11, BUSY to GPIO24/pin 18, PWR to GPIO18/pin 12).
+
+**A refresh is verified, not assumed.** The frame samples BUSY while a refresh runs and counts it as real only if BUSY toggles idle → busy → idle. A controller that ignores the refresh command (wedged or unpowered) leaves BUSY stuck, so the frame raises `PanelRefreshError` rather than silently leaving the old image up. With `auto_power_cycle = true` (default) it reboots once to power-cycle a wedged controller; set it to `false` to only log.
+
+To confirm a real refresh is happening, push a test card from the Pi and watch BUSY:
+
+```bash
+python3 _panel_test.py --times 3    # three in a row proves it doesn't wedge
+```
+
+If a panel never refreshes at all — even when driven by Waveshare's own reference demo rather than this code — the fault is in the hardware (HAT / panel / connection), not in the frame. To narrow it down before touching drivers, run the BUSY oracle on the Pi (`sudo python3 tools/busy_oracle.py`): it distinguishes a floating BUSY (HAT-to-Pi chain broken), a BUSY shorted to GND (wrong adapter / flipped FFC), and a live controller (drives BUSY high when idle).
+
 Bird names are off on the frame by default. Turn them on or off at any time; the command saves the preference and requests an immediate refresh:
 
 ```bash

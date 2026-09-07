@@ -355,11 +355,14 @@ switch ($action) {
         // separate code path.
         $hours = max(1, min(1000000, (int)($_GET['hours'] ?? 24)));
         $ctx = dateContext($db, $educatorScope);
+        // daily=1 forces a midnight-anchored window (the frame's "Heard Today"),
+        // regardless of the server's RESET_AT_MIDNIGHT setting.
+        $daily = ($_GET['daily'] ?? '') === '1';
         $window = recentWindow(
             $db,
             $hours,
             $ctx,
-            $RESET_AT_MIDNIGHT,
+            $RESET_AT_MIDNIGHT || $daily,
             $educatorScope !== null
         );
         $where = $window['where'];
@@ -389,7 +392,7 @@ switch ($action) {
             $r['top_at']   = isset($best['d']) ? ($best['d'].' '.$best['t']) : null;
         }
         birdnetRespond($db, $educatorScope, [
-            'hours' => $hours, 'date' => $ctx['date'], 'station_date' => $ctx['today'],
+            'hours' => $hours, 'daily' => $daily, 'date' => $ctx['date'], 'station_date' => $ctx['today'],
             'is_today' => $ctx['is_today'], 'anchor' => $ctx['anchor'],
             'reset_at_midnight' => $window['reset_at_midnight'],
             'midnight_clamped' => $window['midnight_clamped'],

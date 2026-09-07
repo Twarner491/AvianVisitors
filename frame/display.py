@@ -47,6 +47,8 @@ DEFAULTS = {
     "bw_days": 7,           # BirdWeather lookback window, in days
     "bw_country": "us",     # geocoder country for the ZIP
     "hours": 24,
+    "daily_reset": False,   # True = "Heard Today" window is since local midnight,
+                            # not the last `hours`; resets daily at the device TZ's midnight
     "image": "",            # local PNG written by the shooter
     "image_url": "",        # or a published screenshot URL
     "shoot": False,         # or capture inline (needs a browser; the 3 A+ and Zero 2 W both handle it)
@@ -58,13 +60,15 @@ DEFAULTS = {
     "opening": 0.7071,      # opening height as a panel fraction; 0.7071 preserves A5
     "rotate": 90,           # 90 or 270 if the frame hangs the other way up
     "saturation": 0.6,
-    "panel": "",            # "el133uf1" forces the 13.3" driver if auto() fails
+    "panel": "",            # "el133uf1" forces the 13.3" driver if auto() fails;
+                            # "waveshare13in3e" for the Waveshare 13.3" HAT+ (E)
     "quiet_start": 0, "quiet_end": 0,    # 0/0 = no quiet hours
     "heal_hours": 24,
     "state": "~/.birdframe/state.json",
     "cache": "~/.birdframe",
     "timeout": 180,      # seconds; a Zero 2 W needs ~70-120s to shoot the collage
     "basic_user": None, "basic_pass": None,
+    "auto_power_cycle": True,  # reboot to power-cycle a wedged e-ink controller on a no-op refresh
 }
 
 
@@ -87,8 +91,10 @@ def _bucket(n):
     return 8
 
 
-def fetch_recent(base, hours, timeout, auth=None):
+def fetch_recent(base, hours, timeout, auth=None, daily=False):
     url = f"{base.rstrip('/')}/avian/api/birdnet-api.php?action=recent&hours={hours}"
+    if daily:
+        url += "&daily=1"
     req = urllib.request.Request(url, headers={"User-Agent": "AvianVisitors-frame/1.0"})
     if auth:
         req.add_header("Authorization", auth)
@@ -135,7 +141,8 @@ def fetch_species(cfg, auth=None):
         if kind == "station":
             return birdweather.species_for_station(value, days=cfg["bw_days"])
         return birdweather.species_for_zip(value, country=cfg["bw_country"], days=cfg["bw_days"])
-    return fetch_recent(cfg["base_url"], cfg["hours"], cfg["timeout"], auth)
+    return fetch_recent(cfg["base_url"], cfg["hours"], cfg["timeout"], auth,
+                        daily=cfg.get("daily_reset", False))
 
 
 # --- image ------------------------------------------------------------------
@@ -293,13 +300,281 @@ def _draw_mat_box(img, opening):
 
 
 # --- hardware ---------------------------------------------------------------
-def push_panel(img, rotate, saturation, panel=""):
+# The Waveshare 13.3" e-Paper HAT+ (E) carries the same EL133UF1 Spectra 6 panel
+# as the Inky Impression 13.3", so the Inky driver runs it once the control pins
+# are remapped. It has no EEPROM, so inky.auto() can't identify it.
+WAVESHARE_PINS = {"cs_pin_0": 8, "cs_pin_1": 7, "dc_pin": 25,
+                  "reset_pin": 17, "busy_pin": 24}
+WAVESHARE_PWR_PIN = 18
+
+
+def _power_cycle(pin):
+    """Bring the panel's power rail up the way Waveshare's module_init does.
+
+    The HAT+ gates panel power behind a GPIO the Inky driver doesn't know about.
+    Waveshare's reference power-ON is a 1,0,1 pulse (30 ms each) ending with the
+    rail held HIGH. Returns the LineRequest with the rail held HIGH (on) across
+    the refresh; call _power_off() when it's done.
+    """
+    import time
+    import gpiod
+    import gpiodevice
+    from gpiod.line import Direction, Value
+    chip = gpiodevice.find_chip_by_platform()
+    offset = chip.line_offset_from_id(pin)
+    pwr = chip.request_lines(consumer="birdframe-pwr", config={
+        offset: gpiod.LineSettings(
+            direction=Direction.OUTPUT, output_value=Value.INACTIVE)})
+    pwr.set_value(offset, Value.INACTIVE)  # LOW = panel powered off
+    time.sleep(0.03)                       # settle in the off state
+    for level in (Value.ACTIVE, Value.INACTIVE, Value.ACTIVE):  # 1,0,1 (30ms each)
+        pwr.set_value(offset, level)
+        time.sleep(0.03)
+    return (pwr, offset)  # rail now HIGH (on)
+
+
+def _power_off(pwr, offset):
+    """Drop the rail to LOW (panel powered off) the way Waveshare's module_exit
+    does, then release the line. Runs after the refresh so the panel is truly
+    powered down instead of left in a high-voltage state."""
+    import time
+    from gpiod.line import Value
+    pwr.set_value(offset, Value.INACTIVE)
+    time.sleep(0.03)
+    pwr.release()
+
+
+# A refresh is trusted only when the BUSY line proves it. The Inky driver's
+# _busy_wait returns after a fixed wait when BUSY never signals, so a wedged or
+# unpowered controller can "succeed" having changed nothing; wall-clock time is
+# useless as a signal. The only reliable evidence is the BUSY pin itself: a real
+# refresh toggles it idle -> busy -> idle. If it never changes level, the
+# controller ignored the refresh command and the panel still shows the old image.
+class PanelRefreshError(RuntimeError):
+    """A refresh did not actually reach the panel; the panel still shows the
+    previous image. Callers must never swallow this silently."""
+
+
+def _show_verified(dev, timeout=90.0):
+    """Run dev.show() while sampling the BUSY pin; return (elapsed, ok, reason).
+
+    ok is True only if BUSY toggled through the refresh and settled back to idle.
+    A wedged/unpowered panel leaves BUSY stuck at one level for the whole call, so
+    it is caught here. On timeout the caller's finally drops the power rail (a
+    wedged refresh would otherwise hold the HAT's power-enable high, which the
+    datasheet warns can damage the diaphragm)."""
+    import threading
+    from gpiod.line import Value
+
+    samples = []
+    stop = threading.Event()
+
+    def level():
+        g = getattr(dev, "_gpio", None)
+        if g is None:
+            return None
+        return int(g.get_value(dev.busy_pin) == Value.ACTIVE)  # 1 = high
+
+    def sampler():
+        while not stop.is_set():
+            v = level()
+            if v is not None:
+                samples.append((time.monotonic(), v))
+            time.sleep(0.2)
+
+    done = threading.Event()
+    error = []
+
+    def worker():
+        try:
+            dev.show()
+        except Exception as e:  # noqa: BLE001
+            error.append(e)
+        finally:
+            done.set()
+
+    sampler_t = threading.Thread(target=sampler, daemon=True)
+    worker_t = threading.Thread(target=worker, daemon=True)
+    t0 = time.monotonic()
+    sampler_t.start()
+    worker_t.start()
+    if not done.wait(timeout):
+        error.append(TimeoutError(f"show() did not return within {timeout:.0f}s"))
+    elapsed = time.monotonic() - t0
+    stop.set()
+    sampler_t.join()
+
+    levels = [v for _, v in samples]
+    if not levels:
+        return elapsed, False, "could not read the BUSY line during the refresh"
+    idle = levels[0]
+    final = levels[-1]
+    # Compact BUSY trace: only the level transitions (t is relative to the first
+    # readable sample, i.e. just after the controller finished its reset/init).
+    if samples:
+        t0 = samples[0][0]
+        trans = []
+        prev = None
+        for t, v in samples:
+            if v != prev:
+                trans.append(f"{t - t0:+.1f}s={v}")
+                prev = v
+        print(f"BUSY trace ({len(samples)} samples, {elapsed:.1f}s total): "
+              f"{' -> '.join(trans) if trans else 'no transitions'}", file=sys.stderr)
+    if error:
+        return elapsed, False, f"show() raised: {error[0]}"
+    if len(set(levels)) < 2:
+        return elapsed, False, (
+            f"BUSY never toggled — stuck at level {final} for the whole {elapsed:.1f}s, "
+            f"so the panel controller did not run a refresh (unpowered or wedged)")
+    if final != idle:
+        return elapsed, False, (
+            f"BUSY did not settle back to idle (idle={idle}, final={final}); refresh incomplete")
+    return elapsed, True, f"BUSY toggled through the refresh and returned to idle"
+
+
+# --- Waveshare 13.3" e-Paper HAT+ (E) retargeting ----------------------------
+# The Inky driver targets the Pimoroni Impression 13.3", which has no power
+# management. This HAT differs in ways that break the stock driver, each
+# confirmed against Waveshare's own reference driver for the HAT:
+#   * BUSY is active-low (LOW=busy, HIGH=idle); the stock _busy_wait waits on
+#     BUSY-high, the inverse, so it returns before the ~19 s refresh finishes.
+#   * The reset is a double pulse (RST 1,0,1,0,1); the stock driver sends one.
+#   * The init values the panel needs (AN_TM, CDI, PSR, BTST_P, BTST_N) are
+#     Waveshare's, not the Pimoroni ones the stock driver sends.
+#   * The panel must be deep-slept after each refresh, per the HAT's manual.
+# These retarget the stock driver in place rather than forking it.
+def _waveshare_busy_wait(dev, timeout=40.0):
+    """Wait for a refresh the way the Waveshare reference does (BUSY active-low)."""
+    from gpiod.line import Value
+    time.sleep(0.05)  # grace for the controller to start driving BUSY low
+    t_start = time.time()
+    while dev._gpio.get_value(dev.busy_pin) == Value.INACTIVE:  # LOW = busy
+        time.sleep(0.1)
+        if time.time() - t_start > timeout:
+            print(f"BUSY stuck low for {timeout:.0f}s — refresh did not complete", file=sys.stderr)
+            return
+    time.sleep(0.02)
+
+
+def _waveshare_init(dev):
+    """Re-send the init sequence with the values from Waveshare's own reference
+    driver for this HAT (EPD_13in3e.c), not the Inky/Pimoroni ones. The command
+    bytes are identical, but the panel is tuned differently: AN_TM (refresh
+    waveform), CDI, PSR and the boost-test values all differ, and the Pimoroni
+    driver sends extra commands (DCDC/PLL/POFS/CMDA4) this HAT's init omits. A
+    reset clears the controller, so this is called right after one."""
+    import inky.inky_el133uf1 as m
+    s = dev._send_command
+    s(m.EL133UF1_ANTM, m.CS0_SEL, [0xC0, 0x1C, 0x1C, 0xCC, 0xCC, 0xCC, 0x15, 0x15, 0x55])
+    s(m.EL133UF1_CMD66, m.CS_BOTH_SEL, [0x49, 0x55, 0x13, 0x5D, 0x05, 0x10])
+    s(m.EL133UF1_PSR, m.CS_BOTH_SEL, [0xDF, 0x69])
+    s(m.EL133UF1_CDI, m.CS_BOTH_SEL, [0xF7])
+    s(m.EL133UF1_TCON, m.CS_BOTH_SEL, [0x03, 0x03])
+    s(m.EL133UF1_AGID, m.CS_BOTH_SEL, [0x10])
+    s(m.EL133UF1_PWS, m.CS_BOTH_SEL, [0x22])
+    s(m.EL133UF1_CCSET, m.CS_BOTH_SEL, [0x01])
+    s(m.EL133UF1_TRES, m.CS_BOTH_SEL, [0x04, 0xB0, 0x03, 0x20])
+    s(m.EL133UF1_PWR, m.CS0_SEL, [0x0F, 0x00, 0x28, 0x2C, 0x28, 0x38])
+    s(m.EL133UF1_EN_BUF, m.CS0_SEL, [0x07])
+    s(m.EL133UF1_BTST_P, m.CS0_SEL, [0xE8, 0x28])
+    s(m.EL133UF1_BOOST_VDDP_EN, m.CS0_SEL, [0x01])
+    s(m.EL133UF1_BTST_N, m.CS0_SEL, [0xE8, 0x28])
+    s(m.EL133UF1_BUCK_BOOST_VDDN, m.CS0_SEL, [0x01])
+    s(m.EL133UF1_TFT_VCOM_POWER, m.CS0_SEL, [0x02])
+
+
+def _waveshare_double_reset(dev):
+    """The Waveshare reference reset (RST 1,0,1,0,1, 30 ms each) followed by the
+    HAT's own init values. Inky's setup() already did one reset + init with the
+    Pimoroni values; re-resetting clears the controller so the Waveshare values
+    take effect."""
+    from gpiod.line import Value
+    for level in (Value.ACTIVE, Value.INACTIVE, Value.ACTIVE, Value.INACTIVE, Value.ACTIVE):
+        dev._gpio.set_value(dev.reset_pin, level)
+        time.sleep(0.03)
+    dev._busy_wait(0.3)
+    _waveshare_init(dev)
+
+
+def _waveshare_sleep(dev):
+    """Deep-sleep (0x07, 0xA5) before opening the power switch, so the panel is
+    never cut from its high-voltage drive mid-state (which wedges the next refresh)."""
+    import inky.inky_el133uf1 as m
+    dev._send_command(0x07, m.CS_BOTH_SEL, [0xA5])
+    time.sleep(0.1)
+
+
+def _patch_waveshare(dev):
+    """Retarget the stock Inky device to this HAT: fix the BUSY polarity
+    (active-low here), apply the Waveshare double reset + its own init values
+    after Inky's setup, and deep-sleep the panel after each refresh."""
+    dev._busy_wait = lambda timeout=40.0: _waveshare_busy_wait(dev, timeout)
+    orig_setup = dev.setup
+    def setup_ws():
+        orig_setup()
+        _waveshare_double_reset(dev)
+    dev.setup = setup_ws
+    orig_update = dev._update
+    def update_ws(buf_a, buf_b):
+        orig_update(buf_a, buf_b)
+        _waveshare_sleep(dev)
+    dev._update = update_ws
+
+
+def _panel_power_cycle(cache_dir, min_interval=600, enabled=True):
+    """Recover a wedged e-ink controller with a power cycle. The only reliable
+    fix is to drop panel power, which on this HAT means rebooting the Pi; the
+    frame then self-heals on its next timer run instead of sitting frozen on a
+    stale image. Reboot at most once per min_interval so a panel that wedges on
+    every boot doesn't turn the Pi into a reboot loop — that case needs a human.
+    """
+    if not enabled:
+        print("panel controller wedged; auto_power_cycle disabled, not rebooting", file=sys.stderr)
+        return
+    if os.environ.get("BIRDFRAME_DRY_RUN_POWER_CYCLE"):
+        print("panel controller wedged; DRY RUN (BIRDFRAME_DRY_RUN_POWER_CYCLE) — would reboot", file=sys.stderr)
+        return
+    import subprocess
+    mark = os.path.join(os.path.expanduser(cache_dir), ".last_panel_power_cycle")
+    now = time.time()
+    try:
+        with open(mark) as f:
+            if now - float(f.read().strip()) < min_interval:
+                print(f"panel power cycle already done <{min_interval}s ago; not rebooting again (needs a human)", file=sys.stderr)
+                return
+    except Exception:
+        pass
+    try:
+        with open(mark + ".tmp", "w") as f:
+            f.write(repr(now))
+        os.replace(mark + ".tmp", mark)
+    except Exception:
+        pass
+    print("rebooting in 5s to power-cycle the wedged e-ink controller", file=sys.stderr)
+    time.sleep(5)  # let this log line and state flush before the reboot
+    try:
+        subprocess.Popen(["sudo", "systemctl", "reboot"])
+    except Exception as e:
+        print(f"could not schedule the power-cycle reboot: {e}", file=sys.stderr)
+
+
+def push_panel(img, rotate, saturation, panel="", cache_dir="~/.birdframe", auto_power_cycle=True):
     """Rotate to the panel's landscape buffer and push. Lazy import so this
-    module still loads on a machine without the Inky library."""
+    module still loads on a machine without the Inky library. Returns the seconds
+    the refresh ran. Raises PanelRefreshError (after an attempt to power-cycle a
+    wedged controller) if the BUSY line shows no refresh actually happened — it
+    never returns silently on a no-op."""
     if rotate not in (90, 270):
         print(f"rotate must be 90 or 270, not {rotate}; using 90", file=sys.stderr)
         rotate = 90
-    if panel == "el133uf1":
+    pwr = None
+    if panel == "waveshare13in3e":
+        from inky.inky_el133uf1 import Inky
+        pwr = _power_cycle(WAVESHARE_PWR_PIN)
+        dev = Inky(resolution=(1600, 1200), **WAVESHARE_PINS)
+        _patch_waveshare(dev)
+    elif panel == "el133uf1":
         from inky.inky_el133uf1 import Inky
         dev = Inky(resolution=(1600, 1200))
     else:
@@ -310,7 +585,29 @@ def push_panel(img, rotate, saturation, panel=""):
         buf = buf.resize((dev.width, dev.height), Image.LANCZOS)
     kw = {"saturation": saturation} if "saturation" in inspect.signature(dev.set_image).parameters else {}
     dev.set_image(buf, **kw)
-    dev.show()
+    try:
+        elapsed, ok, reason = _show_verified(dev)
+    finally:
+        if pwr:
+            _power_off(*pwr)
+        # Release the gpiod claim explicitly. _patch_waveshare's closures keep
+        # the device alive (a dev -> lambda -> dev cycle), so without this the
+        # lines stay claimed and a second push in the same process cannot
+        # request them — its BUSY verification would have nothing to read.
+        g = getattr(dev, "_gpio", None)
+        if g is not None:
+            try:
+                g.release()
+            except Exception:
+                pass
+    if not ok:
+        print("===============================================================", file=sys.stderr)
+        print(f"!! PANEL REFRESH FAILED: {reason}", file=sys.stderr)
+        print(f"!! the panel is still showing the PREVIOUS image (show ran {elapsed:.1f}s)", file=sys.stderr)
+        print("===============================================================", file=sys.stderr)
+        _panel_power_cycle(cache_dir, enabled=auto_power_cycle)
+        raise PanelRefreshError(reason)
+    return elapsed
 
 
 # --- state ------------------------------------------------------------------
@@ -370,7 +667,7 @@ def obtain_image(cfg, species=None):
               lowercase=cfg["shoot_lowercase"], mat=cfg["shoot_mat"],
               small_floor=cfg["shoot_small_floor"], count_exp=cfg["shoot_count_exp"], timeout_ms=cfg["timeout"] * 1000,
               user=cfg["basic_user"], password=cfg["basic_pass"], window_hours=cfg["hours"],
-              bird_names=cfg["bird_names"])
+              bird_names=cfg["bird_names"], daily=cfg.get("daily_reset", False))
         return Image.open(out).convert("RGB")
     src = cfg["image_url"] or cfg["image"]
     if not src:
@@ -421,7 +718,17 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
         print(f"wrote preview {preview}")
         return
     try:
-        push_panel(img, cfg["rotate"], cfg["saturation"], cfg.get("panel", ""))
+        push_panel(img, cfg["rotate"], cfg["saturation"], cfg.get("panel", ""),
+                   cache_dir=cfg["cache"], auto_power_cycle=cfg.get("auto_power_cycle", True))
+    except PanelRefreshError as e:
+        # A refresh that does not reach the panel must be impossible to miss.
+        print("===============================================================")
+        print(f"PANEL REFRESH FAILED: {e}")
+        print("The panel is still showing the PREVIOUS image. The refresh was")
+        print("attempted and verified to have failed (this is not a silent no-op).")
+        print("If this recurs, the e-ink controller is wedged or unpowered.")
+        print("===============================================================")
+        return
     except Exception as e:
         print(f"panel push failed: {e}", file=sys.stderr)
         return

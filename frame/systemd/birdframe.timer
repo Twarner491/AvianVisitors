@@ -8,7 +8,11 @@ Description=Update the e-ink bird frame on a schedule
 # and later unloaded, restarting the timer can otherwise leave no next deadline.
 OnActiveSec=2min
 OnBootSec=2min
-OnUnitActiveSec=15min
+# Absolute schedule, not OnUnitActiveSec: the latter counts from the service's
+# last activation, so if the OnBootSec shot is ever missed the timer has nothing
+# to count from, reports Trigger=n/a, and never fires again. OnCalendar always
+# has a next elapse regardless of whether the service has ever run.
+OnCalendar=*:0/15
 Persistent=true
 
 [Install]
