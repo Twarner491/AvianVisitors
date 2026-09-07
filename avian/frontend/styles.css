@@ -1252,13 +1252,12 @@
     transition: transform 260ms cubic-bezier(.32,.72,.32,1);
   }
   #about-modal[aria-hidden="false"] .about-card { transform: none; }
-  .about-card .about-eyebrow {
-    margin: 0 0 7px;
-    font: italic 400 13px/1 ui-serif, "Iowan Old Style", Georgia, serif;
-    color: var(--ink-2); letter-spacing: 0.06em;
-  }
   .about-card h2 {
     margin: 0 0 13px;
+    /* Clear the absolutely-positioned .modal-close (top:16px right:16px,
+       30px round) sitting in the card's top-right corner - without the
+       .about-eyebrow line that used to push this heading down past it. */
+    padding-right: 44px;
     font: 700 22px/1.25 ui-serif, "Iowan Old Style", Georgia, serif;
     letter-spacing: 0.01em; color: var(--ink);
   }
@@ -1702,10 +1701,14 @@ body.av-local #dd-items  { display: block; }
    collage tiles to one pixel. Give tablet-sized viewports an explicit canvas
    height so the already-rendered bird images have room to paint. */
 @media (max-width: 1100px) {
-  /* COLLAGE BOX TABLET SIZE: fallback height for tablet-sized viewports. */
+  /* COLLAGE BOX TABLET SIZE: fallback height for tablet-sized viewports.
+     margin-top nudges the box down from the header; height is trimmed by
+     the same amount so the box's total footprint (and bottom edge) stays
+     put rather than overflowing the view's overflow:hidden bounds. */
   #v0 .gcollage {
-    height: calc(100vh - 190px) !important;
+    height: calc(100vh - 214px) !important;
     min-height: 320px;
     flex: 0 0 auto;
+    margin-top: 24px;
   }
 }

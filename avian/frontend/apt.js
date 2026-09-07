@@ -527,7 +527,7 @@
       // the status line beneath it. The frame (shoot.py) overrides the .empty
       // text for the e-ink panel; the nest illustration is shared by both.
       collage.innerHTML = '<div class="empty-nest">' +
-        '<div class="nest-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>' +
+        '<img class="nest-img" src="nest.png" alt="an empty nest" decoding="async">' +
         '<p class="empty">no birds heard in this window.</p></div>';
       // Bloom the nest in on the same cues as the collage (first load, window
       // change, view switch); a silent poll/resize renders without animate. The

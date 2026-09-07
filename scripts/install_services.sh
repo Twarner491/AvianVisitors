@@ -70,7 +70,7 @@ create_necessary_dirs() {
   sudo -u ${USER} ln -fs $my_dir/whitelist_species_list.txt $my_dir/scripts
   sudo -u ${USER} ln -fs $my_dir/homepage/* ${EXTRACTED}
   # AvianVisitors overlay. The avian/ symlink keeps assets + PHP shims
-  # reachable at /avian/. The five frontend files at the EXTRACTED root
+  # reachable at /avian/. The frontend files at the EXTRACTED root
   # make the collage the default index for http://birdnet.local/ -
   # the matching try_files override in update_caddyfile.sh teaches
   # php_fastcgi to prefer index.html over index.php at the root. The
@@ -84,6 +84,8 @@ create_necessary_dirs() {
     sudo -u ${USER} ln -fs $my_dir/avian/frontend/masks.json ${EXTRACTED}/masks.json
     sudo -u ${USER} ln -fs $my_dir/avian/frontend/dims.json  ${EXTRACTED}/dims.json
     sudo -u ${USER} ln -fs $my_dir/avian/frontend/nest.webp  ${EXTRACTED}/nest.webp
+    sudo -u ${USER} ln -fs $my_dir/avian/frontend/nest.png   ${EXTRACTED}/nest.png
+    sudo -u ${USER} ln -fs $my_dir/avian/frontend/nest.svg   ${EXTRACTED}/nest.svg
     sudo -u ${USER} ln -fs $my_dir/avian/assets/favicon.png  ${EXTRACTED}/favicon.png
   fi
   sudo -u ${USER} ln -fs $my_dir/model/labels.txt ${my_dir}/scripts
