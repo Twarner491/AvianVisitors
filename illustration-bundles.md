@@ -18,7 +18,7 @@ The main repo ships a Western-US set reviewed by hand. Other people have generat
 
 ## South America
 
-- 
+- **Buenos Aires, Argentina (AR-B / AR-C)**: [tadeongmi's fork](https://github.com/tadeongmi/AvianVisitors/tree/rio-de-la-plata-illustrations), 16 species. A starter set covering what one station in Buenos Aires actually detected (Hornero, Benteveo, Tero, Cotorra, Tordo Músico and others), not full regional coverage. Seeding the section for anyone further south.
 
 ## Oceania
 
