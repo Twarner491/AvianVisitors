@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -6,20 +6,12 @@
 <meta name="referrer" content="no-referrer">
 <title>your birds</title>
 <meta name="description" content="A live bird collage from your window.">
-<link rel="icon" type="image/png" href="./favicon.png?v=3">
-<link rel="apple-touch-icon" href="./favicon.png?v=3">
-<!-- Resolve the saved preference before first paint. This mirrors the
-     resolver in apt.js so automatic dark mode never flashes light. -->
-<script>(function(){var d=document.documentElement,q='(prefers-color-scheme: dark)';
-function systemTheme(){try{return window.matchMedia&&window.matchMedia(q).matches?'dark':'light';}catch(e){return'light';}}
-function preference(){try{var v=localStorage.getItem('bird:theme:v2');if(v==='auto'||v==='light'||v==='dark')return v;var old=localStorage.getItem('bird:theme');return old==='light'||old==='dark'?old:'auto';}catch(e){return'auto';}}
-var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemTheme());})();</script>
-  <link rel="stylesheet" href="./styles.css?v=r196">
-  <link rel="stylesheet" href="./stamps.css?v=r355">
-  <link rel="stylesheet" href="./stamp-batch-root.css?v=r254">
-  <link rel="stylesheet" href="./stamp-batch-a.css?v=r257">
-    <link rel="stylesheet" href="./stamp-batch-b.css?v=r319">
-  <link rel="stylesheet" href="./stamp-batch-c.css?v=r231">
+<link rel="icon" type="image/png" href="./favicon.png">
+<link rel="apple-touch-icon" href="./favicon.png">
+<!-- Apply the saved theme before first paint so dark mode doesn't flash
+     light on load. The full switcher lives in Settings (writes bird:theme). -->
+<script>try{if(localStorage.getItem('bird:theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
+<link rel="stylesheet" href="./styles.css?v=ios12-collage-1">
 </head>
 <body>
 <!-- Pill in the top-left slot, only visible on admin overlays
@@ -47,6 +39,8 @@ var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemT
     <button data-h="168" type="button">7D</button>
     <button data-h="1000000" type="button">ALL</button>
   </div>
+  <h1 class="top-title" id="staticTitle">Heard Recently</h1>
+  <button class="menu-btn" id="menuBtn">menu</button>
 </header>
 
 <!-- The menu button IS its card: one shell, fixed to the top-right
@@ -61,41 +55,22 @@ var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemT
     <div class="menu-sheet">
   <div id="dd-locked">
     <form class="lock-row" id="unlockForm">
-      <label class="sr-only" for="lockPass">Admin password</label>
-      <input id="lockPass" type="password" placeholder="admin password" autocomplete="current-password" aria-describedby="lockHint lockTransport">
-      <button type="submit" aria-label="Unlock admin controls">→</button>
+      <input id="lockPass" type="password" placeholder="password" autocomplete="current-password">
+      <button type="submit" aria-label="unlock">â†’</button>
     </form>
     <p class="lock-hint" id="lockHint" role="status" aria-live="polite" aria-atomic="true"></p>
     <p class="lock-transport" id="lockTransport" hidden>Plain HTTP does not protect this password from other devices on the network.</p>
   </div>
   <nav class="menu-items" id="dd-items"></nav>
-  <div class="menu-footer">
-    <p class="built-by">built by <a href="https://theodore.net" target="_blank" rel="noopener">teddy</a> · <a href="https://github.com/Twarner491/AvianVisitors" target="_blank" rel="noopener">github</a></p>
-    <button type="button" class="menu-lock" id="adminLock" hidden>lock admin controls</button>
-  </div>
-    </div>
-  </aside>
-  </div>
-  <button class="menu-btn" id="menuBtn" type="button" aria-label="menu" aria-expanded="false" aria-controls="menu-dd">
-    <span class="mb-w" aria-hidden="true">menu</span>
-    <span class="mb-x" aria-hidden="true">
-      <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-        <path d="M3.6 3.6 L10.4 10.4"/><path d="M10.4 3.6 L3.6 10.4"/>
-      </svg>
-    </span>
-  </button>
-</div>
+  <p class="built-by">built by <a href="https://theodore.net" target="_blank" rel="noopener">teddy</a> Â· <a href="https://github.com/Twarner491/AvianVisitors" target="_blank" rel="noopener">github</a></p>
+</aside>
 
 <main class="stage">
-  <header class="static-head">
-    <button type="button" class="pre" id="aboutLink" data-site-name>your birds</button>
-    <h1 id="staticTitle">Heard Recently</h1>
-  </header>
   <div class="views" id="views">
 
     <!-- ========== View 1 - Collage ========== -->
     <section class="view" id="v0" aria-label="Bird collage">
-      <div class="gcollage" id="collage"></div>
+      <div class="gcollage" id="collage" style="height:calc(100vh - 300px);min-height:280px;flex:0 0 auto;overflow:hidden;"></div>
     </section>
 
     <!-- ========== View 2 - Stats ========== -->
@@ -209,13 +184,7 @@ var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemT
               <path d="M2.4 11.5 L4 4.5 L5.6 11.5"/><path d="M2.9 9.2 H5.1"/>
               <path d="M8.2 11.5 V4.5 H10.4 a1.3 1.3 0 0 1 0 2.6 H8.2"/><path d="M8.2 7.1 H10.6 a1.5 1.5 0 0 1 0 3 H8.2"/>
             </svg>
-            <span class="tip">a &#8594; z</span>
-          </button>
-          <button data-sort="count" type="button" aria-label="most heard">
-            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-              <path d="M2 12 V8"/><path d="M6 12 V5"/><path d="M10 12 V3"/>
-            </svg>
-            <span class="tip">most heard</span>
+            <span class="tip">a â†’ z</span>
           </button>
         </div>
       </div>
@@ -226,18 +195,14 @@ var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemT
   <div class="educator-data-loading-state" id="educatorDataLoading" role="status" aria-live="polite" hidden>loading birds...</div>
 </main>
 
-<div id="postcard-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modalCommon">
-  <div class="postcard-backdrop" data-postcard-close="1"></div>
-  <article class="postcard-sheet" role="document">
-    <button class="postcard-drawer-handle" type="button" aria-label="Drag down or press to close postcard">
-      <span aria-hidden="true"></span>
-    </button>
-    <section class="postcard-visual" aria-label="Bird illustration">
-      <div class="postcard-bird-frame">
-        <div class="postcard-artwork" id="modalArtwork" data-art-state="loading">
-          <img id="modalImg" src="" alt="" loading="eager">
-        </div>
-        <div class="atlas-sort postcard-pose-toggle" id="modalPoseToggle" role="tablist" aria-label="Pose">
+<div id="detail-modal" aria-hidden="true" role="dialog" aria-labelledby="modalCommon">
+  <div class="modal-backdrop" data-close="1"></div>
+  <article class="modal-card">
+    <button class="modal-close" type="button" aria-label="Close" data-close="1">Ã—</button>
+    <div class="modal-grid">
+      <div class="modal-img">
+        <img id="modalImg" src="" alt="" loading="eager">
+        <div class="pose-toggle" id="modalPoseToggle" role="tablist" aria-label="Pose">
           <i class="seg-pill" aria-hidden="true"></i>
           <!-- Font Awesome Free 6.7.2 crow and dove glyphs, copied verbatim
                from FortAwesome's free-solid SVG set (icons: CC BY 4.0). -->
@@ -312,11 +277,10 @@ var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemT
 <div id="about-modal" aria-hidden="true" role="dialog" aria-labelledby="aboutTitle">
   <div class="modal-backdrop" data-close="1"></div>
   <div class="about-card" role="document">
-    <button type="button" class="modal-close" data-close="1" aria-label="close">×</button>
-    <p class="about-eyebrow" data-site-name>your birds</p>
+    <button type="button" class="modal-close" data-close="1" aria-label="close">Ã—</button>
     <h2 id="aboutTitle">The birds outside your window</h2>
     <p class="about-body">A tiny microphone identifies every passing bird with Cornell's <a href="https://birdnet.cornell.edu/" target="_blank" rel="noopener">BirdNET</a>. Each species shows up as an illustration in the collage, sized by how often it's been heard.</p>
-    <button type="button" class="about-explore" data-close="1">explore the birds →</button>
+    <button type="button" class="about-explore" data-close="1">explore the birds â†’</button>
     </div>
 </div>
 
@@ -337,65 +301,6 @@ var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemT
   </div>
 </section>
 
-<svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true" id="stampFilters"><defs>
-  <filter id="_g" x="0" y="0"></filter>
-  <filter id="duo-ink"><feColorMatrix type="matrix" values="0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0 0 0 1 0"/><feComponentTransfer color-interpolation-filters="sRGB"><feFuncR type="table" tableValues="0.14 0.95"/><feFuncG type="table" tableValues="0.11 0.92"/><feFuncB type="table" tableValues="0.08 0.82"/></feComponentTransfer></filter>
-  <filter id="duo-blue"><feColorMatrix type="matrix" values="0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0 0 0 1 0"/><feComponentTransfer color-interpolation-filters="sRGB"><feFuncR type="table" tableValues="0.09 0.83"/><feFuncG type="table" tableValues="0.14 0.90"/><feFuncB type="table" tableValues="0.34 0.96"/></feComponentTransfer></filter>
-  <filter id="duo-green"><feColorMatrix type="matrix" values="0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0 0 0 1 0"/><feComponentTransfer color-interpolation-filters="sRGB"><feFuncR type="table" tableValues="0.10 0.86"/><feFuncG type="table" tableValues="0.20 0.93"/><feFuncB type="table" tableValues="0.12 0.80"/></feComponentTransfer></filter>
-  <filter id="duo-sepia"><feColorMatrix type="matrix" values="0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0 0 0 1 0"/><feComponentTransfer color-interpolation-filters="sRGB"><feFuncR type="table" tableValues="0.20 0.95"/><feFuncG type="table" tableValues="0.13 0.86"/><feFuncB type="table" tableValues="0.09 0.66"/></feComponentTransfer></filter>
-  <filter id="duo-red"><feColorMatrix type="matrix" values="0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0 0 0 1 0"/><feComponentTransfer color-interpolation-filters="sRGB"><feFuncR type="table" tableValues="0.30 0.95"/><feFuncG type="table" tableValues="0.06 0.80"/><feFuncB type="table" tableValues="0.09 0.72"/></feComponentTransfer></filter>
-  <filter id="duo-slate"><feColorMatrix type="matrix" values="0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0 0 0 1 0"/><feComponentTransfer color-interpolation-filters="sRGB"><feFuncR type="table" tableValues="0.16 0.86"/><feFuncG type="table" tableValues="0.18 0.88"/><feFuncB type="table" tableValues="0.22 0.90"/></feComponentTransfer></filter>
-  <!-- Procedural paper. feDiffuseLighting was the wrong primitive here: it
-       returns an OPAQUE lit surface across the whole filter region, so over an
-       empty layer it paints a flat slab rather than tooth. Instead the noise
-       drives ALPHA - flat warm ink whose coverage varies with the fibre - so
-       multiplying it over the sheet bites only where the tooth is. Two octaves
-       of frequency give both a fine grain and a slow cloudiness, the way real
-       stock does. sRGB interpolation, or linearRGB washes it out. -->
-  <filter id="paperGrain" x="0%" y="0%" width="100%" height="100%"
-          color-interpolation-filters="sRGB" primitiveUnits="userSpaceOnUse">
-    <feTurbulence type="fractalNoise" baseFrequency="0.62" numOctaves="4" seed="11"
-                  stitchTiles="stitch" result="fibre"/>
-    <feColorMatrix in="fibre" type="matrix" result="tooth"
-      values="0 0 0 0 0.30
-              0 0 0 0 0.25
-              0 0 0 0 0.18
-              0.60 0 0 0 -0.235"/>
-    <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="4"
-                  stitchTiles="stitch" result="cloud"/>
-    <feColorMatrix in="cloud" type="matrix" result="wash"
-      values="0 0 0 0 0.34
-              0 0 0 0 0.28
-              0 0 0 0 0.20
-              0.30 0 0 0 -0.165"/>
-    <feMerge>
-      <feMergeNode in="wash"/>
-      <feMergeNode in="tooth"/>
-    </feMerge>
-  </filter>
-  <filter id="poster"><feComponentTransfer><feFuncR type="discrete" tableValues="0 0.4 0.75 1"/><feFuncG type="discrete" tableValues="0 0.4 0.75 1"/><feFuncB type="discrete" tableValues="0 0.4 0.75 1"/></feComponentTransfer></filter>
-  <filter id="lsPressBreak" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feComponentTransfer><feFuncA type="linear" slope="3.2" intercept="-0.12"/></feComponentTransfer></filter>
-  <filter id="lsLineWear" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feComponentTransfer><feFuncA type="discrete" tableValues=".32 .52 .74 .92 1"/></feComponentTransfer></filter>
-  <filter id="owlInkWear" x="-3%" y="-3%" width="106%" height="106%" color-interpolation-filters="sRGB">
-    <feTurbulence type="fractalNoise" baseFrequency=".71 .39" numOctaves="2" seed="29" stitchTiles="stitch" result="fibres"/>
-    <feColorMatrix in="fibres" type="luminanceToAlpha" result="fibreAlpha"/>
-    <feComponentTransfer in="fibreAlpha" result="pressure"><feFuncA type="table" tableValues=".64 .8 .92 1"/></feComponentTransfer>
-    <feComposite in="SourceGraphic" in2="pressure" operator="in" result="worn"/>
-  </filter>
-  <filter id="mlPrintWear" x="-2%" y="-2%" width="104%" height="104%" color-interpolation-filters="sRGB">
-    <feTurbulence type="fractalNoise" baseFrequency=".72 .56" numOctaves="2" seed="37" stitchTiles="stitch" result="fibres"/>
-    <feColorMatrix in="fibres" type="luminanceToAlpha" result="fibreAlpha"/>
-    <feComponentTransfer in="fibreAlpha" result="pressure"><feFuncA type="table" tableValues=".48 .67 .82 .94 1"/></feComponentTransfer>
-    <feComposite in="SourceGraphic" in2="pressure" operator="in" result="worn"/>
-  </filter>
-  <filter id="waxBirdClean" x="-8%" y="-8%" width="116%" height="116%" color-interpolation-filters="sRGB"><feComponentTransfer><feFuncA type="linear" slope="1.6" intercept="-.28"/></feComponentTransfer></filter>
-  <filter id="waxKeyline" x="-30%" y="-22%" width="160%" height="144%" color-interpolation-filters="sRGB"><feComponentTransfer in="SourceAlpha" result="cleanAlpha"><feFuncA type="linear" slope="2.1" intercept="-.55"/></feComponentTransfer><feMorphology in="cleanAlpha" operator="dilate" radius="1.55" result="expanded"/><feFlood flood-color="#eee9de" result="cream"/><feComposite in="cream" in2="expanded" operator="in"/></filter>
-</defs></svg>
-  <script src="./stamps.js?v=r344"></script>
-  <script src="./stamp-batch-root.js?v=r250"></script>
-<script src="./stamp-batch-a.js?v=r341"></script>
-  <script src="./stamp-batch-b.js?v=r318"></script>
-<script src="./stamp-batch-c.js?v=r235"></script>
-<script src="./apt.js?v=r235"></script>
+<script src="./apt.js?v=ios12-collage-20"></script>
 </body>
 </html>

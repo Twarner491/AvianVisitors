@@ -86,38 +86,11 @@
   var EMPTY_WINDOW_COPY = 'no detections heard in this window';
   var staticHead = document.querySelector('.static-head');
   var staticTitle = document.getElementById('staticTitle');
-  function applySiteName(value) {
-    var name = typeof value === 'string' ? value.trim() : '';
-    if (!name) name = 'BirdNET-Pi';
-    document.querySelectorAll('[data-site-name]').forEach(function (element) {
-      element.textContent = name;
-    });
-    document.title = name;
-    return name;
-  }
-  function titleForView(i) {
-    if (i === 0 && educatorScopeRouteActive()) {
-      return 'Avian Visitors';
-    }
-    return VIEW_TITLES[i];
-  }
-  var titleSwapTimer = 0;
-  var titleSwapGeneration = 0;
-  function setTitleForView(i, options) {
-    options = options || {};
-    var next = titleForView(i);
-    var generation = ++titleSwapGeneration;
-    if (titleSwapTimer) {
-      clearTimeout(titleSwapTimer);
-      titleSwapTimer = 0;
-    }
-    if (!staticTitle || staticTitle.textContent === next) {
-      if (staticHead) staticHead.classList.remove('swap-out');
-      return;
-    }
-    if (options.immediate) {
+  function setTitleForView(i) {
+    var next = VIEW_TITLES[i];
+    if (!staticTitle || staticTitle.textContent === next) return;
+    if (!staticHead) {
       staticTitle.textContent = next;
-      if (staticHead) staticHead.classList.remove('swap-out');
       return;
     }
     // Fade out -> swap text -> fade in. The opacity transition is 240ms;
@@ -1018,6 +991,9 @@
   });
   var winBtns = [].slice.call(winPick.querySelectorAll('button'));
   var currentHours = +readLS('bird:window', '24') || 24;
+  var oneHourFallbackTimer = null;
+  var oneHourFallbackActive = false;
+  var automaticWindowChange = false;
   winBtns.forEach(function (b) {
     b.setAttribute('aria-current', (+b.dataset.h === currentHours) ? 'true' : 'false');
   });
@@ -1025,6 +1001,12 @@
     b.addEventListener('click', function () {
       winBtns.forEach(function (x) { x.setAttribute('aria-current', x === b ? 'true' : 'false'); });
       currentHours = +b.dataset.h;
+      if (!automaticWindowChange) {
+        oneHourFallbackActive = false;
+        clearTimeout(oneHourFallbackTimer);
+        oneHourFallbackTimer = null;
+      }
+      automaticWindowChange = false;
       writeLS('bird:window', String(currentHours));
       syncPill(winPick);
       // Actual data refresh is wired below via refreshRecent().
@@ -1086,29 +1068,29 @@
   // rectangles touching - actual polygon-aware packing.
 
   var collage = document.getElementById('collage');
-  var collageRenderRevision = 0;
+  // iOS 12 Safari is noticeably less reliable with the large mask table and
+  // the per-pixel packing pass. Keep the detailed layout for modern browsers,
+  // but use a lightweight rectangular fallback on that older Safari.
+  // iOS 12 may report an iPad as MacIntel and may omit maxTouchPoints when
+  // Safari is using the desktop-site user agent. Platform detection is the
+  // reliable fallback for this legacy browser.
+  // The collage canvas has an explicit height in index.html, so the original
+  // circular mask-based layout can safely run on iPad as well.
+  var SIMPLE_COLLAGE = false;
   // DIMS[slug]=[w,h] (aspect) and MASKS[slug]={w,h,bits} (1-bit silhouette)
   // are built offline by scripts/build_masks.py and fetched from dims.json /
   // masks.json at load. They live in their own files (one key per line) so a
   // species-add is a clean diff and two contributors' additions don't collide,
   // instead of rewriting one ~800KB line and conflicting on every merge.
-  var DIMS = {}, MASKS = {}, tablesReady = false;
-  // Species drawn during this session. The atlas re-renders straight after a
-  // generate and cutout.php sets a day of cache, so the fresh render needs its
-  // own stamp to get past whatever the earlier 404 left behind.
-  var justGenerated = {};
-  function loadTables(bust) {
-    // bust=true refetches past every cache - used after an on-Pi generate
-    // adds a species, so its mask becomes drawable without a reload.
-    var q = '?v=' + TABLE_VERSION + (bust ? '&t=' + Date.now() : '');
-    return Promise.all([
-      fetch('./dims.json' + q).then(function (r) { return r.json(); }),
-      fetch('./masks.json' + q).then(function (r) { return r.json(); })
-    ]).then(function (loaded) {
-      DIMS = loaded[0];
-      MASKS = loaded[1];
-      maskCache = {};
-      tablesReady = true;
+  var DIMS = {}, MASKS = {}, tablesReady = SIMPLE_COLLAGE;
+  (function loadTables() {
+    var q = '?v=' + SKETCH_VERSION;
+    var tableRequests = [fetch('./dims.json' + q).then(function (r) { return r.json(); })];
+    if (!SIMPLE_COLLAGE) {
+      tableRequests.push(fetch('./masks.json' + q).then(function (r) { return r.json(); }));
+    }
+    Promise.all(tableRequests).then(function (t) {
+      DIMS = t[0]; MASKS = t[1] || {}; tablesReady = true;
       // renderCollage defers its first pack until the silhouettes exist (see
       // the tablesReady gate); render now that they are here. The atlas needs
       // the same nudge: which cards want a draw button is a question only
@@ -1177,7 +1159,10 @@
       ellipseAspectBias: 2.1,
     };
   }
-  var GRID_STRIDE = 4; // viewport px per occupancy cell; smaller = slower
+  // A 4px occupancy grid is detailed but expensive on iPad Safari. Use a
+  // coarser grid for touch devices so mask packing cannot monopolize the
+  // main thread before the collage paints. Desktop keeps the original detail.
+  var GRID_STRIDE = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ? 8 : 4;
   var COLLAGE_PAD = 3; // breathing room (grid cells) around each bird;
   // eased on narrow screens where birds are smaller.
   // The lettering is thin ink and already carries LABEL_GAP of its own, so it
@@ -2737,10 +2722,62 @@
     return placed;
   }
 
-  function finishFrameRender(items, count) {
-    if (!DATA || !DATA.recent || DATA.recent.species !== items || !DATA.recent.frame_capture_id) return;
-    collage.setAttribute('data-frame-count', count);
-    collage.setAttribute('data-frame-token', DATA.recent.frame_capture_id);
+  function renderSimpleCollage(items, animate) {
+    collage.innerHTML = '';
+    collagePlaced = [];
+    collage.style.position = 'relative';
+    collage.style.display = 'block';
+    collage.style.visibility = 'visible';
+    collage.style.opacity = '1';
+    if (!items.length) return renderCollage(items, animate);
+    var W = collage.clientWidth || 320;
+    var H = collage.clientHeight || 420;
+    var cols = 2;
+    var gap = 8;
+    // Reserve a larger, centered slot for the first (most recent) bird.
+    // Everything else is calculated from the available height so the final
+    // row cannot run below the iOS 12 Safari viewport.
+    var leadH = Math.min(H * 0.32, W * 0.42);
+    var rest = Math.max(0, items.length - 1);
+    var rows = Math.max(1, Math.ceil(rest / cols));
+    var restH = Math.max(1, (H - leadH - gap * (rows + 1)) / rows);
+    var tileW = Math.max(1, (W - gap * (cols - 1)) / cols);
+    var tileH = Math.min(120, restH);
+    var leadW = Math.min(W - gap * 2, leadH * 1.45);
+    var leadY = Math.max(0, (H - (leadH + gap + rows * tileH + (rows - 1) * gap)) / 2);
+    var gridY = leadY + leadH + gap;
+    var gridX = Math.max(0, (W - (cols * tileW + (cols - 1) * gap)) / 2);
+    items.forEach(function (s, i) {
+      var col = (i - 1) % cols, row = Math.floor((i - 1) / cols);
+      // Use a plain element on legacy Safari. Older WebKit can apply native
+      // button styling/clipping to absolutely-positioned image buttons.
+      var btn = document.createElement('div');
+      btn.className = 'gtile';
+      btn.setAttribute('data-sci', s.sci);
+      btn.setAttribute('aria-label', s.com || s.sci);
+      if (i === 0) {
+        btn.style.left = ((W - leadW) / 2) + 'px';
+        btn.style.top = leadY + 'px';
+        btn.style.width = leadW + 'px';
+        btn.style.height = leadH + 'px';
+      } else {
+        btn.style.left = (gridX + col * (tileW + gap)) + 'px';
+        btn.style.top = (gridY + row * (tileH + gap)) + 'px';
+        btn.style.width = tileW + 'px';
+        btn.style.height = tileH + 'px';
+      }
+      btn.style.pointerEvents = 'auto';
+      var birdImg = document.createElement('img');
+      birdImg.src = './avian/api/cutout.php?sci=' + encodeURIComponent(s.sci) +
+        (s.com ? '&com=' + encodeURIComponent(s.com) : '') + '&v=' + IMG_VERSION;
+      birdImg.alt = s.com || s.sci;
+      birdImg.style.display = 'block';
+      birdImg.style.width = '100%';
+      birdImg.style.height = '100%';
+      birdImg.style.objectFit = 'contain';
+      btn.appendChild(birdImg);
+      collage.appendChild(btn);
+    });
   }
 
   function renderCollage(items, animate) {
@@ -2758,8 +2795,8 @@
       // the status line beneath it. The frame (shoot.py) overrides the .empty
       // text for the e-ink panel; the nest illustration is shared by both.
       collage.innerHTML = '<div class="empty-nest">' +
-        '<img class="nest-img" src="nest.webp" alt="an empty nest" decoding="async">' +
-        '<p class="empty window-empty">' + EMPTY_WINDOW_COPY + '</p></div>';
+        '<img class="nest-img" src="nest.png" alt="an empty nest" decoding="async">' +
+        '<p class="empty">no birds heard in this window.</p></div>';
       // Bloom the nest in on the same cues as the collage (first load, window
       // change, view switch); a silent poll/resize renders without animate. The
       // class self-clears after the worst case so a throttled tab still ends
@@ -2776,8 +2813,18 @@
     // Silhouettes (DIMS/MASKS) load async from dims.json/masks.json; until
     // they arrive we cannot pack. Defer and retry, like the !W/!H case below.
     // (The empty-nest path above needs no silhouettes and already returned.)
-    if (!tablesReady) { setTimeout(function () { renderCollageFromData(animate); }, 80); return; }
-    if (labelsOn() && !labelFontReady) { setTimeout(function () { renderCollageFromData(animate); }, 60); return; }
+    if (!tablesReady) { setTimeout(function () { renderCollage(items, animate); }, 80); return; }
+
+    // iOS 12 Safari can report zero height for a flex child inside the fixed
+    // stage during its first layout pass. The simple fallback must not wait
+    // on that value, because it does not need the mask packer's dimensions.
+    if (SIMPLE_COLLAGE) {
+      if (collage.clientHeight <= 1) {
+        collage.style.height = Math.max(320, (window.innerHeight || 600) - 180) + 'px';
+      }
+      renderSimpleCollage(items, animate);
+      return;
+    }
     var W = collage.clientWidth, H = collage.clientHeight;
     if (!W || !H) { setTimeout(function () { renderCollageFromData(animate); }, 80); return; }
 
@@ -2807,6 +2854,9 @@
       var slug = pose === 2 ? base + '-2' : base;
       var mask = loadMask(slug);
       if (!mask && pose === 2) { pose = 1; slug = base; mask = loadMask(slug); collagePose[s.sci] = 1; }
+      // A one-cell mask preserves the normal tile sizing and image creation
+      // while avoiding mask decoding/packing on iOS 12.
+      if (!mask && SIMPLE_COLLAGE) mask = { w: 1, h: 1, cells: [[0, 0]] };
       if (!mask) return null;
       var d = DIMS[slug];
       var n = +s.n; if (!n || isNaN(n)) n = 1;
@@ -2933,40 +2983,12 @@
       btn.style.top = r.y + 'px';
       btn.style.width = r.fullW + 'px';
       btn.style.height = r.fullH + 'px';
-      btn.innerHTML = '<img loading="lazy" decoding="async" src="' + img + '" alt="' + escHtml(s.com) + '">';
-      if (r.labelRows) {
-        addLabelInk();
-        // One baseline per line of the name, each riding the line the planner
-        // settled on, so every letter takes its own angle and height off the
-        // bird's own geometry. A name that broke in two comes back as two rows
-        // in reading order, the second stacked a leading further off the bird
-        // along the first one's own normals. startOffset with text-anchor
-        // centres each line on its span, which is cut to that line's own width.
-        // The packer reserved the whole block, so none of it lands on a
-        // neighbour.
-        var body = r.labelRows.map(function (row) {
-          var pid = 'lp' + (labelPathSeq++);
-          return '<path id="' + pid + '" fill="none" d="' +
-            row.pts.map(function (p, i) {
-              return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1);
-            }).join(' ') + '"/>' +
-            '<text data-ink="' + inkBucket(r.labelPx) + '" style="font:600 ' + r.labelPx + 'px Hand, cursive">' +
-            '<textPath href="#' + pid + '" startOffset="50%" text-anchor="middle">' +
-            escHtml(row.text) + '</textPath></text>';
-        }).join('');
-        // The svg is sized to the lettering alone, not the whole tile:
-        // a tile-sized overlay per bird makes the compositor repaint the
-        // illustration underneath it, which shows up as half-drawn birds.
-        // Path coordinates stay tile-local; the viewBox carries the offset.
-        var lb = r.labelBox;
-        var lw = Math.max(1, Math.ceil(lb.dx1 - lb.dx0));
-        var lh = Math.max(1, Math.ceil(lb.dy1 - lb.dy0));
-        btn.insertAdjacentHTML('beforeend',
-          '<svg class="gtile-label" aria-hidden="true" style="left:' + lb.dx0.toFixed(1) +
-          'px;top:' + lb.dy0.toFixed(1) + 'px;width:' + lw + 'px;height:' + lh + 'px"' +
-          ' viewBox="' + lb.dx0.toFixed(1) + ' ' + lb.dy0.toFixed(1) + ' ' + lw + ' ' + lh + '">' +
-          body + '</svg>');
-      }
+      // The collage is an absolutely-positioned layer inside a fixed,
+      // overflow-hidden viewport. Safari on iPad can treat these images as
+      // outside the viewport when loading="lazy", leaving the tiles blank.
+      // Keep collage assets eager; the number of visible tiles is bounded by
+      // the layout packer and this makes the first render reliable on Safari.
+      btn.innerHTML = '<img loading="eager" decoding="sync" src="' + img + '" alt="' + s.com + '">';
       r.el = btn;
       collage.appendChild(btn);
     });
@@ -3112,6 +3134,9 @@
   // genuinely-hit silhouette gets .is-hover / receives the click.
   var collagePlaced = [];
   var collageHovered = null;
+  var collageTouchTimer = null;
+  var collageLastTouch = null;
+  var collageTouchSuppressUntil = 0;
   function maskHitTest(clientX, clientY) {
     var box = collage.getBoundingClientRect();
     var px = clientX - box.left, py = clientY - box.top;
@@ -3132,33 +3157,36 @@
     }
     return null;
   }
-  collage.addEventListener('mousemove', function (ev) {
-    var hit = maskHitTest(ev.clientX, ev.clientY);
+  function setCollageHover(hit) {
     if (hit === collageHovered) return;
     if (collageHovered && collageHovered.el) collageHovered.el.classList.remove('is-hover');
     collageHovered = hit;
     if (hit && hit.el) hit.el.classList.add('is-hover');
     collage.style.cursor = hit ? 'pointer' : 'default';
     var tip = document.getElementById('collageTip');
-    if (tip) {
-      // With labels on, every bird already wears its name - the pill
-      // would just say it twice.
-      if (hit && !labelsOn()) {
-        var s = hit.data;
-        var n = +s.n || 0;
-        var noun = (n === 1) ? 'call' : 'calls';
-        var period = educatorScopeId()
-          ? 'in ' + educatorScopeLabel(effectiveEducatorScope)
-          : windowLabel(currentHours, DATA.recent);
-        tip.innerHTML = '<span class="ct-name">' + escHtml(s.com || s.sci) + '</span>'
-          + '<span class="ct-w"> - </span>'
-          + '<span class="ct-n">' + fmtN(n) + '</span>'
-          + '<span class="ct-w"> ' + noun + ' ' + escHtml(period) + '</span>';
-        tip.setAttribute('aria-hidden', 'false');
-      } else {
-        tip.setAttribute('aria-hidden', 'true');
-      }
+    if (!tip) return;
+    if (hit) {
+      var s = hit.data, n = +s.n || 0;
+      tip.innerHTML = '<span class="ct-name">' + (s.com || s.sci) + '</span>'
+        + '<span class="ct-w"> - </span><span class="ct-n">' + fmtN(n) + '</span>'
+        + '<span class="ct-w"> ' + (n === 1 ? 'call' : 'calls') + ' ' + windowLabel(currentHours) + '</span>';
+      tip.setAttribute('aria-hidden', 'false');
+    } else {
+      tip.setAttribute('aria-hidden', 'true');
     }
+  }
+  function clearCollageHover() {
+    clearTimeout(collageTouchTimer);
+    collageTouchTimer = null;
+    setCollageHover(null);
+  }
+  function openCollageBird(hit) {
+    if (!hit) return;
+    location.hash = '#sci=' + encodeURIComponent(hit.data.sci);
+    go(2);
+  }
+  collage.addEventListener('mousemove', function (ev) {
+    setCollageHover(maskHitTest(ev.clientX, ev.clientY));
   });
   collage.addEventListener('mouseleave', function () {
     if (collageHovered && collageHovered.el) collageHovered.el.classList.remove('is-hover');
@@ -3167,10 +3195,34 @@
     if (tip) tip.setAttribute('aria-hidden', 'true');
   });
   collage.addEventListener('click', function (ev) {
+    if (Date.now() < collageTouchSuppressUntil) return;
     var hit = maskHitTest(ev.clientX, ev.clientY);
-    if (!hit) return;
-    location.hash = '#sci=' + encodeURIComponent(hit.data.sci);
-    go(2);
+    openCollageBird(hit);
+  });
+  // Touch interaction: first tap behaves like mouse-over; a second tap on
+  // the same silhouette within 360ms opens its detail page. The highlight
+  // remains visible for 60 seconds unless another bird is selected.
+  collage.addEventListener('touchend', function (ev) {
+    if (!ev.changedTouches || !ev.changedTouches.length) return;
+    var touch = ev.changedTouches[0];
+    var hit = maskHitTest(touch.clientX, touch.clientY);
+    if (!hit) { clearCollageHover(); return; }
+    ev.preventDefault();
+    collageTouchSuppressUntil = Date.now() + 500;
+    var now = Date.now();
+    if (collageLastTouch && collageLastTouch.hit === hit && now - collageLastTouch.time < 360) {
+      collageLastTouch = null;
+      clearCollageHover();
+      openCollageBird(hit);
+      return;
+    }
+    collageLastTouch = { hit: hit, time: now };
+    setCollageHover(hit);
+    clearTimeout(collageTouchTimer);
+    collageTouchTimer = setTimeout(function () {
+      collageLastTouch = null;
+      clearCollageHover();
+    }, 60000);
   });
 
   // Debug hook - call __layout({ slugs, weights, n }) from devtools to
@@ -3201,8 +3253,12 @@
   // changes, refreshRecent() refetches and re-renders. Empty state shows
   // the shared "no detections heard in this window" message.
   function renderCollageFromData(animate) {
-    if (!DATA.recent || !Array.isArray(DATA.recent.species)) return;
-    renderCollage(DATA.recent.species, animate);
+    var items = (DATA.recent && DATA.recent.species) || [];
+    if (SIMPLE_COLLAGE && items.length) {
+      renderSimpleCollage(items, animate);
+      return;
+    }
+    renderCollage(items, animate);
   }
   var rTimer;
   window.addEventListener('resize', function () {
@@ -3871,78 +3927,82 @@
     refreshStatsContext(true);
   }
 
-  var statsCalendarMonth = null;
-  function statsDateCounts() {
-    var map = {};
-    (((DATA.calendar || {}).days) || []).forEach(function (row) {
-      map[row.date] = +row.detections || 0;
-    });
-    if (DATA.stats && DATA.stats.is_today && DATA.stats.today && DATA.stats.today.detections) {
-      map[stationToday()] = +DATA.stats.today.detections;
-    }
-    return map;
+  function refreshRecent(animate) {
+    // Capture the window this fetch was issued for. If the user
+    // changes the picker again before it resolves - or a slower poll
+    // lands later - we discard the stale response so the collage
+    // never reverts to a different window.
+    var forHours = currentHours;
+    return fetchJson('./avian/api/birdnet-api.php?action=recent&hours=' + forHours)
+      .then(function (j) {
+        if (forHours !== currentHours) return; // window changed mid-flight
+        DATA.recent = j; renderWindowDependent(animate);
+        handleOneHourWindow(j);
+      })
+      .catch(function (e) { console.warn('recent fetch failed', e); });
   }
-  function renderStatsCalendar() {
-    var cal = document.getElementById('statsCalendar');
-    var days = document.getElementById('statsCalendarDays');
-    var title = document.getElementById('statsMonthTitle');
-    var monthPrev = document.getElementById('statsMonthPrev');
-    var monthNext = document.getElementById('statsMonthNext');
-    var latest = document.getElementById('statsLatestDate');
-    if (!cal || !days || !title || !monthPrev || !monthNext || !latest) return;
-    var selected = statsDateOnScreen();
-    var selectedDate = parseLocalDate(selected);
-    if (!statsCalendarMonth || isNaN(statsCalendarMonth.getTime())) {
-      statsCalendarMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
-    }
-    var year = statsCalendarMonth.getFullYear();
-    var month = statsCalendarMonth.getMonth();
-    var first = new Date(year, month, 1);
-    var total = new Date(year, month + 1, 0).getDate();
-    var today = stationToday();
-    var firstHeard = (DATA.calendar || {}).first_date || null;
-    var lastHeard = (DATA.calendar || {}).last_date || null;
-    var counts = statsDateCounts();
-    title.textContent = first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-    var html = '';
-    for (var blank = 0; blank < first.getDay(); blank++) html += '<span aria-hidden="true"></span>';
-    for (var day = 1; day <= total; day++) {
-      var date = isoLocalDate(new Date(year, month, day));
-      var count = counts[date] || 0;
-      var disabled = date > today || (firstHeard && date < firstHeard);
-      var readable = new Date(year, month, day).toLocaleDateString(undefined, {
-        weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
-      });
-      var aria = readable + (count ? ', ' + count + ' detection' + (count === 1 ? '' : 's') : ', no detections');
-      html += '<button type="button" role="gridcell" data-date="' + date + '"'
-        + (count ? ' class="has-data' + (date === today ? ' is-today' : '') + '"' : (date === today ? ' class="is-today"' : ''))
-        + ' aria-label="' + aria + '" aria-selected="' + (date === selected ? 'true' : 'false') + '"'
-        + (disabled ? ' disabled' : '') + '>' + day + '</button>';
-    }
-    days.innerHTML = html;
-    var monthKey = year * 12 + month;
-    var todayDate = parseLocalDate(today);
-    var todayKey = todayDate.getFullYear() * 12 + todayDate.getMonth();
-    var firstDate = firstHeard ? parseLocalDate(firstHeard) : null;
-    var firstKey = firstDate ? firstDate.getFullYear() * 12 + firstDate.getMonth() : todayKey;
-    monthPrev.disabled = monthKey <= firstKey;
-    monthNext.disabled = monthKey >= todayKey;
-    latest.hidden = !lastHeard;
-    latest.dataset.date = lastHeard || '';
+  function selectWindow(hours) {
+    var btn = winBtns.filter(function (b) { return +b.dataset.h === hours; })[0];
+    if (!btn) return;
+    automaticWindowChange = true;
+    btn.click();
+    refreshRecent(true);
   }
-  function openStatsCalendar(withMotion) {
-    var cal = document.getElementById('statsCalendar');
-    var label = document.getElementById('statsDateLabel');
-    if (!cal || !label) return;
-    var selected = parseLocalDate(statsDateOnScreen());
-    statsCalendarMonth = new Date(selected.getFullYear(), selected.getMonth(), 1);
-    renderStatsCalendar();
-    cal.classList.toggle('no-motion', !withMotion);
-    cal.setAttribute('aria-hidden', 'false');
-    label.setAttribute('aria-expanded', 'true');
-    requestAnimationFrame(function () {
-      var chosen = cal.querySelector('[aria-selected="true"]');
-      if (chosen) chosen.focus({ preventScroll: true });
+  function handleOneHourWindow(recent) {
+    if (currentHours !== 1) return;
+    if (recent && recent.species && recent.species.length) {
+      clearTimeout(oneHourFallbackTimer);
+      oneHourFallbackTimer = null;
+      return;
+    }
+    if (oneHourFallbackTimer || oneHourFallbackActive) return;
+    oneHourFallbackTimer = setTimeout(function () {
+      oneHourFallbackTimer = null;
+      if (currentHours !== 1) return;
+      fetchJson('./avian/api/birdnet-api.php?action=recent&hours=1').then(function (j) {
+        if (currentHours !== 1) return;
+        if (j && j.species && j.species.length) {
+          DATA.recent = j;
+          renderWindowDependent(true);
+        } else {
+          oneHourFallbackActive = true;
+          selectWindow(12);
+        }
+      }).catch(function () { });
+    }, 30000);
+  }
+  function checkOneHourForReturn() {
+    if (!oneHourFallbackActive || currentHours === 1) return;
+    fetchJson('./avian/api/birdnet-api.php?action=recent&hours=1').then(function (j) {
+      if (!oneHourFallbackActive || currentHours !== 12) return;
+      if (j && j.species && j.species.length) {
+        oneHourFallbackActive = false;
+        DATA.recent = j;
+        selectWindow(1);
+      }
+    }).catch(function () { });
+  }
+  function refreshAll(animate) {
+    var forHours = currentHours;
+    return Promise.all([
+      fetchJson('./avian/api/birdnet-api.php?action=stats').catch(function () { return null; }),
+      fetchJson('./avian/api/birdnet-api.php?action=lifelist').catch(function () { return null; }),
+      fetchJson('./avian/api/birdnet-api.php?action=timeseries&days=30').catch(function () { return null; }),
+      fetchJson('./avian/api/birdnet-api.php?action=firstseen&limit=10').catch(function () { return null; }),
+      fetchJson('./avian/api/birdnet-api.php?action=recent&hours=' + forHours).catch(function () { return null; }),
+    ]).then(function (parts) {
+      DATA.stats = parts[0];
+      DATA.lifelist = parts[1];
+      DATA.timeseries = parts[2];
+      DATA.firstseen = parts[3];
+      // Only accept the recent slice if the window hasn't changed
+      // since this poll started - otherwise keep what's there.
+      if (forHours === currentHours && parts[4]) DATA.recent = parts[4];
+      recomputeDerived();
+      renderTimeIndependent(animate);
+      renderCollageFromData(animate);
+      if (forHours === currentHours) handleOneHourWindow(parts[4]);
+      checkOneHourForReturn();
     });
   }
   function closeStatsCalendar(returnFocus) {
@@ -10560,44 +10620,26 @@
     return !!(row && row.isConnected !== false
       && !(row.closest && row.closest('.educator-folder-body[hidden]')));
   }
-  function queueEducatorCountRow(row) {
-    if (!educatorCountRowAvailable(row)) return false;
-    var id = row.dataset && row.dataset.captureId;
-    var capture = educatorCapture(id);
-    if (!capture || String(capture.revision) !== String(row.dataset.captureRevision)
-      || !educatorCaptureNeedsCounts(capture)) return false;
-    if (educatorCountRequest && educatorCountRequest.ids.indexOf(id) !== -1) return false;
-    educatorCountQueue[id] = true;
-    return true;
-  }
-  function educatorCountResponse(value, request) {
-    if (!value || value.ok !== true || value.enabled !== true
-      || typeof value.profile_epoch !== 'number' || !Number.isSafeInteger(value.profile_epoch)
-      || value.profile_epoch < 0 || String(value.profile_epoch) !== request.profile
-      || typeof value.state_revision !== 'number' || !Number.isSafeInteger(value.state_revision)
-      || value.state_revision < 0 || value.state_revision !== request.stateRevision
-      || !value.counts || typeof value.counts !== 'object' || Array.isArray(value.counts)) return null;
-    var keys = Object.keys(value.counts);
-    if (keys.length !== request.ids.length) return null;
-    var normalized = Object.create(null);
-    for (var i = 0; i < keys.length; i++) {
-      var id = keys[i];
-      var count = value.counts[id];
-      var unavailable = !!count && count.detection_count === null && count.species_count === null;
-      var numeric = !!count && typeof count.detection_count === 'number'
-        && Number.isSafeInteger(count.detection_count) && count.detection_count >= 0
-        && typeof count.species_count === 'number'
-        && Number.isSafeInteger(count.species_count) && count.species_count >= 0;
-      if (request.ids.indexOf(id) === -1 || !count || typeof count !== 'object'
-        || typeof count.revision !== 'number' || !Number.isSafeInteger(count.revision)
-        || count.revision < 0 || count.revision !== request.revisions[id]
-        || (!unavailable && !numeric)) return null;
-      normalized[id] = {
-        revision: count.revision,
-        detection_count: count.detection_count,
-        species_count: count.species_count,
-        unavailable: unavailable,
-      };
+  var detailAutoCloseTimer = null;
+  function openDetailModal(sci) {
+    if (!sci) return;
+    var modal = document.getElementById('detail-modal');
+    var img = document.getElementById('modalImg');
+    var poseToggle = document.getElementById('modalPoseToggle');
+    var poseBtns = [].slice.call(poseToggle.querySelectorAll('button'));
+
+    // Reset the toggle: assume nothing's available, set pose 1 (perched
+    // cutout - every species has it) as the optimistic default. HEAD
+    // probes below toggle each button on/off and pick the best default.
+    poseToggle.removeAttribute('data-unavailable');
+    poseBtns.forEach(function (b) {
+      b.setAttribute('data-unavailable', 'true');
+      b.setAttribute('aria-current', 'false');
+    });
+    var p1 = poseToggle.querySelector('button[data-pose="1"]');
+    if (p1) {
+      p1.removeAttribute('data-unavailable');
+      p1.setAttribute('aria-current', 'true');
     }
     return normalized;
   }
@@ -10812,13 +10854,71 @@
       window.addEventListener('resize', educatorCountFallbackHandler, { passive: true });
       scanEducatorCountRows();
     }
-    return true;
-  }
-  function educatorFolderOptions(selected) {
-    var html = '<option value=""' + (!selected ? ' selected' : '') + '>Unfiled</option>';
-    (educatorState && educatorState.folders || []).forEach(function (folder) {
-      html += '<option value="' + adminAttr(folder.id) + '"' + (folder.id === selected ? ' selected' : '') + '>'
-        + adminEsc(folder.name) + '</option>';
+    document.getElementById('modalFirstSeen').textContent = '-';
+    document.getElementById('modalRarity').textContent = '-';
+    document.getElementById('modalRarity').classList.remove('rare');
+    document.getElementById('modalDesc').textContent = 'Loading description...';
+    document.getElementById('modalDesc').classList.add('placeholder');
+    document.getElementById('modalRecordings').innerHTML = '<li class="rec-empty">Loading recordings...</li>';
+    document.getElementById('modalRecCount').textContent = '';
+    document.getElementById('modalWiki').href = wikiUrl(sci);
+    document.getElementById('modalEbird').href = ebirdUrl(sci);
+    // FLIP-style morph: scale + translate the modal-card from the
+    // clicked atlas card's position to its natural centered size, so
+    // the card *expands* into the detail view instead of just fading
+    // in. The outer modal MUST become visible (aria-hidden=false)
+    // before we apply the initial transform - the browser skips
+    // layout for opacity-0 trees, which would freeze the morph at the
+    // starting frame.
+    var sourceCard = atlasGridEl
+      ? atlasGridEl.querySelector('.bird-card[data-sci="' + sci.replace(/"/g, '\"') + '"]')
+      : null;
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    clearTimeout(detailAutoCloseTimer);
+    detailAutoCloseTimer = setTimeout(function () {
+      detailAutoCloseTimer = null;
+      if (modal.getAttribute('aria-hidden') === 'false') closeDetailModal();
+    }, 30000);
+    morphModalOpen(modal.querySelector('.modal-card'), sourceCard);
+
+    // Species detail (lifelist row + every detection).
+    var loadSpecies = SPECIES_CACHE[sci]
+      ? Promise.resolve(SPECIES_CACHE[sci])
+      : fetchJson('./avian/api/birdnet-api.php?action=species&sci=' + encodeURIComponent(sci)).then(function (j) {
+        SPECIES_CACHE[sci] = j;
+        return j;
+      });
+    loadSpecies.then(function (j) {
+      var s = j.summary || {};
+      document.getElementById('modalCommon').textContent = s.com || sci;
+      document.getElementById('modalAllTime').textContent = (+s.total || 0).toLocaleString();
+      var winRow = ((DATA.recent && DATA.recent.species) || []).filter(function (x) { return x.sci === sci; })[0];
+      document.getElementById('modalWindow').textContent = (winRow ? +winRow.n : 0).toLocaleString();
+      document.getElementById('modalFirstSeen').textContent = s.first_seen ? fmtRecTime(s.first_seen.split(' ')[0], s.first_seen.split(' ')[1]) : '-';
+      var rar = rarityLabel(+s.total || 0, s.first_seen);
+      var rarEl = document.getElementById('modalRarity');
+      rarEl.textContent = rar;
+      if (rar === 'rare') rarEl.classList.add('rare');
+      var dets = j.detections || [];
+      document.getElementById('modalRecCount').textContent = dets.length + ' captured';
+      document.getElementById('modalRecordings').innerHTML = dets.length
+        ? dets.map(function (d) {
+          return '<li class="rec-row" data-file="' + (d.file || '') + '" data-date="' + (d.d || '') + '">'
+            + '<button class="play" type="button" aria-label="play">' + ICON_PLAY + '</button>'
+            + '<span class="when">' + fmtRecTime(d.d, d.t) + '<small>' + fmtDateLine(d.d, d.t) + '</small></span>'
+            + '<span class="conf">' + ((+d.conf || 0) * 100).toFixed(0) + '%</span>'
+            + '<div class="rec-spectro" aria-hidden="true">'
+            + '<div class="rec-spectro-loading">loading spectrogram...</div>'
+            + '<div class="rec-spectro-played"></div>'
+            + '<div class="rec-spectro-cursor"></div>'
+            + '<div class="rec-spectro-scrub" role="slider" aria-label="scrub" tabindex="0"></div>'
+            + '</div>'
+            + '</li>';
+        }).join('')
+        : '<li class="rec-empty">No recordings yet.</li>';
+    }).catch(function () {
+      document.getElementById('modalRecordings').innerHTML = '<li class="rec-empty">Failed to load recordings.</li>';
     });
     return html;
   }
@@ -10954,41 +11054,22 @@
       if (capture) time.textContent = educatorDurationLabel(educatorDurationSeconds(capture));
     });
   }
-  function replaceEducatorBody(html) {
-    if (typeof stopEducatorCountObservation === 'function') stopEducatorCountObservation();
-    var currentLive = adminBody.querySelector('[data-educator-live]');
-    var currentSaved = adminBody.querySelector('[data-educator-saved]');
-    var savedScroll = currentSaved ? currentSaved.scrollTop : 0;
-    closeEducatorActionMenu(false);
-    closeEducatorMovePopover(false);
-    var template = document.createElement('template');
-    template.innerHTML = html;
-    var nextLive = template.content.querySelector('[data-educator-live]');
-    if (currentLive && nextLive && nextLive.parentNode) {
-      nextLive.parentNode.replaceChild(currentLive, nextLive);
-    }
-    adminBody.replaceChildren(template.content);
-    var nextSaved = adminBody.querySelector('[data-educator-saved]');
-    if (nextSaved) nextSaved.scrollTop = savedScroll;
-  }
-  function paintEducators() {
-    if (!educatorState || adminSect !== 'educators') return;
-    var activeId = educatorState.active && educatorState.active.id;
-    var saved = educatorState.captures.filter(function (capture) { return capture.id !== activeId; });
-    var folderComposer = educatorFolderComposerOpen
-      ? '<form class="educator-new-folder" id="educatorNewFolder"><label class="sr-only" for="educatorFolderName">Folder name</label>'
-        + '<input id="educatorFolderName" name="name" maxlength="80" value="' + adminAttr(educatorFolderDraft)
-        + '" placeholder="Folder name" required><button type="submit">create</button><button type="button" data-folder-create-cancel>cancel</button></form>'
-      : '';
-    var savedHtml = '<div class="educator-saved-header"><div class="educator-saved-header-row">'
-      + '<div class="educator-table-head" aria-hidden="true"><span class="educator-name-head">Listening period</span><span class="educator-duration-head">Duration</span><span class="educator-birds-head">Birds</span><span class="educator-calls-head">Calls</span><span class="educator-started-head">Started</span><span class="educator-counts-head">Birds / calls</span></div>'
-      + '<button type="button" class="educator-folder-add" data-folder-create-open aria-label="Create new folder" aria-expanded="'
-      + (educatorFolderComposerOpen ? 'true' : 'false') + '"' + (educatorFolderComposerOpen ? ' aria-controls="educatorNewFolder"' : '')
-      + '>' + ICON_FOLDER_PLUS + '</button></div>' + folderComposer + '</div>';
-    educatorState.folders.forEach(function (folder) {
-      var folderTotal = Math.max(0, (folder.capture_count || 0)
-        - (educatorState.active && educatorState.active.folder_id === folder.id ? 1 : 0));
-      savedHtml += educatorFolderGroup(folder, saved.filter(function (capture) { return capture.folder_id === folder.id; }), folderTotal);
+  function closeDetailModal() {
+    var modal = document.getElementById('detail-modal');
+    clearTimeout(detailAutoCloseTimer);
+    detailAutoCloseTimer = null;
+    stopModalAudio();
+    // Reverse-morph back into the source atlas card so the modal
+    // appears to *retract* to where it came from. Look the card up
+    // fresh - the user may have switched the time window or sort
+    // since opening the modal, so the source card may have moved.
+    var sci = (document.getElementById('modalSci').textContent || '').trim();
+    var sourceCard = sci && atlasGridEl
+      ? atlasGridEl.querySelector('.bird-card[data-sci="' + sci.replace(/"/g, '\"') + '"]')
+      : null;
+    morphModalClose(modal.querySelector('.modal-card'), sourceCard, function () {
+      modal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
     });
     var unfiled = saved.filter(function (capture) { return !capture.folder_id; });
     if (unfiled.length) {
@@ -13155,7 +13236,8 @@
       if (location.hash) { location.hash = ''; } else { closeAbout(); }
     }
   });
-  document.getElementById('aboutLink').addEventListener('click', function () {
+  var aboutLink = document.getElementById('aboutLink');
+  if (aboutLink) aboutLink.addEventListener('click', function () {
     location.hash = '#about';
   });
 
