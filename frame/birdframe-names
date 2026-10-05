@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+umask 077
+
+usage() {
+  echo "usage: birdframe-names on|off|status" >&2
+  exit 2
+}
+
+action=${1:-}
+case "$action" in
+  on) value=true ;;
+  off) value=false ;;
+  status) ;;
+  *) usage ;;
+esac
+
+config=${BIRDFRAME_CONFIG:-$HOME/.birdframe/config.toml}
+[ -f "$config" ] || { echo "bird frame is not installed: $config is missing" >&2; exit 1; }
+
+current=$(awk -F= '
+  /^[[:space:]]*bird_names[[:space:]]*=/ {
+    value=$2; gsub(/[[:space:]]/, "", value); print value; exit
+  }
+' "$config")
+current=${current:-false}
+
+if [ "$action" = status ]; then
+  [ "$current" = true ] && echo on || echo off
+  exit 0
+fi
+
+tmp=$(mktemp "${config}.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+awk -v value="$value" '
+  BEGIN { found=0 }
+  /^[[:space:]]*bird_names[[:space:]]*=/ {
+    print "bird_names = " value; found=1; next
+  }
+  { print }
+  END { if (!found) print "bird_names = " value }
+' "$config" >"$tmp"
+chmod 0600 "$tmp"
+mv "$tmp" "$config"
+trap - EXIT
+
+if [ "$current" = "$value" ]; then
+  echo "bird names already $action"
+  exit 0
+fi
+
+script_path=${BASH_SOURCE[0]}
+for _ in 1 2 3 4 5; do
+  [ -L "$script_path" ] || break
+  script_dir=$(cd -P "$(dirname "$script_path")" && pwd)
+  link_target=$(readlink "$script_path")
+  case "$link_target" in
+    /*) script_path=$link_target ;;
+    *) script_path=$script_dir/$link_target ;;
+  esac
+done
+[ ! -L "$script_path" ] || { echo "could not resolve the birdframe-names command" >&2; exit 1; }
+frame_dir=$(cd -P "$(dirname "$script_path")" && pwd)
+python_bin="$frame_dir/.venv/bin/python"
+[ -x "$python_bin" ] || { echo "frame environment is missing: $python_bin" >&2; exit 1; }
+"$python_bin" "$frame_dir/display.py" --config "$config" --force
+echo "bird names $action"

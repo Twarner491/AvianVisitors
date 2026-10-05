@@ -1,0 +1,85 @@
+/* Batch B: four independent family issues. Every texture is clipped to the
+   printed stock so the perforation reads as part of the artifact. */
+
+/* ---------- Thrushes / German monochrome design issue ---------- */
+.stamp:has(.tpl-thrush-flora){--stamp-paper:#f5f6f3;--pr:2.8px;--ps:9.4px;position:relative;padding:5px;background:#f5f6f3!important;filter:drop-shadow(0 1px 1px rgba(28,31,32,.13)) drop-shadow(0 7px 14px rgba(28,31,32,.07))}
+.stamp:has(.tpl-thrush-flora)::before{content:"";position:absolute;z-index:49;inset:-3%;pointer-events:none;background:repeating-linear-gradient(14deg,rgba(52,57,56,.32) 0 .34px,transparent .34px 3.1px),repeating-linear-gradient(17.4deg,rgba(52,57,56,.23) 0 .3px,transparent .3px 3.46px);background-position:.4px -.2px,-.7px .55px;mix-blend-mode:multiply;opacity:.12}
+.stamp:has(.tpl-thrush-flora)::after{content:"";position:absolute;z-index:50;inset:0;pointer-events:none;background-image:url('./assets/stamp/paper-texture-grey.png'),url('./grain.png');background-position:center,17px 11px;background-size:430px 300px,190px 190px;background-repeat:repeat;background-blend-mode:multiply,soft-light;filter:grayscale(1) contrast(1.08) brightness(1.18);mix-blend-mode:multiply;opacity:.16}
+.stamp:has(.tpl-thrush-flora) .face{border-radius:0;box-shadow:none}
+.tpl-thrush-flora{--tf-ink:#343938;--tf-paper:#f5f6f3;container-type:inline-size;font-family:var(--f-familjen);isolation:isolate;background:var(--tf-paper);color:var(--tf-ink)}
+.tpl-thrush-flora .tf-specimen{position:absolute;z-index:2;left:.8%;top:2.7%;bottom:3.1%;width:65%;overflow:hidden}
+.tpl-thrush-flora .tf-bird-plate{position:absolute;inset:0;width:100%;height:100%;display:block}
+.tpl-thrush-flora .tf-rail{position:absolute;z-index:4;right:3.3%;top:4.7%;bottom:4.7%;width:37%;color:var(--tf-ink)}
+.tpl-thrush-flora .tf-value{position:absolute;right:0;top:0;padding-bottom:2.3cqw}
+.tpl-thrush-flora .tf-value::after{content:"";position:absolute;right:0;width:13.55cqw;bottom:0;height:1px;background:currentColor;opacity:.3}
+.tpl-thrush-flora .tf-value strong{display:block;font:560 16.2cqw/.72 var(--f-familjen);letter-spacing:-.055em}
+.tpl-thrush-flora .tf-spines{position:absolute;right:.2cqw;top:27.4%;bottom:18%;display:flex;flex-direction:row;align-items:flex-start;gap:2.25cqw;padding-top:.35cqw}
+.tpl-thrush-flora .tf-spines span{display:block;writing-mode:vertical-rl;text-orientation:mixed;font:630 3.25cqw/.9 var(--f-familjen);letter-spacing:.03em;white-space:nowrap;transform:rotate(180deg)}
+.tpl-thrush-flora .tf-title{position:absolute;z-index:6;right:calc(3.3% - .65px);bottom:4.7%;width:max-content;max-width:none;text-align:right;font:680 4.65cqw/.9 var(--f-archivo);letter-spacing:.11em;text-transform:uppercase;white-space:nowrap}
+
+/* =======================================================================
+   Zürich, Berlin and Macau references rebuilt at the 188px production size.
+   ======================================================================= */
+
+/* Zürich: one screened carmine plate, one cream engraving, four postal facts. */
+.stamp:has(.tpl-fly-rose){--stamp-paper:#f4f0e7;background:#f4f0e7;padding:14px;--pr:3.15px;--ps:9.25px;position:relative;filter:drop-shadow(0 1px 1px rgba(69,25,36,.1)) drop-shadow(0 7px 13px rgba(69,25,36,.07))}
+.stamp:has(.tpl-fly-rose)::after{content:"";position:absolute;z-index:50;inset:0;pointer-events:none;background-image:repeating-linear-gradient(12.4deg,rgba(95,36,48,.12) 0 .28px,transparent .28px 2.72px),repeating-linear-gradient(14.1deg,rgba(95,36,48,.075) 0 .22px,transparent .22px 3.18px),url('./assets/stamp/paper-texture-grey.png'),url('./grain.png');background-position:.25px -.35px,-.4px .55px,center,23px 17px;background-size:auto,auto,430px 560px,205px 205px;background-repeat:repeat;background-blend-mode:multiply,multiply,multiply,soft-light;filter:grayscale(.35) contrast(1.08) brightness(1.12);mix-blend-mode:multiply;opacity:.25}
+.stamp:has(.tpl-fly-rose) .face{border-radius:0;box-shadow:none}
+.tpl-fly-rose{--fr-red:#c92f49;--fr-dark:#8f1f36;--fr-cream:#f4f0e7;container-type:inline-size;isolation:isolate;background:var(--fr-cream);color:var(--fr-cream);font-family:var(--f-news)}
+.tpl-fly-rose .fr-screen{position:absolute;z-index:0;inset:0;width:100%;height:100%;display:block;overflow:hidden;shape-rendering:geometricPrecision}
+.tpl-fly-rose .fr-screen::after{content:none}
+.tpl-fly-rose .fr-value{position:absolute;z-index:5;left:1.7%;top:2.7%;color:var(--fr-cream)}
+.tpl-fly-rose .fr-value strong{display:block;font:620 24.2cqw/.72 var(--f-fraunces);font-variation-settings:"wght" 620,"SOFT" 18,"WONK" 0;letter-spacing:.055em}
+.tpl-fly-rose .fr-edge{position:absolute;z-index:6;writing-mode:vertical-rl;text-transform:uppercase;white-space:nowrap;color:var(--fr-cream);text-shadow:0 0 .35px rgba(241,228,207,.45)}
+.tpl-fly-rose .fr-edge{-webkit-text-stroke:0;paint-order:normal;text-shadow:0 0 .22cqw rgba(244,240,231,.42)}
+.tpl-fly-rose .fr-name{left:2.15%;top:18.25%;bottom:2.3%;display:flex;flex-direction:row;gap:.72cqw;writing-mode:horizontal-tb;transform:none;font:760 var(--fly-name-size,10.25px)/.76 var(--f-news);letter-spacing:.045em;background:transparent;box-shadow:none}
+.tpl-fly-rose .fr-name span{display:block;height:100%;writing-mode:vertical-rl;transform:rotate(180deg);background:transparent;box-shadow:none}
+.tpl-fly-rose .fr-name:has(span + span){left:1.65%;top:17.5%;font-size:6.15cqw;gap:.55cqw}
+.tpl-fly-rose .fr-sci{left:13.35%;top:26.4%;bottom:2.8%;transform:rotate(180deg);font:620 var(--fly-sci-size,4.02px)/.84 var(--f-archivo);letter-spacing:.052em}
+.tpl-fly-rose .fr-right{right:2.5%;top:2.8%;bottom:2.7%;font:700 4.8cqw/.84 var(--f-archivo);letter-spacing:.065em}
+.tpl-fly-rose .fr-bird{position:absolute;z-index:3;left:8.35%;right:7.95%;top:11.8%;bottom:2.35%;display:block}
+.tpl-fly-rose .fr-bird-plate{position:absolute;inset:0;width:100%;height:100%;display:block;filter:contrast(1.08)}
+
+/* Berlin: cool-white stock and one variable-width carmine relief plate. The
+   paper skin lives on the perforated parent so type, art and fringe share one
+   physical sheet instead of three unrelated digital layers. */
+.stamp:has(.tpl-mimic-line){--stamp-paper:#f3f6f5;position:relative;background:#f3f6f5;padding:4px;--pr:3.4px;--ps:10.75px;filter:drop-shadow(0 1px 1px rgba(70,76,78,.1)) drop-shadow(0 7px 13px rgba(70,76,78,.055))}
+.stamp:has(.tpl-mimic-line)::before{content:"";position:absolute;z-index:51;inset:-1%;pointer-events:none;background-image:repeating-linear-gradient(12.7deg,rgba(247,248,247,.72) 0 .64px,transparent .64px 4.65px),repeating-linear-gradient(15.4deg,rgba(247,248,247,.54) 0 .56px,transparent .56px 4.96px);background-position:.4px -.3px,-.65px .55px;mix-blend-mode:screen;opacity:.18}
+.stamp:has(.tpl-mimic-line)::after{content:"";position:absolute;z-index:50;inset:-1%;pointer-events:none;background-image:url('./assets/stamp/paper-texture-grey.png'),url('./grain.png');background-position:center,19px 13px;background-size:340px 445px,154px 154px;background-repeat:repeat;background-blend-mode:multiply,soft-light;filter:grayscale(1) contrast(1.12) brightness(1.18);mix-blend-mode:multiply;opacity:.22}
+.stamp:has(.tpl-mimic-line) .face{border-radius:0;box-shadow:none;filter:url(#mlPrintWear);transform:translateZ(0)}
+.tpl-mimic-line{--ml-red:#c92f31;--ml-paper:#f3f6f5;container-type:inline-size;isolation:isolate;background:var(--ml-paper);color:var(--ml-red);font-family:var(--f-shoulders)}
+.tpl-mimic-line .ml-index{position:absolute;z-index:8;right:4.4%;top:4.4%;color:var(--ml-red);text-align:right}
+.tpl-mimic-line .ml-index b{display:block;font:640 20cqw/.7 var(--f-fraunces);font-variation-settings:"wght" 640,"SOFT" 24,"WONK" 0;letter-spacing:.035em}
+.tpl-mimic-line .ml-spine{position:absolute;z-index:8;writing-mode:vertical-rl;text-transform:uppercase;white-space:nowrap;color:var(--ml-red)}
+.tpl-mimic-line .ml-name{left:3.2%;top:3.1%;bottom:3.1%;transform:rotate(180deg);font:760 8.9cqw/.74 var(--f-shoulders);letter-spacing:.052em}
+.tpl-mimic-line .ml-sci{left:13.8%;top:3.5%;bottom:3.5%;transform:rotate(180deg);font:650 6.25cqw/.82 var(--f-shoulders);letter-spacing:.068em}
+.tpl-mimic-line .ml-right{right:3.2%;top:24.6%;bottom:3.2%;transform:rotate(180deg);font:720 6.35cqw/.76 var(--f-shoulders);letter-spacing:.052em}
+.tpl-mimic-line .ml-art{position:absolute;z-index:2;left:9.5%;right:8.2%;top:7%;bottom:4.5%;overflow:visible}
+.stamp[data-common="California Thrasher"] .ml-art,.stamp[data-common="Brown Thrasher"] .ml-art{left:15.5%;right:2.5%}
+.tpl-mimic-line .ml-bird-plate{position:absolute;z-index:2;inset:0;width:100%;height:100%;display:block;image-rendering:auto}
+
+/* Macau: one cool cream sheet, one muted brick-red plate. The paper skin is
+   carried by the perforated parent so the field, keyline, type and fringe age
+   as one printed object rather than as separate rectangular layers. */
+.stamp:has(.tpl-wax-botanical){--stamp-paper:#f1eee6;position:relative;background-color:#f1eee6;background-image:linear-gradient(rgba(241,238,230,.86),rgba(241,238,230,.86)),url('./assets/stamp/paper-texture-grey.png');background-position:center;background-size:auto,410px 535px;background-repeat:repeat;background-blend-mode:normal,soft-light;padding:7px;--pr:4.1px;--ps:12px;filter:drop-shadow(0 0 .55px rgba(82,66,56,.3)) drop-shadow(0 1px 1px rgba(67,48,41,.11)) drop-shadow(0 7px 14px rgba(67,48,41,.06))}
+.stamp:has(.tpl-wax-botanical)::before{content:none}
+.stamp:has(.tpl-wax-botanical)::after{content:none}
+.stamp:has(.tpl-wax-botanical) .face{border-radius:0;box-shadow:none}
+.tpl-wax-botanical{--wb-red:#a64b3b;--wb-cream:#eee9de;--wb-postal:"Avenir Next",var(--f-archivo),"Helvetica Neue",Arial,sans-serif;container-type:inline-size;isolation:isolate;background-color:#f1eee6;background-image:linear-gradient(rgba(241,238,230,.86),rgba(241,238,230,.86)),url('./assets/stamp/paper-texture-grey.png');background-position:center;background-size:auto,410px 535px;background-repeat:repeat;background-blend-mode:normal,soft-light;color:var(--wb-cream);font-family:var(--wb-postal)}
+.tpl-wax-botanical::after{content:none}
+.tpl-wax-botanical .wb-field{position:absolute;z-index:1;inset:3.15%;overflow:hidden;background:var(--wb-red)}
+.tpl-wax-botanical .wb-field::after{content:"";position:absolute;z-index:50;inset:0;pointer-events:none;background-image:url('./assets/stamp/paper-texture-grey.png'),url('./grain.png');background-position:center,21px 13px;background-size:370px 485px,162px 162px;background-repeat:repeat;background-blend-mode:multiply,soft-light;filter:grayscale(1) contrast(1.18) brightness(1.15);mix-blend-mode:multiply;opacity:.27}
+.tpl-wax-botanical .wb-mast{position:absolute;z-index:6;left:4.7%;right:4.35%;top:3.4%;display:flex;align-items:flex-start;justify-content:space-between;text-transform:uppercase;color:var(--wb-cream)}
+.tpl-wax-botanical .wb-mast span{font:470 5.85cqw/.92 var(--wb-postal);letter-spacing:.145em}
+.tpl-wax-botanical .wb-mast b{font:460 15.5cqw/.72 var(--wb-postal);letter-spacing:-.035em}
+.tpl-wax-botanical .wb-side{position:absolute;z-index:6;left:5.15%;top:15.2%;width:18.8%;height:75.2%;overflow:visible;color:var(--wb-cream)}
+.tpl-wax-botanical .wb-side text{fill:currentColor;font-family:"Avenir Next Condensed","Arial Narrow",var(--wb-postal);font-style:normal;font-weight:430;text-transform:uppercase}
+.tpl-wax-botanical .wb-side .wb-family{font-size:12.2px;letter-spacing:.1em}
+.tpl-wax-botanical .wb-side .wb-scientific{font-size:8.7px;letter-spacing:.1em}
+.tpl-wax-botanical .wb-bird{position:absolute;z-index:4;left:15.2%;right:4.7%;top:14.8%;bottom:18.8%;display:flex;align-items:center;justify-content:center;transform:rotate(var(--wax-rotate,0deg));transform-origin:52% 52%}
+.tpl-wax-botanical .wb-bird-plate{position:absolute;inset:0;width:100%;height:100%;display:block;image-rendering:auto}
+.tpl-wax-botanical .wb-bird .wb-halo{z-index:1;filter:none;mix-blend-mode:normal;opacity:1}
+.tpl-wax-botanical .wb-bird .wb-bird-plate:not(.wb-halo){z-index:2;filter:saturate(.72) contrast(1.16) brightness(.99);mix-blend-mode:normal}
+.tpl-wax-botanical .wb-bird::after{content:none}
+.tpl-wax-botanical .wb-caption{position:absolute;z-index:7;left:5.2%;right:4.6%;bottom:3.25%;text-align:center;color:var(--wb-cream)}
+.tpl-wax-botanical .wb-caption strong{display:block;font:460 7.65cqw/.9 var(--wb-postal);letter-spacing:.14em;text-transform:uppercase;white-space:nowrap;overflow:hidden}

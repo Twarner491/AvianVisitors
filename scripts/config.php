@@ -60,7 +60,6 @@ if(isset($_GET["latitude"])){
   $site_name = $_GET["site_name"];
   $site_name = str_replace('"', "", $site_name);
   $site_name = str_replace('\'', "", $site_name);
-  $birdweather_id = $_GET["birdweather_id"];
   $apprise_input = $_GET['apprise_input'];
   $apprise_notification_title = $_GET['apprise_notification_title'];
   $apprise_notification_body = htmlspecialchars_decode($_GET['apprise_notification_body'], ENT_QUOTES);
@@ -142,7 +141,6 @@ if(isset($_GET["latitude"])){
   $contents = preg_replace("/SITE_NAME=.*/", "SITE_NAME=\"$site_name\"", $contents);
   $contents = preg_replace("/LATITUDE=.*/", "LATITUDE=$latitude", $contents);
   $contents = preg_replace("/LONGITUDE=.*/", "LONGITUDE=$longitude", $contents);
-  $contents = preg_replace("/BIRDWEATHER_ID=.*/", "BIRDWEATHER_ID=$birdweather_id", $contents);
   $contents = preg_replace("/APPRISE_NOTIFICATION_TITLE=.*/", "APPRISE_NOTIFICATION_TITLE=\"$apprise_notification_title\"", $contents);
   $contents = preg_replace("/APPRISE_NOTIFY_EACH_DETECTION=.*/", "APPRISE_NOTIFY_EACH_DETECTION=$apprise_notify_each_detection", $contents);
   $contents = preg_replace("/APPRISE_NOTIFY_NEW_SPECIES=.*/", "APPRISE_NOTIFY_NEW_SPECIES=$apprise_notify_new_species", $contents);
@@ -417,17 +415,20 @@ function runProcess() {
       </td></tr></table><br>
       <table class="settingstable"><tr><td>
       <h2>BirdWeather</h2>
-      <label for="birdweather_id">BirdWeather Token: </label>
-      <input name="birdweather_id" type="text" value="<?php print($config['BIRDWEATHER_ID']);?>" /><br>
-           <p><a href="https://app.birdweather.com" target="_blank">BirdWeather.com</a> is a weather map for bird sounds. 
+      <p><?php echo empty($config['BIRDWEATHER_ID'])
+        ? 'No BirdWeather station token is saved.'
+        : 'A BirdWeather station token is saved. For security, it is not shown here.'; ?></p>
+      <p>Sharing, audio permission, local privacy filtering, and token replacement now live in
+        <a href="/#admin=settings">AvianVisitors Settings</a>.</p>
+      <p><a href="https://app.birdweather.com" target="_blank" rel="noopener">BirdWeather.com</a> is a weather map for bird sounds.
         Stations around the world supply audio and video streams to BirdWeather where they are then analyzed by BirdNET 
         and compared to eBird Grid data. BirdWeather catalogues the bird audio and spectrogram visualizations so that you 
         can listen to, view, and read about birds throughout the world. <br><br> 
-        To request a BirdWeather Token, You'll first need to create an account - <a href="https://app.birdweather.com/login" target="_blank">https://app.birdweather.com/</a><br>
-        Once that's done - you can go to - <a href="https://app.birdweather.com/account/stations" target="_blank">https://app.birdweather.com/account/stations</a><br>
+        To request a BirdWeather Token, You'll first need to create an account - <a href="https://app.birdweather.com/login" target="_blank" rel="noopener">https://app.birdweather.com/</a><br>
+        Once that's done - you can go to - <a href="https://app.birdweather.com/account/stations" target="_blank" rel="noopener">https://app.birdweather.com/account/stations</a><br>
         Make sure that the Latitude and Longitude match what is in your BirdNET-Pi configuration.
         <br><br>
-        <dt>NOTE - by using your BirdWeather Token - you are consenting to sharing your soundscapes and detections with BirdWeather</dt></p>
+        <dt>Saving a token permits detection sharing. Full-recording audio is a separate opt-in in AvianVisitors Settings and stays off for new stations.</dt></p>
       </td></tr></table><br>
       <table class="settingstable" style="width:100%"><tr><td>
       <h2>Notifications</h2>

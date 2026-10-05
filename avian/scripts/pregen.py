@@ -302,13 +302,17 @@ def fetch_wikipedia_thumb(sci: str, com: str) -> tuple[bytes, str] | None:
         # Prefer originalimage (higher res) over thumbnail.
         for k in ("originalimage", "thumbnail"):
             src = (meta.get(k) or {}).get("source")
-            if not src or not src.lower().endswith((".jpg", ".jpeg", ".png")):
+            if not isinstance(src, str) or not src:
                 continue
             try:
+                # Wikipedia image URLs may carry query strings or fragments.
+                src_path = urllib.parse.urlsplit(src).path
+                if not src_path.lower().endswith((".jpg", ".jpeg", ".png")):
+                    continue
                 req2 = urllib.request.Request(src, headers={"User-Agent": USER_AGENT})
                 with urllib.request.urlopen(req2, timeout=30) as r:
                     data = r.read()
-            except (urllib.error.HTTPError, urllib.error.URLError):
+            except (urllib.error.HTTPError, urllib.error.URLError, ValueError):
                 continue
             # Magic-byte sniff - URL extension is a hint, the bytes are
             # what Gemini's MIME check sees. Skip unknown formats rather
@@ -570,6 +574,13 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="Cap species count for testing")
     args = ap.parse_args()
 
+    try:
+        from image_files import open_source_image, save_png_atomic
+    except ImportError:
+        print("error: Pillow is required to validate illustrations (pip install -r requirements.txt)",
+              file=sys.stderr)
+        return 2
+
     gemini_key = args.gemini_key or os.environ.get("GEMINI_API_KEY", "")
     if not gemini_key:
         print("error: GEMINI_API_KEY required (--gemini-key or env)", file=sys.stderr)
@@ -647,13 +658,15 @@ def main() -> int:
                                anti_ref_key=anti_key_for_call,
                                species_note=notes.get(sci),
                                style_ref=style_ref_path)
-                path.write_bytes(data)
+                with open_source_image(data) as image:
+                    image.load()
+                    save_png_atomic(image, path)
                 done += 1
                 refs_tag = "+ref" if pos_ref else ""
                 anti_tag = "+anti" if anti else ""
                 note_tag = "+note" if notes.get(sci) else ""
                 print(f"  [ok]   {fname} ({len(data)//1024} KB){refs_tag}{anti_tag}{note_tag}")
-            except (urllib.error.HTTPError, urllib.error.URLError, RuntimeError) as e:
+            except (urllib.error.HTTPError, urllib.error.URLError, RuntimeError, OSError, ValueError) as e:
                 failed += 1
                 first_fail = first_fail or fname
                 print(f"  [fail] {fname}: {e}", file=sys.stderr)

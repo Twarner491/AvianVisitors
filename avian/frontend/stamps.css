@@ -1,0 +1,909 @@
+/* Stamp system for the Avian Atlas: self-hosted display faces, the shared
+   stamp kit (perforation mask + print skin + bird filters), and one block
+   per stamp design. Generated from the lab in /tmp/av-webroot. */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('./fonts/stamp/spacegrotesk-0.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('./fonts/stamp/archivo-0.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Anton';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/stamp/anton-0.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Bebas Neue';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/stamp/bebas-0.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Fraunces';
+  font-style: italic;
+  font-weight: 300 600;
+  font-display: swap;
+  src: url('./fonts/stamp/fraunces-0.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('./fonts/stamp/fraunces-1.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: italic;
+  font-weight: 320 600;
+  font-display: swap;
+  src: url('./fonts/stamp/newsreader-0.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: normal;
+  font-weight: 320 640;
+  font-display: swap;
+  src: url('./fonts/stamp/newsreader-1.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Space Mono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/stamp/spacemono-0.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Space Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/stamp/spacemono-1.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Space Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/stamp/spacemono-2.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Syne';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('./fonts/stamp/syne-0.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Big Shoulders Display';
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url('./fonts/stamp/bigshoulders-0.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  font-style: normal;
+  font-weight: 300 800;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('./fonts/stamp/bricolage-0.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/stamp/instrument-0.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/stamp/instrument-1.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Familjen Grotesk';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./fonts/stamp/familjen-0.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+
+  .stamp{
+    --ink:#211d16; --soft:#6f6656;
+    --grot:"Helvetica Neue",Arial,system-ui,sans-serif;
+    --cond:"Haettenschweiler","Arial Narrow",Impact,var(--grot);
+    --serif:ui-serif,"Iowan Old Style",Georgia,serif;
+    --mono:ui-monospace,"SF Mono",Menlo,monospace;
+    /* self-hosted characterful set (fonts.css) */
+    --f-space:'Space Grotesk',system-ui,sans-serif;
+    --f-archivo:'Archivo',system-ui,sans-serif;
+    --f-anton:'Anton','Arial Narrow',sans-serif;
+    --f-bebas:'Bebas Neue','Arial Narrow',sans-serif;
+    --f-fraunces:'Fraunces',Georgia,serif;
+    --f-news:'Newsreader',Georgia,serif;
+    --f-tmono:'Space Mono',ui-monospace,monospace;
+    --f-syne:'Syne',system-ui,sans-serif;
+    --f-shoulders:'Big Shoulders Display',sans-serif;
+    --f-bricolage:'Bricolage Grotesque',system-ui,sans-serif;
+    --f-instrument:'Instrument Serif',Georgia,serif;
+    --f-familjen:'Familjen Grotesk',system-ui,sans-serif;
+    --grain:url('./grain.png'); --press:url('./stats-press.png');
+  }
+
+
+
+
+
+
+
+
+  /* ===================== SHARED STAMP KIT ===================== */
+  .stamp,
+  .stamp-fringe-outline{ --w:188px; --ar:0.80; width:var(--w); background:var(--stamp-paper,#f2e7d2); padding:6px; border-radius:2px;
+    filter:drop-shadow(0 8px 18px rgba(0,0,0,.42));
+    --pr:3.2px; --ps:12px; --psx:var(--ps); --psy:var(--ps);
+    -webkit-mask:
+      radial-gradient(circle var(--pr) at 50% 0,#0000 calc(100% - .04px),#000 100%) 0 0/var(--psx) 100% repeat-x,
+      radial-gradient(circle var(--pr) at 50% 100%,#0000 calc(100% - .04px),#000 100%) 0 0/var(--psx) 100% repeat-x,
+      radial-gradient(circle var(--pr) at 0 50%,#0000 calc(100% - .04px),#000 100%) 0 0/100% var(--psy) repeat-y,
+      radial-gradient(circle var(--pr) at 100% 50%,#0000 calc(100% - .04px),#000 100%) 0 0/100% var(--psy) repeat-y;
+    -webkit-mask-composite:source-in;
+    mask:
+      radial-gradient(circle var(--pr) at 50% 0,#0000 calc(100% - .04px),#000 100%) 0 0/var(--psx) 100% repeat-x,
+      radial-gradient(circle var(--pr) at 50% 100%,#0000 calc(100% - .04px),#000 100%) 0 0/var(--psx) 100% repeat-x,
+      radial-gradient(circle var(--pr) at 0 50%,#0000 calc(100% - .04px),#000 100%) 0 0/100% var(--psy) repeat-y,
+      radial-gradient(circle var(--pr) at 100% 50%,#0000 calc(100% - .04px),#000 100%) 0 0/100% var(--psy) repeat-y;
+    mask-composite:intersect;
+  }
+  /* <figure> carries a UA margin (typically 40px inline / 1em block). The
+     perforation outline is a span, so leaving that margin in place offsets the
+     visible issue from its otherwise-identical silhouette. */
+  .stamp{ margin:0; }
+  .stamp[data-perf="pearl"],
+  .stamp-fringe-outline[data-perf="pearl"]{ --pr:2.4px; --ps:9px; }
+  /* flat: straight-cut edge (maxicard / modern), no notches */
+  .stamp[data-perf="flat"],
+  .stamp-fringe-outline[data-perf="flat"]{ -webkit-mask:none; mask:none; border-radius:2px; }
+  /* sawtooth: triangular zig-zag teeth (vintage riso / label) */
+  .stamp[data-perf="saw"],
+  .stamp-fringe-outline[data-perf="saw"]{ --pr:4.5px; --ps:11px;
+    -webkit-mask:
+      conic-gradient(from -45deg at 50% var(--pr),#0000 90deg,#000 0) 50% 0/var(--psx) 100% repeat-x,
+      conic-gradient(from 135deg at 50% calc(100% - var(--pr)),#0000 90deg,#000 0) 50% 100%/var(--psx) 100% repeat-x,
+      conic-gradient(from 225deg at var(--pr) 50%,#0000 90deg,#000 0) 0 50%/100% var(--psy) repeat-y,
+      conic-gradient(from 45deg at calc(100% - var(--pr)) 50%,#0000 90deg,#000 0) 100% 50%/100% var(--psy) repeat-y;
+    -webkit-mask-composite:source-in;
+    mask:
+      conic-gradient(from -45deg at 50% var(--pr),#0000 90deg,#000 0) 50% 0/var(--psx) 100% repeat-x,
+      conic-gradient(from 135deg at 50% calc(100% - var(--pr)),#0000 90deg,#000 0) 50% 100%/var(--psx) 100% repeat-x,
+      conic-gradient(from 225deg at var(--pr) 50%,#0000 90deg,#000 0) 0 50%/100% var(--psy) repeat-y,
+      conic-gradient(from 45deg at calc(100% - var(--pr)) 50%,#0000 90deg,#000 0) 100% 50%/100% var(--psy) repeat-y;
+    mask-composite:intersect; }
+  .face{ position:relative; aspect-ratio:var(--ar); overflow:hidden; border-radius:1px;
+    background:var(--face,#e7dcc2); box-shadow:inset 0 0 0 1px rgba(33,29,22,.10);
+    color:var(--ink); }
+  /* Texture is intentionally held back during design review. It can return as
+     a final print pass once the underlying compositions are approved. */
+  .face.paper::before,.face.paper::after{content:none;}
+  .face.vig{box-shadow:inset 0 0 30px rgba(33,29,22,.16), inset 0 0 0 1px rgba(33,29,22,.10);}
+
+  /* bird base */
+  .bird{max-width:100%;max-height:100%;object-fit:contain;display:block;}
+  /* --- filter utilities (drop birds through these) --- */
+  .fx-gray{filter:grayscale(1) contrast(1.06);}
+  .fx-duo-ink{filter:url(#duo-ink);} .fx-duo-blue{filter:url(#duo-blue);}
+  .fx-duo-green{filter:url(#duo-green);} .fx-duo-sepia{filter:url(#duo-sepia);}
+  .fx-duo-red{filter:url(#duo-red);} .fx-duo-slate{filter:url(#duo-slate);}
+  .fx-poster{filter:url(#poster) contrast(1.05);}
+  /* silhouette fill: a solid shape of the bird in --c. set --src to url('CUTOUT') */
+  .sil{display:block;background:var(--c,#eee);
+    -webkit-mask:var(--src) center/contain no-repeat; mask:var(--src) center/contain no-repeat;}
+  /* halftone: coarse dot-screen of a high-contrast grayscale bird */
+  .ht > img{filter:grayscale(1) contrast(1.5) brightness(1.04);
+    -webkit-mask:radial-gradient(circle,#000 46%,#0000 48%) 0 0/var(--htd,4px) var(--htd,4px);
+    mask:radial-gradient(circle,#000 46%,#0000 48%) 0 0/var(--htd,4px) var(--htd,4px);}
+  /* engraving: horizontal line-screen of a grayscale bird */
+  .eng > img{filter:grayscale(1) contrast(1.3);
+    -webkit-mask:repeating-linear-gradient(0deg,#000 0 1px,#0000 1px var(--engs,3px));
+    mask:repeating-linear-gradient(0deg,#000 0 1px,#0000 1px var(--engs,3px));}
+
+
+/* ===================== TEMPLATES ===================== */
+/* --- hawks / raptor field notes --- */
+.stamp:has(.tpl-fieldguide){--stamp-paper:#d7b46d;background:#d7b46d;--pr:3px;--ps:11px}
+.stamp:has(.tpl-fieldguide) .face{border-radius:0;box-shadow:none}
+.tpl-fieldguide{--fg-paper:#d7b46d;--fg-panel:#d4a94f;--fg-green:#183f33;--fg-brown:#5b3425;--fg-rust:#a94e2d;container-type:size;isolation:isolate;overflow:hidden;color:var(--fg-green);font-family:var(--f-familjen);background:var(--fg-paper)}
+.tpl-fieldguide .fg-plate{position:absolute;z-index:1;left:4.6%;right:4.6%;top:4.3%;height:67.5%;overflow:hidden;border-radius:8.5%/6%;background:linear-gradient(165deg,#dfbd68 0%,var(--fg-panel) 52%,#cca047 100%);box-shadow:inset 0 0 0 1.25px var(--fg-green),inset 0 0 0 3.7px rgba(215,180,109,.58),inset 0 0 0 4.5px rgba(24,63,51,.77)}
+.tpl-fieldguide .fg-register{position:absolute;z-index:5;left:4.2%;right:4.2%;top:3.7%;display:flex;justify-content:space-between;align-items:center;font:800 2.6cqw/1 var(--f-tmono);letter-spacing:.09em;text-transform:uppercase;color:var(--fg-green)}
+.tpl-fieldguide .fg-flight{position:absolute;z-index:1;left:-2%;top:8%;width:86%;height:88%;overflow:visible;color:var(--fg-green);opacity:.58}
+.tpl-fieldguide .fg-flight-lines{fill:none;stroke:currentColor;stroke-width:.72;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round}
+.tpl-fieldguide .fg-flight-lines path:nth-of-type(1),.tpl-fieldguide .fg-flight-lines path:nth-of-type(2){stroke-dasharray:1.5 1.7}
+.tpl-fieldguide .fg-flight-dots{fill:var(--fg-green)}
+.tpl-fieldguide .fg-scale{position:absolute;z-index:4;left:5%;bottom:4%;width:50%;display:flex;align-items:flex-end;gap:1.2cqw;font:700 2.15cqw/1 var(--f-tmono);letter-spacing:.03em;color:var(--fg-green)}
+.tpl-fieldguide .fg-scale i{display:block;flex:1 1 auto;height:1px;background:var(--fg-green);position:relative;opacity:.72}
+.tpl-fieldguide .fg-scale i::after{content:"";position:absolute;right:0;bottom:0;width:1px;height:2.4cqw;background:var(--fg-green)}
+.tpl-fieldguide .fg-specimen{position:absolute;z-index:3;left:10%;right:2.2%;top:6.5%;bottom:2.5%;display:flex;align-items:flex-end;justify-content:flex-end;--c:var(--fg-green)}
+.tpl-fieldguide .fg-bird{position:relative;z-index:2;display:block;width:100%;height:100%;object-fit:contain;object-position:right bottom;filter:saturate(.72) sepia(.13) contrast(1.13) brightness(.96);mix-blend-mode:multiply}
+.tpl-fieldguide .fg-registration{position:absolute;z-index:1;inset:.45% -.15% -.15% .45%;background:var(--fg-green);-webkit-mask:var(--src) right bottom/contain no-repeat;mask:var(--src) right bottom/contain no-repeat;opacity:.13;mix-blend-mode:multiply}
+.tpl-fieldguide .fg-plate-mark{position:absolute;z-index:6;right:4.2%;bottom:3.7%;display:flex;align-items:flex-end;gap:1.2cqw;color:var(--fg-green)}
+.tpl-fieldguide .fg-plate-mark b{font:900 8.4cqw/.68 var(--f-fraunces);font-variation-settings:"wght" 900,"SOFT" 35;letter-spacing:-.07em}
+.tpl-fieldguide .fg-plate-mark span{max-width:15cqw;font:800 2.1cqw/.92 var(--f-tmono);letter-spacing:.08em;text-transform:uppercase}
+.tpl-fieldguide .fg-caption{position:absolute;z-index:6;left:4.8%;right:4.8%;top:74%;bottom:4%;display:grid;grid-template-columns:minmax(0,1fr) 29%;column-gap:3.2%;align-items:end;color:var(--fg-green)}
+.tpl-fieldguide .fg-name{align-self:center;font:900 11.2cqw/.78 var(--f-fraunces);font-variation-settings:"wght" 900,"SOFT" 40;letter-spacing:-.066em;text-transform:uppercase;white-space:nowrap;transform:scaleX(.86);transform-origin:left center}
+.tpl-fieldguide .fg-name span{display:block}
+.tpl-fieldguide .fg-meta{align-self:center;display:flex;flex-direction:column;gap:1.25cqw;min-width:0;text-align:left;color:var(--fg-green)}
+.tpl-fieldguide .fg-meta b{font:900 5cqw/.76 var(--f-familjen);letter-spacing:-.035em;text-transform:uppercase}
+.tpl-fieldguide .fg-meta span{display:block;font:700 2.55cqw/1.08 var(--f-tmono);letter-spacing:.018em;text-transform:uppercase;overflow-wrap:anywhere}
+.tpl-fieldguide .fg-meta .fg-sci span{display:block}
+.tpl-fieldguide .fg-paper{position:absolute;z-index:20;inset:-3%;pointer-events:none;background-image:url('./assets/stamp/paper-texture-grey.png'),url('./stats-press.png');background-size:cover,112px 112px;background-position:center,7px 9px;background-repeat:no-repeat,repeat;filter:grayscale(1) contrast(1.33);mix-blend-mode:multiply;opacity:.34}
+/* --- flock / full-sheet cyanotype contact print --- */
+.stamp:has(.tpl-flock){--stamp-paper:#08265d;background:#08265d;padding:0}
+.stamp:has(.tpl-flock) .face{border-radius:0;box-shadow:none}
+.tpl-flock{--grot:var(--f-space);--mono:var(--f-tmono);--cy-light:#efe3ca;--cy-mid:#b8c9c0;color:var(--cy-light);container-type:size;background:#08265d;isolation:isolate;overflow:hidden}
+.tpl-flock .cy-cv{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:1;mix-blend-mode:normal}
+.tpl-flock .cy-chem{position:absolute;inset:0;width:100%;height:100%;z-index:4;pointer-events:none;opacity:.58}
+.tpl-flock .cy-wash{fill:#91bdc3;opacity:.26;mix-blend-mode:screen}
+.tpl-flock .cy-fiber{fill:#dce8df;opacity:.34;mix-blend-mode:soft-light}
+.tpl-flock .cy-copy{position:absolute;z-index:3;inset:0;color:var(--cy-light);text-shadow:0 0 .16px rgba(239,227,202,.38);opacity:.92;mix-blend-mode:screen}
+.tpl-flock .cy-family{position:absolute;left:6.5%;top:6.2%;display:flex;flex-direction:column;align-items:flex-start;gap:.45cqw;font:750 8.25cqw/.8 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.tpl-flock .cy-family span{display:block}
+.tpl-flock .cy-no{position:absolute;right:6.5%;top:6.2%;font:650 17cqw/.74 var(--grot);letter-spacing:-.065em;font-feature-settings:'tnum'}
+.tpl-flock .cy-species{position:absolute;left:6.5%;bottom:5.8%;max-width:54%;display:flex;flex-direction:column;align-items:flex-start}
+.tpl-flock .cy-name{display:flex;flex-direction:column;align-items:flex-start;font:650 11.4cqw/.88 var(--grot);letter-spacing:-.052em;text-transform:none;color:var(--cy-light)}
+.tpl-flock .cy-name span{display:block}
+.tpl-flock .cy-sci{margin-top:3.1cqw;display:flex;flex-direction:column;align-items:flex-start;gap:.5cqw;font:650 4.15cqw/.92 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:rgba(239,227,202,.88)}
+.tpl-flock .cy-sci span{display:block}
+.tpl-flock .cy-brand{position:absolute;right:6.5%;bottom:5.8%;display:flex;flex-direction:column;align-items:flex-end;font:700 4.05cqw/.9 var(--mono);letter-spacing:.085em;text-transform:uppercase;text-align:right;color:rgba(239,227,202,.9)}
+.tpl-flock .cy-brand span{display:block}
+/* --- dither --- */
+.tpl-dither{container-type:size;color:var(--ink);--grot:var(--f-archivo);--serif:var(--f-news);--mono:var(--f-tmono)}
+.tpl-dither .dth-kick{position:absolute;top:5cqw;left:6cqw;right:6cqw;z-index:5;font:600 3cqw/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink);opacity:.55}
+.tpl-dither .dth-title{position:absolute;left:6cqw;right:34%;top:12cqw;margin:0;z-index:4;font:800 8cqw/.9 var(--grot);letter-spacing:-.02em;text-transform:uppercase;overflow-wrap:normal;word-break:normal;hyphens:none}
+.tpl-dither .dth-num{position:absolute;right:6cqw;top:10cqw;z-index:4;text-align:right;font:800 15cqw/.78 var(--grot);letter-spacing:-.03em;white-space:nowrap}
+.tpl-dither .dth-num .no{font:600 3.6cqw/1 var(--mono);letter-spacing:0;opacity:.6;vertical-align:top;margin-right:.4cqw}
+.tpl-dither .dth-num .no{display:none}
+.tpl-dither .dth-sci{position:absolute;left:6cqw;top:30cqw;z-index:4;font:italic 500 3.5cqw/1 var(--serif);opacity:.72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70%}
+.tpl-dither .dth-panel{position:absolute;left:6cqw;right:6cqw;top:38cqw;bottom:5cqw;overflow:hidden;z-index:2;box-shadow:inset 0 0 0 1px rgba(25,23,19,.14)}
+.tpl-dither .dth-panel canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+/* --- geo --- */
+.tpl-geo{--gink:#171b0f;--grot:var(--f-shoulders);--label:var(--f-archivo);--mono:var(--f-familjen)}
+.tpl-geo .geo-field{position:absolute;inset:4.8%;overflow:hidden;border-radius:.5px;background:var(--geo-field,#c6d79a);box-shadow:inset 0 0 0 1px rgba(23,27,15,.07)}
+.tpl-geo .geo-art{position:absolute;top:9.5%;left:9.5%;width:87%;height:67%;z-index:9}
+/* Family-specific print skin: two near-frequency dot screens create a quiet
+   moire beat while seeded SVG turbulence supplies paper tooth. The overlay is
+   beneath the bird and type so the approved polygon planes and tiny postal
+   copy remain crisp. */
+.tpl-geo .geo-moire{position:absolute;inset:0;width:100%;height:100%;z-index:8;pointer-events:none;overflow:visible}
+.tpl-geo .geo-moire .gm-a{opacity:.30;mix-blend-mode:multiply}
+.tpl-geo .geo-moire .gm-b{opacity:.21;mix-blend-mode:multiply}
+.tpl-geo .geo-moire .gm-fiber{opacity:.115;mix-blend-mode:multiply}
+.tpl-geo .geo-spine{position:absolute;left:4%;top:7%;bottom:20%;display:flex;align-items:center;justify-content:center;writing-mode:vertical-rl;transform:rotate(180deg);font:800 11.8px/.9 var(--grot);letter-spacing:.05em;text-transform:uppercase;color:var(--gink);opacity:.96;z-index:9}
+.tpl-geo .geo-den{position:absolute;right:6%;top:4.8%;font:800 30px/.76 var(--grot);letter-spacing:.01em;color:var(--gink);white-space:nowrap;z-index:9}
+.tpl-geo .geo-den small{font:800 .43em/1 var(--grot);letter-spacing:.025em;vertical-align:.63em;margin-right:.1em}
+.tpl-geo .geo-name{position:absolute;left:3.1%;right:3.1%;bottom:8.2%;text-align:center;font:800 var(--geo-name-size,17.25px)/.9 var(--grot);letter-spacing:.035em;text-transform:uppercase;color:var(--gink);overflow-wrap:normal;word-break:normal;hyphens:none;white-space:nowrap;z-index:9}
+.tpl-geo .geo-name{left:2.15%;right:2.15%;letter-spacing:.025em}
+.tpl-geo .geo-credit{position:absolute;left:8%;right:5.5%;bottom:3.05%;display:flex;justify-content:center;align-items:baseline;gap:.35em;font:700 9px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--gink);opacity:.9;white-space:nowrap;z-index:9}
+.tpl-geo .geo-credit .gsci{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.tpl-geo .geo-credit .gproj{flex:0 0 auto}
+/* --- mono --- */
+.stamp.stamp:has(.tpl-mono),
+.stamp-fringe-outline[data-style="mono"]{
+  /* A normalized SVG mask keeps the reference's disciplined 17-by-22
+     perforation rhythm intact at every display size. The first cut on each
+     edge starts one full interval in, leaving broad, balanced corner teeth. */
+  /* The perforated stock is the same ink as the weave's darkest tile, so the
+     checkerboard reaches the cut edge without a separate pure-black halo. */
+  --stamp-paper:#08090a;
+  -webkit-mask:url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMjMwIiBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJub25lIj48ZGVmcz48cGF0dGVybiBpZD0iaCIgd2lkdGg9IjEwIiBoZWlnaHQ9IjIzMCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PGNpcmNsZSBjeD0iMCIgY3k9IjAiIHI9IjMuMiIgZmlsbD0iIzAwMCIvPjxjaXJjbGUgY3g9IjAiIGN5PSIyMzAiIHI9IjMuMiIgZmlsbD0iIzAwMCIvPjwvcGF0dGVybj48cGF0dGVybiBpZD0idiIgd2lkdGg9IjE4MCIgaGVpZ2h0PSIxMCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PGNpcmNsZSBjeD0iMCIgY3k9IjAiIHI9IjMuMiIgZmlsbD0iIzAwMCIvPjxjaXJjbGUgY3g9IjE4MCIgY3k9IjAiIHI9IjMuMiIgZmlsbD0iIzAwMCIvPjwvcGF0dGVybj48bWFzayBpZD0ibSIgbWFza1VuaXRzPSJ1c2VyU3BhY2VPblVzZSIgeD0iMCIgeT0iMCIgd2lkdGg9IjE4MCIgaGVpZ2h0PSIyMzAiPjxyZWN0IHdpZHRoPSIxODAiIGhlaWdodD0iMjMwIiBmaWxsPSIjZmZmIi8+PHJlY3QgeD0iNi44IiB3aWR0aD0iMTY2LjQiIGhlaWdodD0iMjMwIiBmaWxsPSJ1cmwoI2gpIi8+PHJlY3QgeT0iNi44IiB3aWR0aD0iMTgwIiBoZWlnaHQ9IjIxNi40IiBmaWxsPSJ1cmwoI3YpIi8+PC9tYXNrPjwvZGVmcz48cmVjdCB3aWR0aD0iMTgwIiBoZWlnaHQ9IjIzMCIgZmlsbD0iI2ZmZiIgbWFzaz0idXJsKCNtKSIvPjwvc3ZnPg==") center/100% 100% no-repeat;
+  mask:url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMjMwIiBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJub25lIj48ZGVmcz48cGF0dGVybiBpZD0iaCIgd2lkdGg9IjEwIiBoZWlnaHQ9IjIzMCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PGNpcmNsZSBjeD0iMCIgY3k9IjAiIHI9IjMuMiIgZmlsbD0iIzAwMCIvPjxjaXJjbGUgY3g9IjAiIGN5PSIyMzAiIHI9IjMuMiIgZmlsbD0iIzAwMCIvPjwvcGF0dGVybj48cGF0dGVybiBpZD0idiIgd2lkdGg9IjE4MCIgaGVpZ2h0PSIxMCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PGNpcmNsZSBjeD0iMCIgY3k9IjAiIHI9IjMuMiIgZmlsbD0iIzAwMCIvPjxjaXJjbGUgY3g9IjE4MCIgY3k9IjAiIHI9IjMuMiIgZmlsbD0iIzAwMCIvPjwvcGF0dGVybj48bWFzayBpZD0ibSIgbWFza1VuaXRzPSJ1c2VyU3BhY2VPblVzZSIgeD0iMCIgeT0iMCIgd2lkdGg9IjE4MCIgaGVpZ2h0PSIyMzAiPjxyZWN0IHdpZHRoPSIxODAiIGhlaWdodD0iMjMwIiBmaWxsPSIjZmZmIi8+PHJlY3QgeD0iNi44IiB3aWR0aD0iMTY2LjQiIGhlaWdodD0iMjMwIiBmaWxsPSJ1cmwoI2gpIi8+PHJlY3QgeT0iNi44IiB3aWR0aD0iMTgwIiBoZWlnaHQ9IjIxNi40IiBmaWxsPSJ1cmwoI3YpIi8+PC9tYXNrPjwvZGVmcz48cmVjdCB3aWR0aD0iMTgwIiBoZWlnaHQ9IjIzMCIgZmlsbD0iI2ZmZiIgbWFzaz0idXJsKCNtKSIvPjwvc3ZnPg==") center/100% 100% no-repeat;
+}
+.stamp:has(.tpl-mono) .face{border-radius:0;box-shadow:none}
+.tpl-mono{--w:#f2efe6;--mgrot:var(--f-archivo);--mmono:var(--f-space);container-type:size;overflow:visible;isolation:isolate}
+/* Corvid material study: a broad diamond weave and irregular graphite haze
+   sit in the black stock. A static diagonal sheen crosses the bird but stays
+   below the type, so it reads as coated paper rather than a UI animation. */
+.tpl-mono .m-material{position:absolute;inset:-6px;width:calc(100% + 12px);height:calc(100% + 12px);z-index:0;pointer-events:none}
+.tpl-mono .m-material .mm-weave{opacity:.92}
+.tpl-mono .m-material .mm-cloud{opacity:.55;mix-blend-mode:screen}
+.tpl-mono .m-gloss{position:absolute;inset:-12%;z-index:2;pointer-events:none;background:linear-gradient(132deg,transparent 20%,rgba(230,232,228,.018) 34%,rgba(241,242,238,.13) 45%,rgba(205,208,205,.045) 53%,transparent 65%),linear-gradient(132deg,transparent 57%,rgba(246,247,243,.052) 60%,transparent 63%);mix-blend-mode:screen;opacity:.82}
+.tpl-mono .m-head{position:absolute;top:11px;left:12px;right:70px;z-index:3}
+.tpl-mono .m-family{font:700 7.5px/1 var(--mmono);letter-spacing:.17em;text-transform:uppercase;color:var(--w);opacity:.78;white-space:nowrap}
+.tpl-mono .m-name{max-width:104px;margin-top:7px;font:750 var(--mono-name-size,19px)/.84 var(--mgrot);letter-spacing:-.025em;text-transform:uppercase;color:var(--w);text-shadow:0 1px 0 #070707}
+.tpl-mono .m-num{position:absolute;top:8px;right:12px;font:700 33px/.78 var(--mgrot);letter-spacing:-.04em;color:var(--w);z-index:3;text-shadow:0 1px 0 #070707}
+.tpl-mono .m-proj{position:absolute;top:28%;right:9px;writing-mode:vertical-rl;transform:rotate(180deg);font:700 8px/1 var(--mgrot);letter-spacing:.19em;text-transform:uppercase;color:var(--w);opacity:.88;z-index:3;text-shadow:0 1px 0 #070707}
+.tpl-mono .m-bird{position:absolute;left:9%;bottom:12%;width:80%;height:56%;z-index:1}
+.tpl-mono .m-sci{position:absolute;left:12px;right:30px;bottom:10px;font:600 9px/1 var(--mmono);font-style:normal;letter-spacing:.018em;color:var(--w);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:3;text-shadow:0 1px 0 #070707}
+/* --- bundespost --- */
+.tpl-bundespost{ --paper:#f4efe4; --red:#d8241d; --cond:var(--f-anton); --grot:var(--f-archivo); --serif:var(--f-fraunces); }
+
+/* bold flat single-colour red figure, real mask fill, no fake scanlines */
+.tpl-bundespost .bp-bird{ position:absolute; top:17%; left:18%; right:12%; bottom:20%; z-index:2; opacity:.82; -webkit-mask-size:contain; mask-size:contain; -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat; -webkit-mask-position:50% 50%; mask-position:50% 50%; }
+
+/* big accession numeral, top-left, like the postal value */
+.tpl-bundespost .bp-num{ position:absolute; top:10px; left:12px; z-index:6; font:400 46px/0.74 var(--cond); letter-spacing:.005em; color:var(--red); }
+.tpl-bundespost .bp-num i{
+  display:block; font:800 8px/1 var(--mono); font-style:normal;
+  letter-spacing:.14em; margin:0 0 1px 1px;
+}
+
+/* red vertical edge captions, reading bottom-to-top */
+.tpl-bundespost .bp-edge{ position:absolute; z-index:6; bottom:28px; writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap; text-transform:uppercase; font:700 7.5px/1 var(--grot); letter-spacing:.18em; color:var(--red); }
+.tpl-bundespost .bp-l{ left:3px; font-size:6.6px; letter-spacing:.1em; }
+.tpl-bundespost .bp-r{ right:3px; }
+
+/* species caption sits on the bare paper, with generous negative space kept */
+.tpl-bundespost .bp-band{
+  position:absolute; left:10px; right:10px; bottom:9px; z-index:6;
+  text-align:center;
+}
+.tpl-bundespost .bp-band::before{
+  content:""; display:block; width:24px; height:1.6px;
+  margin:0 auto 4px; background:var(--red);
+}
+.tpl-bundespost .bp-name{ display:block; font:400 18px/0.94 var(--cond); letter-spacing:.01em; text-transform:uppercase; color:var(--red); }
+.tpl-bundespost .bp-sci{ display:block; font:italic 500 8.5px/1.15 var(--serif); letter-spacing:.01em; color:var(--red); opacity:.8; margin-top:3px; }
+/* --- zurichpink --- */
+.stamp:has(.tpl-zurichpink){ --paper:#f8dbe6; }
+.tpl-zurichpink{ --grot:var(--f-familjen); --cond:var(--f-archivo); --serif:var(--f-news); --zp-coral:#e23a52; --zp-oxblood:#a81f39; --zp-deep:#7a1329; }
+.tpl-zurichpink .zp-c{ position:absolute; inset:0; z-index:1; width:100%; height:100%; display:block; }
+.tpl-zurichpink .zp-brand{ position:absolute; top:11px; left:12px; z-index:6; font:800 7px/1 var(--grot); letter-spacing:.2em; text-transform:uppercase; color:var(--zp-oxblood); }
+.tpl-zurichpink .zp-no{ position:absolute; top:8px; right:9px; z-index:7; background:var(--zp-coral); color:#fff; padding:2px 6px 3px; display:flex; align-items:baseline; gap:3px; }
+.tpl-zurichpink .zp-no i{ font:800 8px/1 var(--grot); font-style:normal; letter-spacing:.06em; opacity:.92; }
+.tpl-zurichpink .zp-no b{ font:800 22px/.78 var(--cond); letter-spacing:.01em; }
+.tpl-zurichpink .zp-name{ position:absolute; left:12px; right:14%; bottom:11px; z-index:7; hyphens:none; overflow-wrap:normal; }
+.tpl-zurichpink .zp-name b{ display:block; font:800 14px/0.94 var(--grot); letter-spacing:-.01em; text-transform:uppercase; color:var(--zp-deep); }
+.tpl-zurichpink .zp-name i{ display:block; font:italic 500 8px/1.1 var(--serif); color:rgba(90,16,32,.74); margin-top:2px; }
+.tpl-zurichpink .zp-fam{ position:absolute; left:12px; bottom:44px; z-index:6; font:700 6.5px/1.2 var(--grot); letter-spacing:.16em; text-transform:uppercase; color:var(--zp-oxblood); }
+/* --- mexico --- */
+.tpl-mexico{--mx-ink:#2b5fac;--mx-paper:#f7f2e7;--grot:var(--f-archivo);--serif:var(--f-fraunces);}
+.tpl-mexico .mx-bird{position:absolute;left:3%;right:42%;top:22%;bottom:8%;z-index:2;opacity:.34;}
+.tpl-mexico .mx-bird .mx-sil{position:absolute;inset:0;width:100%;height:100%;background:var(--mx-ink);-webkit-mask:var(--src) center/contain no-repeat;mask:var(--src) center/contain no-repeat;}
+.tpl-mexico .mx-bird .mx-tex{position:absolute;inset:0;background:var(--grain);background-size:80px;mix-blend-mode:multiply;opacity:.30;-webkit-mask:var(--src) center/contain no-repeat;mask:var(--src) center/contain no-repeat;}
+.tpl-mexico .mx-name{position:absolute;left:4%;top:7%;width:54%;z-index:5;color:var(--mx-ink);}
+.tpl-mexico .mx-name b{display:block;font:700 12px/1.0 var(--grot);letter-spacing:.01em;text-transform:uppercase;word-break:normal;overflow-wrap:normal;hyphens:none;}
+.tpl-mexico .mx-name i{display:block;font:italic 500 8px/1.1 var(--serif);opacity:.85;margin-top:2px;}
+.tpl-mexico .mx-badge{position:absolute;right:5%;bottom:7%;width:35%;aspect-ratio:1;z-index:4;}
+.tpl-mexico .mx-badge .mx-disc{position:absolute;inset:0;width:100%;height:100%;overflow:visible;}
+.tpl-mexico .mx-arc{fill:var(--mx-paper);text-anchor:middle;}
+.tpl-mexico .mx-arc-t{font:800 8.4px/1 var(--grot);letter-spacing:.55px;}
+.tpl-mexico .mx-arc-b{font:700 6.6px/1 var(--grot);letter-spacing:1px;text-transform:uppercase;}
+.tpl-mexico .mx-emblem{position:absolute;left:32%;top:34%;width:36%;height:32%;background:var(--mx-paper);-webkit-mask:var(--src) center/contain no-repeat;mask:var(--src) center/contain no-repeat;}
+.tpl-mexico .mx-den{position:absolute;right:5.5%;top:6.5%;z-index:5;display:flex;align-items:baseline;justify-content:flex-end;color:var(--mx-ink);}
+.tpl-mexico .mx-den .mx-no{font:800 12px/1 var(--grot);margin-right:2px;}
+.tpl-mexico .mx-den .mx-num{font:800 34px/0.72 var(--grot);letter-spacing:-.02em;}
+/* --- kieler --- */
+.tpl-kieler{display:flex;flex-direction:column;--k-blue:#2a62c8;--k-blue-d:#153a8c;--k-cream:#f4eee0;--cond:var(--f-bebas);--grot:var(--f-familjen);}
+.tpl-kieler .k-field{position:relative;flex:1 1 auto;min-height:0;margin:8% 8% 5%;background:var(--k-blue);overflow:hidden;}
+.tpl-kieler .k-field::before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;background-image:url('./stats-press.png');background-size:210px;background-position:center;mix-blend-mode:multiply;opacity:.4;}
+.tpl-kieler .k-field::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;background-image:url('./grain.png');background-size:120px;mix-blend-mode:overlay;opacity:.62;}
+.tpl-kieler .k-tex{position:absolute;inset:0;z-index:1;pointer-events:none;background-image:url('./stats-press.png');background-size:560px;background-position:22% 38%;mix-blend-mode:multiply;opacity:.18;}
+.tpl-kieler .k-sea{position:absolute;inset:0;z-index:2;pointer-events:none;}
+.tpl-kieler .k-sea svg{display:block;width:100%;height:100%;}
+.tpl-kieler .k-sea .w-back{fill:#5b83d4;} .tpl-kieler .k-sea .w-mid{fill:#9db8e4;} .tpl-kieler .k-sea .w-front{fill:var(--k-cream);}
+.tpl-kieler .k-bird{position:absolute;left:50%;top:7%;transform:translateX(-50%);width:78%;height:62%;z-index:3;-webkit-mask-position:center bottom;mask-position:center bottom;-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;} .tpl-kieler .k-bird-b{z-index:2;transform:translateX(-50%) translate(2px,-2px);} .tpl-kieler .k-bird-f{z-index:3;}
+.tpl-kieler .k-cap{flex:0 0 auto;padding:0 8% 8%;}
+.tpl-kieler .k-name{font-family:var(--cond);font-weight:400;color:var(--k-blue);text-transform:uppercase;font-size:24px;line-height:.86;letter-spacing:.01em;hyphens:none;-webkit-hyphens:none;overflow-wrap:normal;word-break:normal;}
+.tpl-kieler .k-meta{display:flex;justify-content:space-between;align-items:baseline;gap:6%;margin-top:5.5%;}
+.tpl-kieler .k-meta span{font-family:var(--grot);font-weight:700;color:var(--k-blue);text-transform:uppercase;font-size:8px;letter-spacing:.14em;line-height:1;white-space:nowrap;}
+/* --- linescreen: blue-through perforations, Japanese modernist type grid --- */
+.stamp:has(.tpl-linescreen){--stamp-paper:#3d68a5;background:#3d68a5;padding:0}
+.stamp:has(.tpl-linescreen) .face{border-radius:0;box-shadow:none}
+.tpl-linescreen{--ls-cream:#fff;--ls-blue:#3d68a5;--cond:var(--f-archivo);--grot:var(--f-space);--mono:var(--f-tmono);color:var(--ls-cream);container-type:size}
+.tpl-linescreen .ls-panel{position:absolute;left:4.5%;top:7%;width:56.5%;bottom:7%;overflow:hidden}
+.tpl-linescreen .ls-field{position:absolute;inset:0;isolation:isolate;background:var(--ls-blue)}
+/* The actual paper scan controls the line plate's opacity, so the rules inherit
+   missing fibres and pressure changes instead of receiving a cosmetic texture
+   after the fact. A second press scan knocks a few stronger blue flecks back
+   through the surviving cream ink. */
+.tpl-linescreen .ls-field::before,.tpl-linescreen .ls-field::after{content:"";position:absolute;inset:0;z-index:0;pointer-events:none}
+.tpl-linescreen .ls-field::before{background:linear-gradient(var(--ls-cream),var(--ls-cream)) left top/100% .7px no-repeat,linear-gradient(var(--ls-cream),var(--ls-cream)) left bottom/100% .7px no-repeat,linear-gradient(var(--ls-cream),var(--ls-cream)) left top/.7px 100% no-repeat,linear-gradient(var(--ls-cream),var(--ls-cream)) right top/.7px 100% no-repeat,repeating-linear-gradient(to bottom,var(--ls-cream) 0 .55px,transparent .55px 1.65px);-webkit-mask-image:url('./grain.png');mask-image:url('./grain.png');mask-mode:luminance;-webkit-mask-size:76px 76px;mask-size:76px 76px;-webkit-mask-position:9px 5px;mask-position:9px 5px;-webkit-mask-repeat:repeat;mask-repeat:repeat;filter:url(#lsLineWear)}
+.tpl-linescreen .ls-field::after{background:var(--ls-blue);-webkit-mask-image:url('./stats-press.png');mask-image:url('./stats-press.png');-webkit-mask-size:61px 61px;mask-size:61px 61px;-webkit-mask-position:-13px 7px;mask-position:-13px 7px;-webkit-mask-repeat:repeat;mask-repeat:repeat;filter:url(#lsPressBreak);opacity:.38}
+.tpl-linescreen .ls-birdmark{position:absolute;inset:8.5% 6% 8%;z-index:2;display:block;width:88%;height:83.5%;overflow:visible}
+.tpl-linescreen .ls-col{position:absolute;left:63.5%;right:3%;top:7%;bottom:7%;z-index:4;display:grid;grid-template-rows:37% 29% 34%;min-width:0}
+.tpl-linescreen .ls-head{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;min-width:0;padding-top:.35cqw;box-sizing:border-box;text-align:center}
+.tpl-linescreen .ls-name{display:block;width:100%;height:10.25cqw;overflow:visible}
+.tpl-linescreen .ls-name text{fill:currentColor;font:800 14px/1 var(--f-shoulders);letter-spacing:.005em;text-transform:uppercase}
+.tpl-linescreen .ls-name-one{height:10.25cqw}
+.tpl-linescreen .ls-name-two{height:18.25cqw;margin-top:-.3cqw}
+.tpl-linescreen .ls-name-two text{font-size:14px}
+.tpl-linescreen .ls-sci{display:block;width:100%;height:4.15cqw;margin-top:.35cqw;overflow:visible}
+.tpl-linescreen .ls-sci text{fill:currentColor;font:700 7px/1 var(--f-shoulders);letter-spacing:-.012em;text-transform:uppercase}
+.tpl-linescreen .ls-mid{display:grid;grid-template-columns:52% 1fr;column-gap:3.8cqw;align-items:end;min-width:0}
+.tpl-linescreen .ls-idx{justify-self:start;font:700 18.5cqw/.66 var(--grot);letter-spacing:-.09em;font-variant-numeric:tabular-nums;transform:translateY(-.1cqw)}
+.tpl-linescreen .ls-life{align-self:end;justify-self:end;display:flex;flex-direction:column;align-items:flex-start;gap:.75cqw;padding:0 0 .1cqw;font:700 italic 6.4cqw/.7 var(--f-shoulders);letter-spacing:-.008em;text-transform:uppercase;white-space:nowrap;transform:translateX(-1.4cqw)}
+.tpl-linescreen .ls-life span{display:block}
+.tpl-linescreen .ls-foot{display:grid;grid-template-columns:51% 49%;align-items:end;min-width:0}
+.tpl-linescreen .ls-fam,.tpl-linescreen .ls-proj{display:flex;flex-direction:column;text-transform:uppercase}
+.tpl-linescreen .ls-fam{align-items:flex-start;gap:.5cqw;font:720 7.75cqw/.68 var(--grot);letter-spacing:-.06em}
+.tpl-linescreen .ls-proj{align-items:flex-end;gap:.8cqw;padding-bottom:.05cqw;font:800 5.3cqw/.7 var(--f-shoulders);letter-spacing:.006em;text-align:right}
+.tpl-linescreen .ls-fam span,.tpl-linescreen .ls-proj span{display:block;max-width:100%}
+.tpl-linescreen .ls-paper{position:absolute;inset:0;z-index:9;pointer-events:none;background-image:url('./grain.png'),url('./stats-press.png');background-size:132px 132px,96px 96px;background-position:17px 11px,-9px 7px;background-repeat:repeat;mix-blend-mode:multiply;opacity:.22}
+/* --- terraplana --- */
+.tpl-terraplana{--tp-ink:#12312f;--tp-teal:#1f4f52;--grot:var(--f-archivo);--serif:var(--f-news);--mono:var(--f-tmono);}
+/* the grid: one vertical rule under the numeral block, one horizontal above the caption */
+.tpl-terraplana .tp-rule{position:absolute;background:var(--tp-ink);opacity:.55;z-index:6;}
+.tpl-terraplana .tp-rule-h{left:7%;right:7%;bottom:23%;height:1.4px;}
+.tpl-terraplana .tp-rule-v{left:34%;top:7%;bottom:23%;width:1.4px;}
+.tpl-terraplana .tp-kick{position:absolute;top:6.5%;left:7%;z-index:7;font:600 6px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase;color:var(--tp-ink);opacity:.75;}
+/* the big numeral owns the left column */
+.tpl-terraplana .tp-num{position:absolute;left:7%;top:15%;width:24%;z-index:7;font:800 46px/0.78 var(--grot);letter-spacing:-.045em;color:var(--tp-ink);font-variant-numeric:tabular-nums;}
+.tpl-terraplana .tp-fam{position:absolute;left:7%;bottom:25.5%;width:24%;z-index:7;font:600 5.6px/1.3 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--tp-ink);opacity:.72;}
+/* the screen-printed bird owns the right column */
+.tpl-terraplana .tp-panel{position:absolute;left:38%;right:7%;top:7%;bottom:23%;z-index:4;overflow:hidden;}
+.tpl-terraplana .tp-panel canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+.tpl-terraplana .tp-cap{position:absolute;left:7%;right:7%;bottom:7%;z-index:7;color:var(--tp-ink);}
+.tpl-terraplana .tp-cap b{display:block;font:800 13px/0.98 var(--grot);letter-spacing:-.012em;text-transform:uppercase;overflow-wrap:normal;word-break:normal;hyphens:none;}
+.tpl-terraplana .tp-cap i{display:block;margin-top:3px;font:italic 500 8px/1.1 var(--serif);opacity:.78;}
+/* --- owls / nocturnal acoustic survey --- */
+.stamp:has(.tpl-opart){--stamp-paper:#fffef8 !important;--pr:2.65px;--ps:9.2px;position:relative;background:#fffef8 !important;filter:none}
+.stamp:has(.tpl-opart)::after{content:"";position:absolute;z-index:55;inset:0;pointer-events:none;background-image:repeating-linear-gradient(8deg,rgba(11,57,32,.095) 0 .4px,transparent .4px 2.18px),repeating-linear-gradient(10.4deg,rgba(11,57,32,.064) 0 .34px,transparent .34px 2.46px),url('./assets/stamp/paper-texture-grey.png'),url('./grain.png');background-position:0 0,.7px .15px,center,17px 9px;background-size:auto,auto,440px 590px,190px 190px;background-repeat:repeat;background-blend-mode:multiply,multiply,multiply,soft-light;filter:grayscale(1) contrast(1.19) brightness(1.2);mix-blend-mode:multiply;opacity:.3}
+.stamp:has(.tpl-opart) .face{border-radius:0;box-shadow:none}
+.tpl-opart{--ow-green:#287a42;--ow-deep:#102f22;--ow-mid:#4e7654;--ow-cream:#fffef8;container-type:size;color:var(--ow-cream);font-family:var(--f-familjen);background:var(--ow-cream);isolation:isolate}
+.tpl-opart .ow-field{position:absolute;z-index:1;inset:4.25%;overflow:hidden;border-radius:10cqw;background:linear-gradient(180deg,#3a9455 0%,#287a43 54%,#164a30 100%);box-shadow:inset 0 0 0 1px rgba(7,35,22,.13)}
+.tpl-opart .ow-forest-plate{position:absolute;z-index:1;inset:0;width:100%;height:100%;display:block;mix-blend-mode:multiply;opacity:.96}
+.tpl-opart .ow-atmosphere{position:absolute;z-index:2;inset:0;background:linear-gradient(180deg,rgba(70,163,95,.22) 0%,rgba(44,126,72,.04) 34%,rgba(14,63,39,.03) 72%,rgba(8,43,27,.1) 100%),radial-gradient(ellipse 80% 48% at 45% 35%,rgba(205,232,190,.06),transparent 74%);pointer-events:none}
+.tpl-opart .ow-specimen{position:absolute;z-index:5;left:7%;top:19%;width:83%;height:68%;display:block;opacity:.97}
+.tpl-opart .ow-value{position:absolute;z-index:9;left:4.2%;top:2.25%;display:flex;align-items:flex-start;color:var(--ow-cream);font-family:var(--f-fraunces);font-variation-settings:"wght" 760,"SOFT" 30}
+.tpl-opart .ow-value b{font-size:22cqw;line-height:.82;letter-spacing:-.005em;font-weight:760}
+.tpl-opart .ow-brand{position:absolute;z-index:10;right:4.4%;top:4.2%;width:42%;color:var(--ow-cream);text-align:right;text-transform:uppercase}
+.tpl-opart .ow-brand b,.tpl-opart .ow-brand span{display:block;white-space:nowrap}
+.tpl-opart .ow-brand b{font:800 4.5cqw/1 var(--f-archivo);letter-spacing:.014em}
+.tpl-opart .ow-brand span{margin-top:.85cqh;font:700 3.9cqw/1 var(--f-archivo);letter-spacing:.06em}
+.tpl-opart .ow-brand{right:4.35%;top:4%;width:43%;text-align:right}
+  .tpl-opart .ow-brand b{font-size:3.95cqw;text-align:right}
+  .tpl-opart .ow-brand span{font-size:4.1cqw;text-align:right}
+  .tpl-opart .ow-taxonomy{right:.65%;font-size:6.22cqw}
+.tpl-opart .ow-taxonomy{position:absolute;z-index:9;right:.8%;top:9%;bottom:35%;writing-mode:vertical-rl;display:flex;align-items:center;justify-content:center;font:700 5cqw/.92 var(--f-archivo);letter-spacing:.03em;text-transform:uppercase;color:var(--ow-cream)}
+.tpl-opart .ow-title{position:absolute;z-index:10;left:0;right:0;bottom:1.7%;font:400 12.55cqw/.8 var(--f-bebas);letter-spacing:-.012em;text-align:center;text-transform:uppercase;white-space:nowrap;color:var(--ow-cream);transform:scaleX(1.09);transform-origin:center}
+.tpl-opart .ow-value,.tpl-opart .ow-brand,.tpl-opart .ow-taxonomy,.tpl-opart .ow-title{filter:url(#owlInkWear)}
+.tpl-opart .ow-paper{display:none}
+
+/* --- nzplate --- */
+.tpl-nzplate{--grot:var(--f-archivo);--serif:var(--f-news);}
+.tpl-nzplate{--nz-ink:#191309;--nz-label:#f6eed9;container-type:inline-size;display:flex;flex-direction:column;padding:8% 7.5% 6.5%;font-family:var(--grot);}
+.tpl-nzplate .nz-head{display:flex;justify-content:space-between;align-items:flex-start;gap:5%;}
+.tpl-nzplate .nz-mast{font-weight:800;font-size:9.6cqw;line-height:.84;letter-spacing:-.022em;color:var(--nz-ink);}
+.tpl-nzplate .nz-val{display:flex;align-items:flex-start;flex:none;color:var(--nz-ink);line-height:.76;}
+.tpl-nzplate .nz-no{font-weight:700;font-size:4.2cqw;letter-spacing:.02em;margin:.16em .1em 0 0;}
+.tpl-nzplate .nz-num{font-weight:800;font-size:15cqw;line-height:.74;letter-spacing:-.03em;}
+.tpl-nzplate .nz-spec{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;margin:2.5% -1% 3%;}
+.tpl-nzplate .nz-spec img{max-width:100%;max-height:100%;object-fit:contain;filter:saturate(1.05) contrast(1.03);}
+.tpl-nzplate .nz-cap{text-align:center;}
+.tpl-nzplate .nz-name{font-family:var(--f-archivo);font-weight:700;font-size:6cqw;line-height:1.05;letter-spacing:.05em;text-transform:uppercase;color:var(--nz-label);overflow-wrap:normal;word-break:keep-all;hyphens:none;}
+.tpl-nzplate .nz-sci{font-family:var(--f-news);font-style:italic;font-weight:500;font-size:4.4cqw;line-height:1.1;color:var(--nz-label);opacity:.85;margin-top:.4em;}
+.tpl-nzplate .nz-imp{position:absolute;left:3%;bottom:6.5%;writing-mode:vertical-rl;transform:rotate(180deg);font-weight:700;font-size:2.5cqw;letter-spacing:.22em;text-transform:uppercase;color:var(--nz-ink);opacity:.4;z-index:2;}
+.tpl-nzplate::after{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;background-image:url('./grain.png');background-size:150px;mix-blend-mode:multiply;opacity:.34;} /*nz-tex-overlay*/
+.tpl-nzplate::before{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;background-image:url('./stats-press.png');background-size:340px;background-position:30% 40%;mix-blend-mode:multiply;opacity:.12;}
+/* --- editorial --- */
+.tpl-editorial{--serif:var(--f-fraunces);--grot:var(--f-archivo);--mono:var(--f-tmono);}
+.tpl-editorial{--band:#d3342a;--cream:#f4ecd6;container-type:inline-size}
+.tpl-editorial .ed-top{position:absolute;top:16px;left:18px;right:16px}
+.tpl-editorial .ed-title{margin:0;font:500 24px/0.98 var(--serif);letter-spacing:-.012em;color:#1b1712;text-wrap:balance;overflow-wrap:normal;word-break:normal;hyphens:none}
+.tpl-editorial .ed-cap{margin:5px 0 0;max-width:66%;font:italic 400 9px/1.3 var(--grot);color:#6a655c}
+.tpl-editorial .ed-denom{position:absolute;left:18px;right:16px;bottom:calc(47% + 26px);display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+.tpl-editorial .ed-val{font:italic 400 27px/0.8 var(--serif);color:#1b1712;letter-spacing:-.01em;white-space:nowrap}
+.tpl-editorial .ed-tax{display:flex;flex-direction:column;align-items:flex-end;text-align:right;min-width:0}
+.tpl-editorial .ed-ord{font:600 7px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:#8a857a;margin-bottom:3px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tpl-editorial .ed-fam{font:500 12.5px/0.98 var(--serif);color:#1b1712;letter-spacing:-.005em;max-width:100%;text-align:right;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:normal;word-break:normal;hyphens:none}
+.tpl-editorial .ed-credit{position:absolute;left:18px;right:16px;bottom:calc(47% + 9px);display:flex;align-items:baseline;gap:9px;white-space:nowrap;overflow:hidden}
+.tpl-editorial .ed-proj{font:700 8px/1 var(--grot);letter-spacing:.08em;text-transform:uppercase;color:#1b1712;flex:none}
+.tpl-editorial .ed-rep{font:500 8px/1 var(--grot);color:#1b1712;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tpl-editorial .ed-band{position:absolute;left:0;right:0;bottom:0;height:47%;background:var(--band);overflow:hidden}
+.tpl-editorial .ed-swatch{position:absolute;inset:0;width:100%;height:100%;display:block}
+/* --- minimal --- */
+.tpl-minimal{--gold:#e7ac10;--ink:#2b2721;--soft:#948d7c;--faint:#b6ae9b}
+.tpl-minimal .mn-disc{position:absolute;top:42%;width:25%;height:25%;border-radius:50%;background:var(--gold);z-index:1}
+.tpl-minimal .mn-l{left:-12.5%}
+.tpl-minimal .mn-r{right:-12.5%}
+.tpl-minimal .mn-bird{position:absolute;left:31%;right:31%;top:39%;bottom:30%;z-index:2;background:var(--gold);-webkit-mask:var(--src) center/contain no-repeat;mask:var(--src) center/contain no-repeat}
+.tpl-minimal .mn-head{position:absolute;top:8%;left:8.5%;max-width:66%;z-index:4}
+.tpl-minimal .mn-name{margin:0;font:800 13px/1.05 var(--grot);letter-spacing:.2px;text-transform:uppercase;color:var(--ink);hyphens:none;overflow-wrap:normal;word-break:normal}
+.tpl-minimal .mn-no{margin-top:3px;font:700 10.5px/1 var(--grot);letter-spacing:.4px;color:var(--soft)}
+.tpl-minimal .mn-foot{position:absolute;left:8.5%;bottom:8.5%;max-width:56%;z-index:4}
+.tpl-minimal .mn-proj{display:block;font:700 7.5px/1 var(--grot);letter-spacing:1.6px;text-transform:uppercase;color:var(--soft)}
+.tpl-minimal .mn-sci{display:block;margin-top:4px;font:italic 400 9px/1.1 var(--serif);color:var(--soft)}
+.tpl-minimal .mn-fam{position:absolute;right:9%;bottom:9.3%;max-width:32%;text-align:right;font:700 6.5px/1.25 var(--mono);letter-spacing:.8px;text-transform:uppercase;color:var(--faint);z-index:4}
+
+/* ===================== ATLAS LAYOUT =====================
+   The atlas is a stamp album. Every design is fitted into one common box
+   (see STAMPS.boxFor) so a landscape issue is never wildly larger than a
+   portrait one, and the grid reads as even rows rather than a collage. */
+.atlas-grid {
+  --pack-gap: 5.5px;
+  grid-template-columns: repeat(auto-fit, var(--pack-cell));
+  grid-auto-rows: var(--pack-cell);
+  grid-auto-flow: dense;
+  justify-content: center;
+  gap: var(--pack-gap);
+  align-items: start;
+}
+.atlas-grid.is-packed,
+.atlas-fam-grid.is-packed {
+  display:block;
+  position:relative;
+  width:100%;
+  gap:0;
+}
+.atlas-grid.is-packed > .stamp-card,
+.atlas-fam-grid.is-packed > .stamp-card {
+  position:absolute;
+}
+.bird-card.stamp-card {
+  background: none; box-shadow: none; border-radius: 0;
+  padding: 0; min-height: 0;
+  width: var(--slot-w, 188px); height: var(--slot-h, 236px);
+  display: flex; align-items: center; justify-content: center;
+  overflow: visible;
+  transition: opacity 240ms ease;
+}
+.bird-card.stamp-card:hover { transform: none; box-shadow: none; }
+
+/* The stamp's own paper must not inherit the app's page paper, or the
+   die-cut edge disappears into the background. It is its own sheet. */
+.stamp-fit {
+  --stamp-edge-line: rgba(37,31,25,.22);
+  --fit-scale: 1;
+  --detail-counter-scale: 1;
+  display: block;
+  position: relative;
+  isolation: isolate;
+  transform: scale(var(--fit-scale));
+  transform-origin: 50% 50%;
+  transition: transform 260ms cubic-bezier(.22,1,.36,1);
+}
+@media (prefers-color-scheme: dark) {
+  .stamp-fit { --stamp-edge-line: rgba(244,240,232,.32); }
+}
+:root[data-theme="dark"] .stamp-fit { --stamp-edge-line: rgba(244,240,232,.32); }
+
+/* This geometry-synced silhouette emits only the expanded perforation
+   contour. The visible stamp itself remains unfiltered and crisp. */
+.stamp-fringe-outline {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* Keep this wrapper unmasked. The child below owns the exact perforation
+     alpha and this wrapper dilates that alpha into a real contour. Masking the
+     wrapper itself clips the dilation back to the original silhouette; that
+     was why several families only showed an "outline" where two layers were
+     accidentally a fraction of a pixel apart. */
+  z-index: 0;
+  transform: translate(-50%, -50%) scale(var(--scale, 1)) rotate(var(--tilt, 0deg));
+  transform-origin: 50% 50%;
+  pointer-events: none;
+  overflow:visible;
+  background:transparent !important;
+  -webkit-mask:none !important;
+  mask:none !important;
+  filter:url(#stampFringeLight);
+  transition: transform 260ms cubic-bezier(.22,1,.36,1);
+}
+:root[data-theme="light"] .stamp-fringe-outline{filter:url(#stampFringeLight) !important}
+:root[data-theme="dark"] .stamp-fringe-outline{filter:url(#stampFringeDark) !important}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .stamp-fringe-outline{filter:url(#stampFringeDark) !important}}
+/* These two pale families sit closest to the Atlas sheet color. Preserve the
+   same hairline geometry, but let a little more of their own stock color read
+   at the cut edge so the issue does not disappear into the page. */
+.stamp-fit[data-family="Waxwings"] > .stamp-fringe-outline,
+.stamp-fit[data-family="Blackbirds & Orioles"] > .stamp-fringe-outline {
+  filter:url(#stampFringeContrast) !important;
+}
+.stamp-fringe-outline > i {
+  position:absolute;
+  inset:0;
+  display:block;
+  width:auto;
+  height:auto;
+  aspect-ratio:auto;
+  box-sizing:border-box;
+  background:#000;
+}
+
+.atlas-grid .stamp {
+  --paper: #f4eee0;
+  position: absolute; left: 50%; top: 50%;
+  z-index: 1;
+  transform: translate(-50%, -50%) scale(var(--scale, 1)) rotate(var(--tilt, 0deg));
+  transform-origin: 50% 50%;
+  transition: transform 260ms cubic-bezier(.22,1,.36,1), filter 260ms ease;
+  filter: none !important;
+}
+.atlas-fam-grid .stamp,
+.stamp-stage .stamp { filter:none !important; }
+/* Interior faces remain clean. Depth belongs to the perforated sheet edge,
+   never to a second rectangle inside it. */
+.atlas-grid .stamp .face,
+.atlas-fam-grid .stamp .face {
+  box-shadow:none;
+}
+.bird-card.stamp-card { cursor: pointer; }
+.bird-card.stamp-card .stamp-fit {
+  transition:transform 300ms ease;
+  transform-origin:50% 50%;
+}
+.bird-card.stamp-card:active .stamp-fit { transform:scale(calc(var(--fit-scale) * .97));transition-duration:120ms; }
+@media (hover:hover) and (pointer:fine) {
+  .bird-card.stamp-card:hover .stamp-fit {
+    transform:scale(calc(var(--fit-scale) * .98));
+    --detail-counter-scale: 1.0204081633;
+  }
+}
+
+/* Fine print screens can visibly change phase while their parent crosses
+   fractional device pixels during the hover shrink. Keep the physical paper,
+   type and fringe motion intact, but counter-scale only the fragile ink plates
+   in the three affected issues. The two transforms cancel at every frame, so
+   Mallard's hairline field, Black Phoebe's engraving, and Oak Titmouse's belly
+   stripes stay optically registered instead of flashing between samples. */
+.stamp-fit[data-family="Waterfowl"],
+.stamp-fit[data-family="Flycatchers"],
+.stamp-fit[data-family="Chickadees & Titmice"] {
+  will-change: transform;
+  backface-visibility: hidden;
+}
+.tpl-linescreen .ls-field::before,
+.tpl-linescreen .ls-field::after,
+.tpl-linescreen .ls-paper,
+.tpl-fly-rose .fr-screen,
+.tpl-fly-rose .fr-bird-plate,
+.stamp:has(.tpl-fly-rose)::after,
+.tpl-triennale .ti-bird,
+.tpl-triennale .ti-texture {
+  transform: scale(var(--detail-counter-scale));
+  transform-origin: 50% 50%;
+  transition: transform 300ms ease;
+  backface-visibility: hidden;
+  will-change: transform;
+}
+
+canvas.fxc{
+  image-rendering:auto;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* A hover lifts the actual die-cut sheet, not a rectangular approximation.
+   The JS clone carries the printed face, fringe and contour together; this
+   layer only clips that complete silhouette to the closest edge or corner. */
+.stamp-peel-layer {
+  display:none !important;
+  position:absolute;
+  inset:0;
+  z-index:9;
+  pointer-events:none;
+  perspective:920px;
+  transform-style:preserve-3d;
+}
+.stamp-fit.stamp-peel-void,
+.stamp-fit.stamp-peel-copy,
+.stamp-fit.stamp-peel-under-copy {
+  position:absolute !important;
+  inset:0 !important;
+  width:100% !important;
+  height:100% !important;
+  margin:0 !important;
+  clip-path:var(--peel-clip);
+  -webkit-clip-path:var(--peel-clip);
+}
+.stamp-fit.stamp-peel-void {
+  --fit-scale:1;
+  z-index:1;
+  transform:none !important;
+  filter:none !important;
+  opacity:1;
+}
+.stamp-fit.stamp-peel-under-copy {
+  --fit-scale:1;
+  z-index:2;
+  transform-origin:var(--peel-origin) !important;
+  transform:var(--peel-under-transform) !important;
+  /* A lifted sheet shows its unprinted paper back. Coloring every opaque
+     pixel equally keeps the perforated silhouette while removing the
+     selection-like duplicate artwork. */
+  filter:brightness(0) saturate(100%) invert(94%) sepia(12%) saturate(245%)
+         hue-rotate(345deg) brightness(1.03)
+         drop-shadow(var(--peel-shadow-x,0) var(--peel-shadow-y,6px) 12px rgba(28,20,12,.32)) !important;
+  opacity:.99;
+  transition:transform 110ms cubic-bezier(.2,.75,.25,1),filter 110ms ease !important;
+  will-change:transform;
+  backface-visibility:hidden;
+}
+.stamp-fit.stamp-peel-copy {
+  --fit-scale:1;
+  z-index:3;
+  transform-origin:var(--peel-origin) !important;
+  transform:var(--peel-transform) !important;
+  transition:transform 110ms cubic-bezier(.2,.75,.25,1),
+             filter 110ms ease !important;
+  filter:drop-shadow(var(--peel-shadow-x,0) var(--peel-shadow-y,6px) 11px rgba(29,22,15,.3)) !important;
+  opacity:1;
+  will-change:transform;
+  backface-visibility:hidden;
+}
+.stamp-peel-crease {
+  position:absolute;
+  inset:0;
+  z-index:4;
+  clip-path:var(--peel-crease-clip);
+  -webkit-clip-path:var(--peel-crease-clip);
+  background:linear-gradient(var(--peel-crease-angle,90deg),rgba(255,255,255,.7),rgba(63,47,29,.3),rgba(255,255,255,.3));
+  filter:blur(.7px);
+  opacity:.68;
+}
+.stamp-peel-layer.is-settling .stamp-fit.stamp-peel-copy,
+.stamp-peel-layer.is-settling .stamp-fit.stamp-peel-under-copy {
+  transform:none !important;
+  filter:drop-shadow(0 1px 1px rgba(29,22,15,.04)) !important;
+  transition-duration:150ms !important;
+}
+@media (hover:none), (pointer:coarse), (prefers-reduced-motion:reduce) {
+  .stamp-peel-layer { display:none !important; }
+}
+/* Settled issues remain square to the device-pixel grid. The postcard owns
+   the tiny hand-placed angle; the Atlas artwork and perforations stay crisp. */
+
+/* selected / deep-linked card */
+.bird-card.stamp-card[data-active="true"] .stamp {
+  filter: none;
+}
+
+/* Undrawn species still receive their real family issue. The marker belongs
+   to the artwork source, not the paper, so packing, hover and fringe geometry
+   remain identical when the empty nest is replaced by the generated bird. */
+.bird-card.stamp-card.needs-art .stamp-fit[data-placeholder-art="true"] { opacity: .96; }
+
+/* On a charcoal page the sheet keeps its own warm paper, so only the
+   lift shadow is re-cut. */
+:root[data-theme="dark"] .atlas-grid .stamp {
+  filter: none;
+}
+
+@media (max-width: 700px) {
+  .atlas-grid,
+  .atlas-fam-grid {
+    --pack-gap: 5px;
+  }
+  /* Scale the complete issue, not only its visible artwork. This keeps the
+     geometry-synced fringe contour, paper and responsive card locked to the
+     same device pixels at narrow widths. */
+  .atlas-grid .stamp-fit,
+  .atlas-fam-grid .stamp-fit {
+    --fit-scale: .8;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .atlas-grid .stamp, .stamp-fit,
+  .tpl-linescreen .ls-field::before,
+  .tpl-linescreen .ls-field::after,
+  .tpl-linescreen .ls-paper,
+  .tpl-fly-rose .fr-screen,
+  .tpl-fly-rose .fr-bird-plate,
+  .stamp:has(.tpl-fly-rose)::after,
+  .tpl-triennale .ti-bird,
+  .tpl-triennale .ti-texture { transition: none; }
+}
+
+/* ---- the rig that rolls a stamp onto the page ---- */
+.roll-rig {
+  position: absolute; left: 50%; top: 50%;
+  transform-origin: 50% 50%;
+  perspective: 1250px; perspective-origin: 50% 42%;
+  transform-style: preserve-3d;
+  pointer-events: none; z-index: 4;
+}
+/* Each strip is a child of the one above it, so the rotations compound.
+   A filter here would flatten preserve-3d and break the chain - it goes
+   on the rig only. */
+.roll-seg {
+  position: absolute; left: 0; width: 100%;
+  transform-origin: 50% 100%; transform-style: preserve-3d;
+  will-change: transform;
+}
+.roll-flat {
+  position: absolute; inset: 0;
+  /* Isolate the artwork from the ancestor's preserve-3d context so this
+     band's paint containment is evaluated before the hinge transform. */
+  transform-style: flat;
+  contain: paint;
+  overflow: hidden;
+}
+.roll-clip { position: absolute; inset: 0; overflow: hidden; }
+.roll-tint { position: absolute; inset: 0; pointer-events: none; }
+.roll-copy {
+  position: absolute; left: 0;
+  /* WebKit composites the clone's masked outer sheet before evaluating the
+     strip clip inside this 3D chain. Repeating that full layer once per strip
+     creates the grey slab. The rig has its own cast-shadow plate, so the clone
+     root stays neutral and only its printed face is painted into each band. */
+  filter: none !important;
+  transition: none !important;
+  background: transparent !important;
+  -webkit-mask: none !important;
+  mask: none !important;
+}
+/* idle stamps must not be dragged into an animating stamp's invalidation */
+.bird-card.stamp-card { contain: layout style; }  /* not paint: the rig lifts outside the card */
+
+/* by-family view: the grid becomes a stack of family sections, each with
+   its own grid, because a spanning heading collapses an auto-fill grid. */
+.atlas-grid[data-mode="family"] { display: block; }
+.atlas-fam-grid {
+  --pack-gap: 6px;
+  display: grid; grid-template-columns: repeat(auto-fit, var(--pack-cell));
+  grid-auto-rows:var(--pack-cell);grid-auto-flow:dense;
+  justify-content: start; gap: var(--pack-gap); align-items: start;
+  max-width: 1280px; margin: 0 auto;
+}
+.fam-block + .fam-block { margin-top: 24px; }
+.atlas-fam {
+  display: grid; grid-template-columns:auto minmax(40px,1fr) auto;
+  align-items:center; gap:11px;
+  max-width: 1280px; margin: 0 auto 10px; padding: 0;
+  color:var(--ink); letter-spacing:0;
+}
+.atlas-fam span { opacity:.82;font:italic 400 clamp(14px,1.45vw,18px)/1.1 ui-serif,"Iowan Old Style",Georgia,serif;letter-spacing:.025em; }
+
+.atlas-fam i { height: 1px; background: color-mix(in srgb,var(--ink) 14%,transparent); }
+.atlas-fam em {
+  font: 8.5px ui-monospace, Menlo, monospace; font-style: normal;
+  letter-spacing: 0.12em; color: var(--ink-soft); text-transform: lowercase;
+}
+
+.stamp-card.new-stamp-pending{display:none!important;visibility:hidden;opacity:0;pointer-events:none}
+.stamp-card.new-stamp-arriving{z-index:8;will-change:transform,opacity,filter}
+
+/* The temporary copy used for the click flight sits in screen coordinates;
+   the postcard target receives the same DOM only after the flight lands. */
+.postcard-flight{position:fixed;z-index:92;pointer-events:none;transform-origin:50% 50%;will-change:transform,opacity;filter:none}
+.postcard-flight .stamp-fit{position:relative;left:auto;top:auto;transform:none!important;transition:none!important}
+
+/* During a roll the stamp exists once per strip. Pseudo-element textures can
+   escape overflow clipping inside the preserve-3d chain, so even a faint
+   grain layer stacks into a full grey sheet behind the artwork. Suppress both
+   paper skins on the clones; the strips carry their own tilt shading while
+   moving and the real stamp restores the texture when it lands. */
+.roll-copy .face.paper::before,
+.roll-copy .face.paper::after { display: none; }
+
+/* the sheet's cast shadow, as its own plate rather than a filter on the
+   3D subtree (filtering that flattens and smears it into a slab) */
+.roll-shade {
+  position: absolute; left: 50%; top: 50%;
+  background: rgba(64,44,26,1);
+  border-radius: 2px;
+  transform-origin: 50% 50%;
+  pointer-events: none; z-index: 3;
+}

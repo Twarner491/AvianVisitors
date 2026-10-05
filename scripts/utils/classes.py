@@ -5,6 +5,21 @@ import re
 from tzlocal import get_localzone
 
 
+def birdnet_week(d):
+    """Week number in BirdNET's convention: 48 weeks, 4 per month.
+
+    The range model was trained on this partitioning, so it is what the
+    meta-model's week input has to be. ISO weeks (1-53) are a different
+    partitioning entirely: they drift against this one by up to five
+    weeks late in the year, and 49-53 fall outside the trained domain
+    altogether. BirdNetV1 catches out-of-domain values and drops the
+    seasonal signal (models.py _convert_metadata), but the V2.4 range
+    model feeds the number straight into the tensor, where a wrong week
+    silently changes which species are admitted at all.
+    """
+    return (d.month - 1) * 4 + min(4, (d.day - 1) // 7 + 1)
+
+
 class Detection:
     def __init__(self, file_date, start_time, stop_time, scientific_name, common_name, confidence):
         self.start = float(start_time)
@@ -45,5 +60,7 @@ class ParseFileName:
 
     @property
     def week(self):
-        week = self.file_date.isocalendar()[1]
-        return week
+        # Feeds the range model only (analysis.py), so it is BirdNET's
+        # week. Detection.week stays ISO because that one is written to
+        # the Week column and BirdDB.txt, where the meaning is fixed.
+        return birdnet_week(self.file_date)

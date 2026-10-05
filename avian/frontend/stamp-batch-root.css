@@ -1,0 +1,66 @@
+/* Batch 2, family-specific issues: Hawks and Gulls. */
+
+.stamp:has(.tpl-hawkink){--w:174px;--ar:.72;--hi-paper:#e8dec7;--stamp-paper:var(--hi-paper);--pr:1.95px;--ps:7.25px;position:relative;padding:3px;background:var(--hi-paper);filter:drop-shadow(0 1px 1px rgba(35,29,22,.18)) drop-shadow(0 8px 16px rgba(35,29,22,.12))}
+.stamp-stage .stamp:has(.tpl-hawkink){filter:drop-shadow(0 1px 1px rgba(35,29,22,.2)) drop-shadow(0 8px 16px rgba(35,29,22,.14))}
+.stamp:has(.tpl-hawkink)::after{content:"";position:absolute;z-index:50;inset:0;pointer-events:none;background-image:url('./stats-press.png'),url('./grain.png'),url('./assets/stamp/paper-texture-grey.png');background-position:9px 17px,31px 13px,46% 38%;background-size:148px 148px,228px 228px,520px 390px;background-repeat:repeat,repeat,repeat;background-blend-mode:multiply,soft-light,multiply;filter:grayscale(1) contrast(1.34) brightness(1.055);mix-blend-mode:multiply;opacity:.34}
+.stamp:has(.tpl-hawkink) .face{border-radius:0;box-shadow:none}
+.tpl-hawkink{position:relative;container-type:inline-size;isolation:isolate;overflow:hidden;background:#e8dec7;color:#18231e;font-family:var(--f-familjen)}
+.tpl-hawkink .hi-field{position:absolute;left:2.1%;top:2%;bottom:2%;width:82.3%;overflow:hidden;background:#cfb474}
+.tpl-hawkink .hi-field::after{content:"";position:absolute;z-index:1;left:0;right:0;bottom:0;height:40%;background:linear-gradient(to top,rgba(31,42,35,.43),rgba(31,42,35,.14) 53%,transparent)}
+.tpl-hawkink .hi-bird{position:absolute;z-index:2;left:-3.5%;bottom:-1%;width:111%;height:92%;display:block;mix-blend-mode:multiply;opacity:.99}
+.tpl-hawkink .hi-field-copy{position:absolute;z-index:4;right:5.8%;top:3.5%;display:flex;gap:4.45cqw;color:#202c26;text-transform:uppercase}
+.tpl-hawkink .hi-field-copy span,.tpl-hawkink .hi-field-copy b{writing-mode:vertical-rl;font:800 2.92cqw/.95 var(--f-tmono);letter-spacing:.065em;font-style:normal}
+.tpl-hawkink .hi-imprint{position:absolute;z-index:4;left:5.1%;bottom:3.55%;font:790 4.5cqw/1 var(--f-familjen);letter-spacing:.105em;color:#f1c34f;opacity:.88;text-transform:uppercase}
+.tpl-hawkink .hi-rail{position:absolute;z-index:4;right:0;top:2%;bottom:24%;width:14.1%;display:grid;place-items:start center;color:#17251f}
+.tpl-hawkink .hi-name{writing-mode:vertical-rl;text-orientation:mixed;text-align:left;font:900 10cqw/.76 var(--f-shoulders);letter-spacing:-.008em;text-transform:uppercase;transform:translateX(-.65cqw) scaleX(1.14);transform-origin:top center}
+.tpl-hawkink .hi-number{position:absolute;z-index:8;right:1.85%;bottom:2%;font:900 24cqw/.7 var(--f-shoulders);letter-spacing:-.014em;color:#17251f;-webkit-text-stroke:1.58cqw #e8dec7;paint-order:stroke fill;text-shadow:.35px .35px rgba(23,37,31,.22)}
+.stamp:has(.tpl-gullflight){--stamp-paper:#f4f7f8;background:#f4f7f8;--pr:3px;--ps:9.5px;padding:5px;position:relative;filter:drop-shadow(0 1px 1px rgba(18,49,70,.13)) drop-shadow(0 7px 14px rgba(18,49,70,.08))}
+.stamp:has(.tpl-gullflight)::after{content:"";position:absolute;z-index:50;inset:0;pointer-events:none;background-image:repeating-linear-gradient(7deg,rgba(20,72,120,.09) 0 .38px,transparent .38px 2.28px),repeating-linear-gradient(10.4deg,rgba(20,72,120,.052) 0 .3px,transparent .3px 2.52px),url('./assets/stamp/paper-texture-grey.png'),url('./grain.png');background-position:0 0,.6px .18px,center,17px 11px;background-size:auto,auto,430px 560px,184px 184px;background-repeat:repeat;background-blend-mode:multiply,multiply,multiply,soft-light;filter:grayscale(1) contrast(1.1) brightness(1.15);mix-blend-mode:multiply;opacity:.24}
+.stamp:has(.tpl-gullflight) .face{border-radius:0;box-shadow:none}
+.tpl-gullflight{--gf-blue:#176cc1;--gf-blue-2:#4d91ce;--gf-paper:#f4f7f8;position:relative;container-type:inline-size;isolation:isolate;overflow:hidden;background:var(--gf-paper);font-family:var(--f-familjen);color:var(--gf-blue)}
+.tpl-gullflight .gf-field{position:absolute;left:4.5%;right:4.5%;top:3.7%;height:72.5%;overflow:hidden;background:var(--gf-blue)}
+.tpl-gullflight .gf-field::after{content:"";position:absolute;z-index:8;inset:0;background:url('./stats-press.png') center/270px repeat;mix-blend-mode:multiply;opacity:.32;pointer-events:none}
+.tpl-gullflight .gf-waves{position:absolute;z-index:1;inset:0;width:100%;height:100%;fill:var(--gf-paper);opacity:.97}
+.tpl-gullflight .gf-waves path:nth-child(2){fill:#a9c8df}.tpl-gullflight .gf-waves path:nth-child(3){fill:#d5dce2}
+.tpl-gullflight .gf-shadow{position:absolute;z-index:2;left:3%;right:-4%;top:10%;bottom:6%;background:linear-gradient(to bottom,#1758a2 0 62%,#477bb8 78%,#87a3c2 100%);-webkit-mask:var(--src) center/contain no-repeat;mask:var(--src) center/contain no-repeat;transform:translate(1.4px,1.8px);opacity:.74}
+.tpl-gullflight .gf-bird{position:absolute;z-index:4;left:2%;top:8%;width:98%;height:82%;object-fit:contain;filter:saturate(1.18) contrast(1.06) brightness(1.04);mix-blend-mode:normal}
+.tpl-gullflight .gf-seal{position:absolute;z-index:5;right:3.4%;top:2.4%;width:22.5%;height:auto;overflow:visible;color:var(--gf-paper)}
+.tpl-gullflight .gf-seal-dot{fill:#e14e29}
+.tpl-gullflight .gf-seal-ring{fill:currentColor;font:800 6.5px/1 var(--f-familjen);letter-spacing:.44px;text-transform:uppercase}
+.tpl-gullflight .gf-seal-number{fill:currentColor;font:400 35px/1 var(--f-bebas);letter-spacing:0}
+.tpl-gullflight .gf-caption{position:absolute;left:4.5%;right:4.5%;top:77.7%;bottom:3.1%;display:grid;grid-template-rows:auto auto;align-content:start}
+.tpl-gullflight .gf-title{display:block;width:100%;height:auto;overflow:visible;color:var(--gf-blue)}
+.tpl-gullflight .gf-title text{fill:currentColor;font:400 27px/1 var(--f-bebas);letter-spacing:.002em;text-transform:uppercase}
+.tpl-gullflight .gf-meta{display:block;width:100%;height:auto;margin-top:.2%;overflow:visible;color:var(--gf-blue)}
+.tpl-gullflight .gf-meta text{fill:currentColor;font:400 13px/1 var(--f-bebas);letter-spacing:.01em;text-transform:uppercase}
+.tpl-gullflight .gf-family{letter-spacing:.035em}
+
+/* Sparrows, a quiet two-ink definitive: cream stock, stone field, and the
+   reference stamp's large vertical postal grid. One press layer reaches the
+   perforations so the face and fringe read as the same sheet of paper. */
+.stamp:has(.tpl-sparrowguide){--stamp-paper:#e3d6b7;background:#e3d6b7;--pr:2.45px;--ps:7.7px;padding:4px;position:relative;filter:drop-shadow(0 1px 1px rgba(47,48,39,.16)) drop-shadow(0 7px 14px rgba(47,48,39,.07))}
+.stamp:has(.tpl-sparrowguide)::after{content:"";position:absolute;z-index:50;inset:0;pointer-events:none;background-image:url('./assets/stamp/paper-texture-grey.png'),url('./grain.png');background-position:center,23px 17px;background-size:520px 680px,214px 214px;background-repeat:repeat;background-blend-mode:soft-light,multiply;filter:grayscale(1) contrast(1.14) brightness(1.18);mix-blend-mode:multiply;opacity:.27}
+.stamp:has(.tpl-sparrowguide) .face{border-radius:0;box-shadow:none}
+.tpl-sparrowguide{--sg-paper:#e3d6b7;--sg-field:#c0b79a;--sg-olive:#686a51;--sg-pale:#e3d6b7;position:relative;container-type:inline-size;isolation:isolate;overflow:hidden;background:var(--sg-paper);color:var(--sg-pale);font-family:var(--f-archivo)}
+.tpl-sparrowguide .sg-field{position:absolute;inset:3.6% 4.15%;overflow:hidden;background:var(--sg-field)}
+.tpl-sparrowguide .sg-field::before{content:"";position:absolute;z-index:0;inset:0;background:linear-gradient(105deg,rgba(255,255,255,.025),transparent 42%,rgba(255,255,255,.016) 76%,transparent);mix-blend-mode:screen}
+.tpl-sparrowguide .sg-blossom{position:absolute;z-index:2;display:block;mix-blend-mode:normal}
+.tpl-sparrowguide .sg-blossom-a{left:7%;top:3.25%;width:30%;height:27%;transform:rotate(-11deg)}
+.tpl-sparrowguide .sg-blossom-b{right:-2%;bottom:12%;width:40%;height:34%;transform:rotate(-38deg);transform-origin:50% 91%}
+.stamp[data-common="Savannah Sparrow"] .sg-blossom-a{left:auto;right:13.5%;top:5.5%;width:23%;height:21%;transform:rotate(14deg)}
+.stamp[data-common="Savannah Sparrow"] .sg-blossom-b{right:7.5%;bottom:17%;width:31%;height:27%;transform:rotate(-31deg)}
+.stamp[data-common="Savannah Sparrow"] .sg-bird{left:13%;width:78%}
+.tpl-sparrowguide .sg-bird{position:absolute;z-index:3;left:9%;top:4.8%;width:82%;height:79.5%;display:block;mix-blend-mode:normal}
+.tpl-sparrowguide .sg-side{position:absolute;z-index:7;top:4.8%;bottom:16.5%;display:flex;align-items:center;writing-mode:vertical-rl;font:640 6.45cqw/1 var(--f-archivo);font-stretch:condensed;letter-spacing:.058em;text-transform:uppercase;white-space:nowrap}
+.tpl-sparrowguide .sg-project{left:2.15%;top:1.6%;bottom:21%;transform:rotate(180deg);opacity:.95}
+.tpl-sparrowguide .sg-species{right:2.05%;justify-content:center;letter-spacing:.045em}
+.tpl-sparrowguide .sg-number{position:absolute;z-index:7;left:2.85%;bottom:2.5%;font:500 23.5cqw/.7 var(--f-archivo);letter-spacing:-.055em;color:var(--sg-pale)}
+.tpl-sparrowguide .sg-footer{position:absolute;z-index:7;left:31%;right:2.9%;bottom:2.75%;display:grid;gap:1.05cqw;text-align:right;color:var(--sg-pale);text-transform:uppercase}
+.tpl-sparrowguide .sg-footer em{font:610 4.55cqw/1 var(--f-archivo);letter-spacing:.015em;font-style:normal;white-space:nowrap}
+.tpl-sparrowguide .sg-footer strong{font:720 4.9cqw/1 var(--f-archivo);letter-spacing:.085em;white-space:nowrap}
+.stamp[data-common="Savannah Sparrow"] .sg-footer{left:47%;right:2.9%;bottom:2.25%;gap:.48cqw}
+.stamp[data-common="Savannah Sparrow"] .sg-footer em{font-size:3.78cqw;line-height:.82;letter-spacing:0;white-space:normal;text-wrap:balance}
+.stamp[data-common="Savannah Sparrow"] .sg-footer strong{font-size:3.95cqw;letter-spacing:.035em}
+.stamp[data-common="White-crowned Sparrow"] .sg-footer{left:36%;right:2.7%;gap:.7cqw}
+.stamp[data-common="White-crowned Sparrow"] .sg-footer em{font-size:3.65cqw;letter-spacing:0}
+.stamp[data-common="White-crowned Sparrow"] .sg-footer strong{font-size:3.85cqw;letter-spacing:.04em}

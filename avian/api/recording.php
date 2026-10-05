@@ -13,6 +13,44 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/educator-scope.php';
+require_once __DIR__ . '/admin-auth.php';
+
+$educatorSavedRequest = educator_saved_scope_requested($_GET);
+$educatorPublicCapability = $educatorSavedRequest;
+
+try {
+    // Bird cards bind scoped media to the explicit `edu=active` marker.
+    // Requests without `edu` retain the legacy station-wide lookup even when
+    // a listening period happens to be current.
+    $educatorScope = educator_resolve_scope($_GET, array_key_exists('edu', $_GET));
+} catch (EducatorScopeError $error) {
+    [$scopeStatus, $scopeMessage] = educator_public_scope_error(
+        $error,
+        $educatorPublicCapability
+    );
+    http_response_code($scopeStatus);
+    header('Cache-Control: no-store');
+    header('Referrer-Policy: no-referrer');
+    header('X-Content-Type-Options: nosniff');
+    echo $scopeMessage;
+    exit;
+}
+$scopedExtracted = $educatorScope === null ? null : educator_configured_extracted_root($_SERVER);
+if ($educatorScope !== null && $scopedExtracted === null) {
+    educator_scope_media_fail($educatorScope, 503, 'configured recordings directory is unavailable');
+}
+$scopedByDate = ($scopedExtracted ?? dirname(__DIR__, 3) . '/BirdSongs/Extracted') . '/By_Date';
+$scopedBirdsDb = educator_birds_db_path();
+educator_scope_serve_media(
+    $educatorScope,
+    $_GET,
+    $_SERVER,
+    'recording',
+    $scopedBirdsDb,
+    $scopedByDate
+);
+
 $sci = trim((string)($_GET['sci'] ?? ''));
 $file = trim((string)($_GET['file'] ?? ''));
 

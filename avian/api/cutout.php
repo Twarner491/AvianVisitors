@@ -2,7 +2,7 @@
 // AvianVisitors - bird image resolver.
 //
 // Lookup chain for /avian/api/cutout.php?sci=Calypte+anna:
-//   1. ../assets/illustrations/<slug>.png   (450+ bundled kachō-e renders)
+//   1. ../assets/illustrations/<slug>.png   (333 bundled species, two poses each)
 //   2. ../assets/cutouts/<slug>.png         (background-removed photo)
 //   3. cached rembg of a Wikipedia photo at $HOME/BirdSongs/Extracted/cutouts/
 //   4. fresh Wikipedia -> rembg -> cache (skipped gracefully if rembg unset)
@@ -10,8 +10,9 @@
 // The frontend's <img src> points here for every species - bundled
 // hits return instantly; cold misses fall through to the dynamic path.
 //
-// Default LAN deploy ships without auth. To expose publicly, gate
-// /avian/api/* with basic_auth in your Caddyfile - see avian/forwarding/.
+// Bundled and cached images are public. A cold Wikipedia/rembg job is allowed
+// only from the station's direct LAN address, while the LAN admin gate is off,
+// and only for a detected species.
 
 declare(strict_types=1);
 
@@ -36,19 +37,30 @@ $slug = trim((string)$slug, '-');
 // pose=1 (default) is perched. pose=2 is flight. Clamp to a two-digit
 // positive integer so a malformed ?pose= can't break the path.
 $pose = (int)($_GET['pose'] ?? 1);
-if ($pose < 1 || $pose > 99) $pose = 1;
+if ($pose !== 2) $pose = 1;
 $poseSuffix = $pose === 1 ? '' : "-$pose";
 
 function serve_png(string $path): void {
+    $stream = @fopen($path, 'rb');
+    $metadata = $stream === false ? false : fstat($stream);
+    if ($metadata === false || ($metadata['mode'] & 0170000) !== 0100000
+        || $metadata['size'] <= 0) {
+        if (is_resource($stream)) fclose($stream);
+        http_response_code(500);
+        header('Content-Type: text/plain');
+        echo 'illustration could not be read';
+        exit;
+    }
     header('Content-Type: image/png');
     header('Cache-Control: public, max-age=86400');
-    header('Content-Length: ' . (string)filesize($path));
-    readfile($path);
+    header('Content-Length: ' . (string)$metadata['size']);
+    fpassthru($stream);
+    fclose($stream);
     exit;
 }
 
 // 1. Bundled illustration with pose suffix (the kachō-e PNG the repo
-//    ships with). 450+ species cover both perched + flight.
+//    ships with). The included set has 333 species in perched + flight poses.
 $bundled = dirname(__DIR__) . "/assets/illustrations/{$slug}{$poseSuffix}.png";
 if (is_file($bundled) && filesize($bundled) > 1024) {
     serve_png($bundled);
@@ -78,6 +90,13 @@ if (is_file($cachePath) && filesize($cachePath) > 1024) {
 // 4. Fresh Wikipedia fetch + rembg. Skipped if rembg-cli isn't on
 //    PATH - the resolver returns a 404 in that case rather than
 //    burning a Wikipedia request we can't use.
+require_once __DIR__ . '/admin-auth.php';
+if (avian_lan_admin_auth_required()) {
+    http_response_code(404);
+    echo 'no cached illustration for ' . htmlspecialchars($sci);
+    exit;
+}
+
 $rembg = '/usr/local/bin/rembg-cli';
 if (!is_executable($rembg)) {
     http_response_code(404);
@@ -85,7 +104,40 @@ if (!is_executable($rembg)) {
     exit;
 }
 
+if (!avian_is_direct_local_request($_SERVER)) {
+    http_response_code(404);
+    echo 'no cached illustration for ' . htmlspecialchars($sci);
+    exit;
+}
+
+$dbPath = dirname(__DIR__, 2) . '/scripts/birds.db';
+if (!is_file($dbPath)) {
+    http_response_code(404);
+    echo 'species is not in this station';
+    exit;
+}
+$db = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
+$db->busyTimeout(1000);
+$statement = $db->prepare('SELECT 1 FROM detections WHERE Sci_Name = :s LIMIT 1');
+$statement->bindValue(':s', $sci, SQLITE3_TEXT);
+$result = $statement->execute();
+$detected = $result instanceof SQLite3Result && $result->fetchArray(SQLITE3_NUM) !== false;
+$db->close();
+if (!$detected) {
+    http_response_code(404);
+    echo 'species is not in this station';
+    exit;
+}
+
 if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
+$lock = @fopen("$cacheDir/.cutout.lock", 'c');
+if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) {
+    if (is_resource($lock)) fclose($lock);
+    http_response_code(429);
+    header('Retry-After: 10');
+    echo 'another cutout is being prepared';
+    exit;
+}
 
 // Wikipedia's REST API asks for a contact-able identifier. Override
 // via the AV_USER_AGENT env var (set in /etc/php/*/fpm/pool.d/www.conf
@@ -115,7 +167,7 @@ if (!$srcUrl) {
     exit;
 }
 
-$imgBytes = @file_get_contents($srcUrl, false, $ctx);
+$imgBytes = @file_get_contents($srcUrl, false, $ctx, 0, 12 * 1024 * 1024);
 if (!$imgBytes || strlen($imgBytes) < 1024) {
     http_response_code(503);
     echo 'failed to fetch source image';
@@ -125,12 +177,19 @@ if (!$imgBytes || strlen($imgBytes) < 1024) {
 // rembg via the wrapper. u2netp = lightweight model (~50MB peak RAM -
 // matters on the Pi 3B+). Temp files because rembg's CLI prefers
 // real paths.
-$tmpInBase  = tempnam(sys_get_temp_dir(), 'rembg-in-');
-$tmpOutBase = tempnam(sys_get_temp_dir(), 'rembg-out-');
-@unlink($tmpInBase); @unlink($tmpOutBase);
-$tmpIn  = $tmpInBase  . '.jpg';
-$tmpOut = $tmpOutBase . '.png';
-file_put_contents($tmpIn, $imgBytes);
+$tmpIn = @tempnam($cacheDir, '.rembg-in-');
+$tmpOut = @tempnam($cacheDir, '.rembg-out-');
+// tempnam can fall back to the system temp directory on failure.
+if ($tmpIn === false || $tmpOut === false
+    || realpath(dirname($tmpIn)) !== realpath($cacheDir)
+    || realpath(dirname($tmpOut)) !== realpath($cacheDir)
+    || @file_put_contents($tmpIn, $imgBytes) !== strlen($imgBytes)) {
+    if ($tmpIn !== false) @unlink($tmpIn);
+    if ($tmpOut !== false) @unlink($tmpOut);
+    http_response_code(500);
+    echo 'could not stage cutout';
+    exit;
+}
 
 $cmd = sprintf(
     '%s i -m u2netp -ppm %s %s 2>&1',
@@ -153,32 +212,44 @@ if (!is_file($tmpOut) || filesize($tmpOut) < 1024) {
 // Tight-crop to the bird's bounding box + downscale to 800px max edge
 // so cache stays small.
 $im = @imagecreatefrompng($tmpOut);
-if ($im !== false) {
-    $cropped = @imagecropauto($im, IMG_CROP_TRANSPARENT);
-    if ($cropped !== false) {
-        imagedestroy($im);
-        $im = $cropped;
-    }
-    $w = imagesx($im); $h = imagesy($im);
-    $max = 800;
-    if ($w > $max || $h > $max) {
-        $scale = $max / max($w, $h);
-        $nw = (int)($w * $scale); $nh = (int)($h * $scale);
-        $resized = imagecreatetruecolor($nw, $nh);
-        imagealphablending($resized, false);
-        imagesavealpha($resized, true);
-        imagecopyresampled($resized, $im, 0, 0, 0, 0, $nw, $nh, $w, $h);
-        imagedestroy($im);
-        $im = $resized;
-    }
-    imagealphablending($im, false);
-    imagesavealpha($im, true);
-    imagepng($im, $tmpOut, 6);
-    imagedestroy($im);
+if ($im === false) {
+    @unlink($tmpOut);
+    http_response_code(500);
+    echo 'rembg returned an invalid PNG';
+    exit;
 }
+$cropped = @imagecropauto($im, IMG_CROP_TRANSPARENT);
+if ($cropped !== false) {
+    imagedestroy($im);
+    $im = $cropped;
+}
+$w = imagesx($im); $h = imagesy($im);
+$max = 800;
+if ($w > $max || $h > $max) {
+    $scale = $max / max($w, $h);
+    $nw = (int)($w * $scale); $nh = (int)($h * $scale);
+    $resized = imagecreatetruecolor($nw, $nh);
+    imagealphablending($resized, false);
+    imagesavealpha($resized, true);
+    imagecopyresampled($resized, $im, 0, 0, 0, 0, $nw, $nh, $w, $h);
+    imagedestroy($im);
+    $im = $resized;
+}
+imagealphablending($im, false);
+imagesavealpha($im, true);
+$saved = @imagepng($im, $tmpOut, 6);
+imagedestroy($im);
+// GD can report success after a short write, so decode the encoded file too.
+$encoded = $saved ? @imagecreatefrompng($tmpOut) : false;
+if ($encoded !== false) imagedestroy($encoded);
 
 // Atomic install: rename is atomic on the same filesystem, so any
 // concurrent reader either sees the old cached file or the new one,
 // never a half-written PNG.
-@rename($tmpOut, $cachePath);
+if ($encoded === false || !@chmod($tmpOut, 0644) || !@rename($tmpOut, $cachePath)) {
+    @unlink($tmpOut);
+    http_response_code(500);
+    echo 'could not publish cutout';
+    exit;
+}
 serve_png($cachePath);

@@ -1,0 +1,188 @@
+/* ============================================================
+   Batch A, Finches: editorial garden issue
+   ============================================================ */
+.stamp:has(.tpl-finch-editorial){
+  --stamp-paper:#f4f5f2;
+  --pr:3px;
+  --ps:10.5px;
+  padding:0;
+  background:linear-gradient(180deg,#f4f5f2 0 53%,#df5757 53% 100%);
+}
+.stamp:has(.tpl-finch-editorial) .face{border-radius:0;box-shadow:none}
+.tpl-finch-editorial{
+  --fe-paper:#f4f5f2;
+  --fe-band:#df5757;
+  --fe-ink:#201b18;
+  --fe-muted:#716963;
+  container-type:inline-size;
+  isolation:isolate;
+  color:var(--fe-ink);
+  font-family:var(--f-familjen);
+  background:linear-gradient(180deg,var(--fe-paper) 0 53%,var(--fe-band) 53% 100%);
+}
+.tpl-finch-editorial .fe-head{position:absolute;z-index:5;top:5.8%;left:7.2%;right:7%;}
+.tpl-finch-editorial .fe-name{
+  width:82%;
+  margin:0;
+  font:350 16.2cqw/.9 var(--f-instrument);
+  letter-spacing:-.032em;
+  text-wrap:balance;
+  overflow-wrap:normal;
+  word-break:normal;
+  hyphens:none;
+}
+.tpl-finch-editorial .fe-sci{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  width:52%;
+  margin:3.3% 0 0;
+  font:350 5.7cqw/1.12 var(--f-familjen);
+  letter-spacing:.008em;
+  color:#4c4845;
+}
+.tpl-finch-editorial .fe-postal{
+  position:absolute;
+  z-index:5;
+  left:7.2%;
+  right:7%;
+  top:43.1%;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8%;
+}
+.tpl-finch-editorial .fe-number{
+  display:flex;
+  align-items:flex-start;
+  gap:.8cqw;
+  white-space:nowrap;
+}
+.tpl-finch-editorial .fe-number small{margin-top:.35cqw;font:500 4cqw/1 var(--f-familjen);letter-spacing:.02em}
+.tpl-finch-editorial .fe-number b{font:400 13.7cqw/.74 var(--f-instrument);letter-spacing:-.035em}
+.tpl-finch-editorial .fe-taxonomy{
+  display:grid;
+  justify-items:end;
+  gap:.8cqw;
+  max-width:62%;
+  font:560 4.7cqw/1 var(--f-familjen);
+  letter-spacing:.045em;
+  text-align:right;
+  text-transform:uppercase;
+}
+.tpl-finch-editorial .fe-taxonomy b{font-weight:560}
+.tpl-finch-editorial .fe-taxonomy span{font-weight:430;letter-spacing:.04em}
+.tpl-finch-editorial .fe-garden{position:absolute;z-index:2;left:0;right:0;bottom:0;height:47%;overflow:hidden;background:var(--fe-band)}
+.tpl-finch-editorial .fe-garden svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.tpl-finch-editorial .fe-stock{
+  position:absolute;
+  z-index:8;
+  inset:0;
+  pointer-events:none;
+  background:
+    linear-gradient(102deg,transparent 0 36%,rgba(255,255,255,.055) 47%,transparent 57%),
+    url('./assets/stamp/paper-texture-grey.png') center/cover no-repeat;
+  filter:grayscale(1) contrast(1.2);
+  mix-blend-mode:multiply;
+  opacity:.17;
+}
+
+/* ============================================================
+   Batch A, Doves: modern flight / two-sun golden issue
+   ============================================================ */
+.stamp:has(.tpl-dove-flight){
+  --stamp-paper:#f0e4cb;
+  --pr:3.15px;
+  --ps:11.2px;
+  padding:0;
+  background:
+    url('./assets/stamp/paper-texture-grey.png') center/cover no-repeat,
+    #f0e4cb;
+  background-blend-mode:soft-light,normal;
+}
+.stamp:has(.tpl-dove-flight) .face{border-radius:0;box-shadow:none}
+.tpl-dove-flight{
+  --dv-field:#f0e4cb;
+  --dv-gold:#c7922e;
+  container-type:size;
+  isolation:isolate;
+  color:var(--dv-gold);
+  background:var(--dv-field);
+  font-family:var(--f-archivo);
+}
+.tpl-dove-flight .dv-head{
+  position:absolute;
+  z-index:6;
+  top:6.5%;
+  left:7.2%;
+  right:7.2%;
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:7%;
+}
+.tpl-dove-flight .dv-name{
+  max-width:70%;
+  margin:0;
+  font:720 7.4cqw/.92 var(--f-archivo);
+  letter-spacing:-.04em;
+  text-transform:uppercase;
+  text-wrap:balance;
+  overflow-wrap:normal;
+  word-break:normal;
+  hyphens:none;
+}
+.tpl-dove-flight .dv-number{font:500 8.6cqw/.82 var(--f-space);letter-spacing:-.045em}
+.tpl-dove-flight .dv-suns{position:absolute;z-index:1;left:0;right:0;top:36%;height:22%;display:flex;justify-content:space-between;align-items:center;overflow:hidden}
+.tpl-dove-flight .dv-suns i{
+  position:relative;
+  display:block;
+  width:22%;
+  aspect-ratio:1;
+  overflow:hidden;
+  background:radial-gradient(circle at 34% 30%,#d6aa52 0 18%,var(--dv-gold) 48%,#b97f22 100%);
+  clip-path:polygon(
+    31.25% 0,68.75% 0,68.75% 6.25%,81.25% 6.25%,81.25% 12.5%,
+    87.5% 12.5%,87.5% 18.75%,93.75% 18.75%,93.75% 31.25%,100% 31.25%,
+    100% 68.75%,93.75% 68.75%,93.75% 81.25%,87.5% 81.25%,87.5% 87.5%,
+    81.25% 87.5%,81.25% 93.75%,68.75% 93.75%,68.75% 100%,31.25% 100%,
+    31.25% 93.75%,18.75% 93.75%,18.75% 87.5%,12.5% 87.5%,12.5% 81.25%,
+    6.25% 81.25%,6.25% 68.75%,0 68.75%,0 31.25%,6.25% 31.25%,
+    6.25% 18.75%,12.5% 18.75%,12.5% 12.5%,18.75% 12.5%,18.75% 6.25%,
+    31.25% 6.25%
+  );
+  box-shadow:inset 0 0 0 1px rgba(111,72,15,.08);
+}
+.tpl-dove-flight .dv-suns i::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:url('./grain.png') center/54px repeat;
+  mix-blend-mode:soft-light;
+  opacity:.2;
+}
+.tpl-dove-flight .dv-suns i:first-child{transform:translateX(-51%)}
+.tpl-dove-flight .dv-suns i:last-child{transform:translateX(51%)}
+.tpl-dove-flight .dv-specimen{position:absolute;z-index:4;left:9%;right:8%;top:22%;bottom:22%;}
+.tpl-dove-flight .dv-bird-screen{position:absolute;inset:0;width:100%;height:100%;display:block}
+.tpl-dove-flight .dv-bird-screen{z-index:2}
+.tpl-dove-flight .dv-rule{position:absolute;z-index:5;left:7.2%;right:7.2%;bottom:18.2%;height:1px;background:color-mix(in srgb,var(--dv-gold) 72%,transparent)}
+.tpl-dove-flight .dv-foot{position:absolute;z-index:6;left:7.2%;right:7.2%;bottom:6.7%;display:flex;align-items:flex-end;justify-content:space-between;gap:8%}
+.tpl-dove-flight .dv-id{min-width:0;max-width:66%}
+.tpl-dove-flight .dv-id b{display:block;font:730 4.2cqw/1 var(--f-archivo);letter-spacing:.12em;text-transform:uppercase}
+.tpl-dove-flight .dv-id i{display:block;margin-top:1.15cqh;font:560 italic 4.05cqw/1.04 var(--f-news);letter-spacing:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tpl-dove-flight .dv-family{max-width:36%;font:680 3.85cqw/1.08 var(--f-archivo);letter-spacing:.045em;text-align:right;text-transform:uppercase;white-space:nowrap;transform:translateY(-.5cqh)}
+.tpl-dove-flight .dv-stock{
+  position:absolute;
+  z-index:10;
+  inset:0;
+  pointer-events:none;
+  background:
+    radial-gradient(circle at 23% 19%,rgba(255,255,255,.12),transparent 24%),
+    radial-gradient(circle at 81% 71%,rgba(135,98,31,.08),transparent 28%),
+    url('./assets/stamp/paper-texture-grey.png') center/cover no-repeat,
+    url('./grain.png') center/170px repeat;
+  filter:grayscale(1) contrast(1.22);
+  mix-blend-mode:multiply;
+  opacity:.23;
+}

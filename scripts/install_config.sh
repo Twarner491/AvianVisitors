@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Creates and installs the /etc/birdnet/birdnet.conf file
-set -x # Uncomment to enable debugging
 set -e
 trap 'exit 1' SIGINT SIGHUP
 
@@ -52,14 +51,16 @@ DATA_MODEL_VERSION=1
 #__________________also act as a BirdWeather listening station_________________#
 
 BIRDWEATHER_ID=
+BIRDWEATHER_ENABLED=0
+BIRDWEATHER_UPLOAD_AUDIO=0
 
 #-----------------------  Web Interface User Password  ------------------------#
 #____________________The variable below sets the 'birdnet'_____________________#
-#___________________user password for the Live Audio Stream,___________________#
-#_________________Tools, System Links, and the Processed files ________________#
+#___________________user password for protected admin and______________________#
+#_______________________legacy BirdNET-Pi pages._______________________________#
 
-## CADDY_PWD is the plaintext password (that will be hashed) and used to access
-## certain parts of the web interface
+## CADDY_PWD initializes the admin credential during setup. AvianVisitors then
+## stores only its password verifier in root-managed runtime state.
 
 CADDY_PWD=
 
@@ -185,6 +186,9 @@ EXTRACTED=$HOME/BirdSongs/Extracted
 
 OVERLAP=0.0
 
+## Keep dashboard time windows inside the current day when enabled.
+RESET_AT_MIDNIGHT=0
+
 ## CONFIDENCE is the minimum confidence level from 0.0-1.0 BirdNET's analysis
 ## should reach before creating an entry in the BirdNET.selection.txt file.
 ## Don't set this to 1.0 or you won't have any results.
@@ -303,7 +307,6 @@ fi
 chmod g+w ${birdnet_conf}
 [ -d /etc/birdnet ] || sudo mkdir /etc/birdnet
 sudo ln -sf $birdnet_conf /etc/birdnet/birdnet.conf
-grep -ve '^#' -e '^$' /etc/birdnet/birdnet.conf > $my_dir/firstrun.ini
 
 source /etc/birdnet/birdnet.conf
 echo 'A $comname ($sciname)  was just detected with a confidence of $confidence ($reason)' | sudo -u $BIRDNET_USER tee "$HOME/BirdNET-Pi/body.txt"

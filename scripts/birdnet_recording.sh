@@ -11,6 +11,12 @@ loop_ffmpeg(){
   done
 }
 
+ensure_pulseaudio() {
+  if ! pulseaudio --check; then
+    pulseaudio --start
+  fi
+}
+
 # Read the logging level from the configuration option
 LOGGING_LEVEL="${LogLevel_BirdnetRecordingService}"
 # If empty for some reason default to log level of error
@@ -46,13 +52,15 @@ if [ -n "${RTSP_STREAM}" ];then
   done
   wait
 else
-  if ! pulseaudio --check;then pulseaudio --start;fi
+  case "${REC_CARD:-}" in
+    ''|default|pulse) ensure_pulseaudio ;;
+  esac
   if pgrep arecord &> /dev/null ;then
     echo "Recording"
   else
-    if [ -z ${REC_CARD} ];then
+    if [ -z "${REC_CARD:-}" ];then
       arecord -f S16_LE -c${CHANNELS} -r48000 -t wav --max-file-time ${RECORDING_LENGTH}\
-	      	      	       --use-strftime ${RECS_DIR}/StreamData/%F-birdnet-%H:%M:%S.wav
+        --use-strftime ${RECS_DIR}/StreamData/%F-birdnet-%H:%M:%S.wav
     else
       arecord -f S16_LE -c${CHANNELS} -r48000 -t wav --max-file-time ${RECORDING_LENGTH}\
         -D "${REC_CARD}" --use-strftime ${RECS_DIR}/StreamData/%F-birdnet-%H:%M:%S.wav

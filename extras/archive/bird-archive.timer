@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly AvianVisitors archive at 03:15
+
+[Timer]
+# 03:15 gives the analyzer time to finish work queued around midnight.
+# Setup disables BirdNET-Pi's independent recording purges so an offline
+# archive backlog is not deleted before a later retry.
+OnCalendar=*-*-* 03:15:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

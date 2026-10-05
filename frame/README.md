@@ -61,18 +61,50 @@ Pick how the frame gets its birds:
 # No microphone: draw the collage from BirdWeather for any ZIP code.
 ./install.sh --bird-weather --zip 94107
 
+# No microphone: follow one public BirdWeather station exactly.
+./install.sh --station-id 12345
+
 # Bird mic hosted at a public URL: point the frame straight at it.
 ./install.sh --image-url https://bird.onethreenine.net/frame.png?k=YOUR_FRAME_KEY
 ```
 
-Each one enables SPI + I2C, installs the deps and a systemd timer, writes `~/.birdframe/config.toml`, and reboots once to bring SPI up. Full options live in [`config.example.toml`](config.example.toml).
+Each one enables SPI + I2C, installs the deps and a systemd timer, writes `~/.birdframe/config.toml`, and reboots once to bring SPI up. Full options live in [`config.example.toml`](config.example.toml). The station ID is the public number at the end of a BirdWeather station-page URL, not its upload token. ZIP mode summarizes nearby stations and can use fallbacks; station mode shows only that station and fails rather than substituting another source.
 
-BirdWeather mode renders on the Pi from this repo's illustrations on GitHub, so there is no image set to copy over. ZIP codes with no station nearby fall back to the closest ones. If you are far from any BirdWeather station, add `--ebird-key <key>` (a free key from [ebird.org/api/keygen](https://ebird.org/api/keygen)) and the frame fills from eBird sightings instead.
+The default layout matches the A5 opening in the frame listed above. If you use a different mat or a bare panel, set `opening` in `~/.birdframe/config.toml`; `0.7071` preserves the current A5 dimensions, while values up to about `0.98` use more of the panel. This one setting scales a fixed 1:sqrt(2) opening, not width and height independently. For a B5 opening, `0.84` is a useful starting point, but check it against your physical mat.
 
-The bundled illustrations center on the western U.S. If birds near your ZIP aren't in the set you cloned, the installer flags them and the frame skips them until they exist. To generate them, run [`generate_illustrations.py`](generate_illustrations.py) on a laptop or workstation (it uses the same rembg cutout as the rest of the pipeline, which the Pi can't fit in memory), passing your ZIP and a paid Google Gemini key, then commit the new cutouts or copy them to the Pi:
+Bird names are off on the frame by default. Turn them on or off at any time; the command saves the preference and requests an immediate refresh:
+
+```bash
+birdframe-names on
+birdframe-names off
+```
+
+Set `shoot_title = ""` in `~/.birdframe/config.toml` if you want to hide only the frame title.
+
+For an `--image-url` frame, the command adds `labels=1` or `labels=0` to the source URL. The source must honor that setting; otherwise its image will not change.
+
+When updating a paired mic and frame, update both. The frame waits for the mic's collage to finish loading before capturing it. An older mic frontend cannot confirm this, so the frame keeps its previous image and logs an update reminder. Capture now requires Pillow as well as Playwright, including standalone `shoot.py` use.
+
+Update the mic through **Tools > Pull latest**. On the frame Pi, pull the update and request a fresh capture:
+
+```bash
+cd ~/AvianVisitors/frame && git pull --ff-only && \
+  .venv/bin/pip install -r requirements-shoot.txt && \
+  .venv/bin/python display.py --config ~/.birdframe/config.toml --force
+```
+
+If Git reports local edits, preserve them and resolve that before updating.
+
+Slow, incomplete, or corrupt artwork and a changing collage leave the last good frame and refresh state untouched. Capture validates the exact PNG/WebP responses used by the browser, then combines their artwork with small transparent captures of the titles and labels. If artwork validation repeatedly fails, check the source illustration before retrying; preserve custom artwork and do not delete the previous frame. Desktop and container tests do not replace a capture check on the frame Pi.
+
+BirdWeather mode renders on the Pi from this repo's illustrations on GitHub, so there is no image set to copy over. In ZIP mode, postal codes with no station nearby fall back to the closest ones. If you are far from any BirdWeather station, add `--ebird-key <key>` (a free key from [ebird.org/api/keygen](https://ebird.org/api/keygen)) and the frame fills from eBird sightings instead. Exact station mode has no geographic or eBird fallback.
+
+The bundled illustrations center on the western U.S. If birds for your ZIP or station aren't in the set you cloned, the installer flags them and the frame skips them until they exist. To generate them, run [`generate_illustrations.py`](generate_illustrations.py) on a laptop or workstation (it uses the same rembg cutout as the rest of the pipeline, which the Pi can't fit in memory), passing your source and a paid Google Gemini key, then commit the new cutouts or copy them to the Pi:
 
 ```bash
 python3 generate_illustrations.py --zip 10001 --gemini-key YOUR_GEMINI_KEY
+# or for one station
+python3 generate_illustrations.py --station-id 12345 --gemini-key YOUR_GEMINI_KEY
 ```
 
-It generates only the species you're missing; `--country` and `--sample` carry through for non-US postcodes or a wider region.
+It generates only the species you're missing. `--country` supports non-US postcodes, and `--sample` controls how many top species are checked.

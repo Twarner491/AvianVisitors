@@ -22,14 +22,6 @@ if(isset($_GET['submit'])) {
   $restart_livestream = false;
   $update_caddyfile = false;
 
-  if(isset($_GET["caddy_pwd"])) {
-    $caddy_pwd = $_GET["caddy_pwd"];
-    if(strcmp($caddy_pwd,$config['CADDY_PWD']) !== 0) {
-      $contents = preg_replace("/CADDY_PWD=.*/", "CADDY_PWD=\"$caddy_pwd\"", $contents);
-      $update_caddyfile = true;
-    }
-  }
-
   if(isset($_GET["ice_pwd"])) {
     $ice_pwd = $_GET["ice_pwd"];
     if(strcmp($ice_pwd,$config['ICE_PWD']) !== 0) {
@@ -310,7 +302,7 @@ $newconfig = get_config();
         document.getElementById("predictionCount").innerHTML = parseInt(Math.max(10, (this.value * <?php echo $count; ?>)/100));
       }
       </script>
-      <p>If a Human is predicted anywhere among the top <span id="predictionCount"><?php echo intval(max(10, ($newconfig['PRIVACY_THRESHOLD'] * $count)/100)); ?></span> predictions, the sample will be considered of human origin and no data will be collected. Start with 1% and move up as needed.</p>
+      <p>If a Human is predicted anywhere among the top <span id="predictionCount"><?php echo intval(max(10, ($newconfig['PRIVACY_THRESHOLD'] * $count)/100)); ?></span> predictions, detections in that analysis window and the adjacent windows are suppressed locally. This does not redact the source recording. If BirdWeather full-recording audio uploads are on, that recording may still contain speech. Start with 1% and move up as needed.</p>
       </td></tr></table><br>
       
       <table class="settingstable"><tr><td>
@@ -449,11 +441,9 @@ foreach($formats as $format){
       <p>If you place an RTSP stream URL here, BirdNET-Pi will use that as its audio source.<br>Multiple streams are allowed but may have a impact on rPi performance.<br>Analyze ffmpeg CPU/Memory usage with <b>top</b> or <b>htop</b> if necessary.<br>To remove all and use the soundcard again, just delete the RTSP entries and click Save at the bottom.</p>
       </td></tr></table><br>
       <table class="settingstable"><tr><td>
-      <h2>BirdNET-Pi Password</h2>
-      <p>This password will protect your "Tools" page and "Live Audio" stream.</p>
-      <p>Do NOT use special characters. Accepted characters: [A-Z0-9a-z]</p>
-      <label for="caddy_pwd">Password: </label>
-      <input style="width:40ch" name="caddy_pwd" id="caddy_pwd" type="password" pattern="[A-Za-z0-9]+" title="Password must be alphanumeric (A-Z, 0-9)" value="<?php print($newconfig['CADDY_PWD']);?>" /><span id="showpassword" onmouseover="document.getElementById('caddy_pwd').type='text';" onmouseout="document.getElementById('caddy_pwd').type='password';">show</span><br>
+      <h2>AvianVisitors admin password</h2>
+      <p>Change an existing password from the native Settings Access panel.</p>
+      <p>For first setup or recovery, run <code>sudo /usr/local/sbin/avian-admin-control password-reset</code> over SSH.</p>
       </td></tr></table><br>
       <table class="settingstable"><tr><td>
       <h2>Custom URL</h2>

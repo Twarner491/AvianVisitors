@@ -1,0 +1,379 @@
+/* Batch C family issues. Every texture here is a scanned paper/press layer;
+   the composition remains crisp underneath and each family gets its own stock. */
+
+/* ───────── BLACKBIRDS & ORIOLES · SQUARE-SCREEN MUSEUM ───────── */
+.stamp:has(.tpl-squaretone){
+  --stamp-paper:#efefeb;
+  --pr:5.25px;
+  --ps:17px;
+  padding:0;
+  background:#efefeb;
+  border-radius:0;
+}
+.stamp:has(.tpl-squaretone) .face{border-radius:0;box-shadow:none}
+.tpl-squaretone{
+  --sq-paper:#efefeb;
+  --sq-ink:#111211;
+  container-type:size;
+  isolation:isolate;
+  overflow:hidden;
+  color:var(--sq-ink);
+  background:var(--sq-paper);
+  font-family:var(--f-archivo);
+}
+.tpl-squaretone .sq-meta{
+  position:absolute;
+  z-index:4;
+  top:6.1cqw;
+  right:6.7cqw;
+  width:35%;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:.82cqw;
+  font:650 2.35cqw/.96 var(--f-tmono);
+  letter-spacing:.085em;
+  text-transform:uppercase;
+  text-align:right;
+  opacity:.68;
+}
+.tpl-squaretone .sq-name{
+  position:absolute;
+  z-index:3;
+  left:6.7cqw;
+  top:6.4cqw;
+  width:49.5%;
+  max-height:39cqw;
+  margin:0;
+  overflow:hidden;
+  font:430 10.8cqw/.9 var(--f-archivo);
+  letter-spacing:-.055em;
+  text-transform:uppercase;
+}
+.tpl-squaretone .sq-name span{display:block;white-space:nowrap}
+.tpl-squaretone .sq-value{
+  position:absolute;
+  z-index:4;
+  right:6.7cqw;
+  bottom:93cqw;
+  font:430 10.8cqw/.9 var(--f-archivo);
+  letter-spacing:-.035em;
+  font-variant-numeric:lining-nums tabular-nums;
+}
+.tpl-squaretone .sq-panel{
+  position:absolute;
+  z-index:2;
+  left:6.7cqw;
+  right:6.7cqw;
+  bottom:5.5cqw;
+  aspect-ratio:1;
+  overflow:hidden;
+  background:#121313;
+}
+.tpl-squaretone .sq-panel::after{content:none}
+.tpl-squaretone .sq-bird{position:absolute;inset:0;width:100%;height:100%;display:block}
+.tpl-squaretone .sq-texture,
+.tpl-triennale .ti-texture,
+.tpl-ribbonbird .wv-texture{
+  position:absolute;
+  z-index:20;
+  inset:-2%;
+  pointer-events:none;
+  background-repeat:no-repeat,repeat;
+}
+.tpl-squaretone .sq-texture{
+  /* One continuous photographed surface crosses stock, type and plate. Soft
+     light uses its luminance as a material mask, gently modulating the inks
+     beneath instead of laying a pale photograph over the white stock. */
+  background-image:url('./assets/stamp/rough-concrete-cc0.png');
+  background-size:cover;
+  background-position:50% 50%;
+  background-repeat:no-repeat;
+  mix-blend-mode:soft-light;
+  filter:grayscale(1) contrast(1.35) brightness(1.02);
+  opacity:.18;
+}
+.tpl-squaretone::after{
+  content:none;
+}
+
+/* ───────── CHICKADEES & TITMICE · TRIENNALE ABSTRACT ───────── */
+.stamp:has(.tpl-triennale){
+  --stamp-paper:#e7e0cf;
+  background-color:#e7e0cf;
+  background-image:linear-gradient(rgba(231,224,207,.9),rgba(231,224,207,.9)),url('./assets/stamp/paper-texture-grey.png');
+  background-size:auto,430px 560px;
+  background-position:center;
+  background-blend-mode:normal,multiply;
+  --pr:2.7px;
+  --ps:9px;
+}
+.stamp:has(.tpl-triennale) .face{border-radius:0;box-shadow:none}
+.tpl-triennale{
+  --ti-field:#aeb7aa;
+  --ti-ink:#171a18;
+  --ti-paper:#e7e0cf;
+  --ti-mid:#555c57;
+  container-type:size;
+  isolation:isolate;
+  overflow:hidden;
+  color:var(--ti-ink);
+  background:var(--ti-field);
+  box-shadow:inset 0 0 0 1px rgba(23,26,24,.5);
+}
+.tpl-triennale .ti-head{
+  position:absolute;
+  z-index:7;
+  left:5.5cqw;
+  right:5.5cqw;
+  top:4.8cqw;
+  display:block;
+  color:var(--ti-ink);
+}
+.tpl-triennale .ti-binomial{display:block;width:100%;height:13.4cqw;overflow:visible}
+.tpl-triennale .ti-binomial text{
+  fill:currentColor;
+  font:900 12px/1 var(--f-shoulders);
+  letter-spacing:.02em;
+  text-transform:uppercase;
+}
+.tpl-triennale .ti-head span{
+  display:block;
+  margin-top:1.25cqw;
+  font:850 7.8cqw/.8 var(--f-shoulders);
+  letter-spacing:.01em;
+  text-transform:uppercase;
+}
+.tpl-triennale .ti-gallery{
+  position:absolute;
+  z-index:2;
+  left:5.7cqw;
+  right:5.7cqw;
+  top:27.5cqw;
+  bottom:29.5cqw;
+  overflow:hidden;
+}
+.tpl-triennale .ti-bird{position:absolute;z-index:3;inset:0;width:100%;height:100%;display:block}
+.tpl-triennale .ti-foot{
+  position:absolute;
+  z-index:8;
+  left:5.5cqw;
+  right:5.5cqw;
+  bottom:4.4cqw;
+  height:22.5cqw;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:end;
+  gap:2.8cqw;
+}
+.tpl-triennale .ti-name{
+  align-self:end;
+  width:100%;
+  height:22.5cqw;
+  overflow:visible;
+}
+.tpl-triennale .ti-name text{
+  fill:currentColor;
+  font-family:var(--f-archivo);
+  font-weight:900;
+  letter-spacing:.015em;
+  text-transform:uppercase;
+}
+.tpl-triennale .ti-name-first{font-size:25px;letter-spacing:0}
+.tpl-triennale .ti-name-rest{font-size:12.5px;letter-spacing:.02em}
+.tpl-triennale .ti-name-single{font-size:46px;letter-spacing:.01em}
+.tpl-triennale .ti-denom{
+  align-self:end;
+  width:20.2cqw;
+  height:25cqw;
+  overflow:visible;
+  transform:translateY(-1.8cqw);
+}
+.tpl-triennale .ti-denom text{fill:currentColor;text-transform:uppercase}
+.tpl-triennale .ti-index{
+  font:900 33px/1 var(--f-archivo);
+  letter-spacing:0;
+  transform:none;
+}
+.tpl-triennale .ti-brand{
+  font:900 10px/1 var(--f-shoulders);
+  letter-spacing:.02em;
+}
+.tpl-triennale .ti-texture{
+  background-image:
+    repeating-linear-gradient(13deg,rgba(23,26,24,.08) 0,rgba(23,26,24,.08) .42px,transparent .42px,transparent 2.9px),
+    url('./assets/stamp/paper-texture-grey.png');
+  background-size:auto,430px 560px;
+  background-position:center;
+  background-repeat:no-repeat;
+  mix-blend-mode:multiply,soft-light;
+  filter:grayscale(1) contrast(1.12);
+  opacity:.2;
+}
+
+/* ───────── WARBLERS & VIREOS · MODERN RIBBON ───────── */
+.stamp:has(.tpl-ribbonbird){
+  --stamp-paper:#eeeae0;
+  background:#eeeae0;
+  --pr:3.05px;
+  --ps:11px;
+  position:relative;
+  isolation:isolate;
+  padding:0;
+}
+.stamp:has(.tpl-ribbonbird)::after{
+  content:"";
+  position:absolute;
+  z-index:40;
+  inset:0;
+  pointer-events:none;
+  background-image:repeating-linear-gradient(11.8deg,rgba(51,57,53,.13) 0 .25px,transparent .25px 2.65px),repeating-linear-gradient(13.6deg,rgba(51,57,53,.075) 0 .2px,transparent .2px 3.08px),url('./assets/stamp/paper-texture-grey.png'),url('./grain.png');
+  background-size:auto,auto,430px 560px,116px 116px;
+  background-position:.35px -.2px,-.4px .55px,center,13px 7px;
+  background-repeat:repeat,repeat,repeat,repeat;
+  background-blend-mode:multiply,multiply,soft-light,multiply;
+  mix-blend-mode:multiply;
+  filter:grayscale(1) contrast(1.18);
+  opacity:.21;
+}
+.stamp:has(.tpl-ribbonbird) .face{border-radius:0;box-shadow:none}
+.tpl-ribbonbird{
+  --wv-paper:#eeeae0;
+  --wv-grey:#848a85;
+  --wv-ink:#202321;
+  --wv-orange:#e59637;
+  --wv-red:#d94a43;
+  --wv-blue:#355f9f;
+  --wv-green:#4f875c;
+  container-type:size;
+  isolation:isolate;
+  overflow:hidden;
+  color:var(--wv-ink);
+  background:var(--wv-paper);
+  font-family:var(--f-space);
+}
+.tpl-ribbonbird .wv-head{
+  position:absolute;
+  z-index:8;
+  left:0;
+  right:0;
+  top:0;
+  height:34cqw;
+  overflow:hidden;
+  background:var(--wv-grey);
+  color:var(--wv-orange);
+  padding:4.5cqw 5.8cqw;
+}
+.tpl-ribbonbird .wv-head h3{
+  position:relative;
+  z-index:2;
+  width:72%;
+  box-sizing:content-box;
+  max-height:21cqw;
+  padding-block-end:.16em;
+  margin:0;
+  overflow:hidden;
+  font:500 8.75cqw/.8 var(--f-space);
+  letter-spacing:-.045em;
+}
+.tpl-ribbonbird .wv-head h3 span{display:block;white-space:nowrap}
+.tpl-ribbonbird .wv-family{
+  position:absolute;
+  left:5.8cqw;
+  bottom:3.3cqw;
+  max-width:68%;
+  color:var(--wv-paper);
+  font:500 2.55cqw/1 var(--f-tmono);
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.tpl-ribbonbird .wv-value{
+  position:absolute;
+  right:5.4cqw;
+  bottom:2.7cqw;
+  color:var(--wv-paper);
+  font:500 9cqw/.8 var(--f-space);
+  letter-spacing:.075em;
+}
+.tpl-ribbonbird .wv-stage{
+  position:absolute;
+  z-index:2;
+  left:0;
+  right:0;
+  top:34cqw;
+  bottom:10.5cqw;
+  overflow:hidden;
+}
+.tpl-ribbonbird .wv-ribbon{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.tpl-ribbonbird .wv-ribbon-back{z-index:1}
+.tpl-ribbonbird .wv-r{fill:none;stroke-width:5.6;stroke-linecap:butt}
+.tpl-ribbonbird .wv-r1{stroke:var(--wv-red)}
+.tpl-ribbonbird .wv-r2{stroke:var(--wv-orange)}
+.tpl-ribbonbird .wv-r3{stroke:var(--wv-green)}
+.tpl-ribbonbird .wv-r4{stroke:var(--wv-blue)}
+.tpl-ribbonbird .wv-bird-print{
+  position:absolute;
+  z-index:3;
+  left:17.5%;
+  top:-2%;
+  width:65%;
+  height:92%;
+  display:block;
+  filter:contrast(1.08);
+  mix-blend-mode:normal;
+  opacity:1;
+}
+.tpl-ribbonbird .wv-ribbon-cutout{
+  --src:none;
+  position:absolute;
+  z-index:4;
+  left:17.5%;
+  top:-2%;
+  width:65%;
+  height:92%;
+  overflow:hidden;
+  -webkit-mask:var(--src) center/contain no-repeat;
+  mask:var(--src) center/contain no-repeat;
+}
+.tpl-ribbonbird .wv-ribbon-cutout .wv-ribbon{
+  left:-26.9%;
+  top:2.2%;
+  width:153.85%;
+  height:108.7%;
+}
+.tpl-ribbonbird .wv-ribbon-cutout .wv-r{stroke-width:6.2}
+.tpl-ribbonbird .wv-foot{
+  position:absolute;
+  z-index:9;
+  left:5.2cqw;
+  right:5.2cqw;
+  bottom:3.1cqw;
+  height:5.2cqw;
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+  align-items:center;
+  justify-content:space-between;
+  gap:5cqw;
+  font:600 2.65cqw/1 var(--f-tmono);
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.tpl-ribbonbird .wv-foot i{
+  min-width:0;
+  font-style:normal;
+  text-align:right;
+  letter-spacing:.02em;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.tpl-ribbonbird .wv-texture{
+  display:none;
+}
+
+/* Keep this as the final rule. stamp-batch-c.js registers these templates
+   only after the complete stylesheet has supplied its readiness marker. */
+:root{--avian-stamp-batch-c-ready:1}

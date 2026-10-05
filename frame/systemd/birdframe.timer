@@ -2,6 +2,11 @@
 Description=Update the e-ink bird frame on a schedule
 
 [Timer]
+# Give every timer activation its own bootstrap deadline. A persistent timer
+# remembers that its earlier OnBootSec deadline fired, while OnUnitActiveSec
+# depends on the service's in-memory activation time. If both units are stopped
+# and later unloaded, restarting the timer can otherwise leave no next deadline.
+OnActiveSec=2min
 OnBootSec=2min
 OnUnitActiveSec=15min
 Persistent=true

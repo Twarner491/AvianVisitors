@@ -52,7 +52,65 @@ curl -s https://raw.githubusercontent.com/Twarner491/AvianVisitors/avian-visitor
 
 Clones this fork, installs BirdNET-Pi, symlinks the AvianVisitors overlay into the Caddy web root. Takes 20-40 minutes. Reboots when done.
 
-Collage: `http://birdnet.local/`. Stock BirdNET-Pi UI: `http://birdnet.local/index.php`. The menu button in the top right opens an admin overlay with settings, system, log, and tool panels.
+Collage: `http://birdnet.local/`. Stock BirdNET-Pi UI: `http://birdnet.local/index.php`. The menu button in the top right opens an admin overlay with Settings, System, Logs, and Tools.
+
+Stock BirdNET-Pi pages still render, but privileged legacy controls are not enabled. Use the Avian Visitors menu for the station controls it exposes, and SSH for remaining maintenance.
+
+Optional Google Drive backups are set up under **Settings → Nightly Drive backup**. Local cleanup stays unavailable until an archive run has been verified.
+
+### Local admin access
+
+Optional password protection for local administrator controls can be enabled in **Settings**. Public bird pages remain available without signing in, while live audio is unavailable when protection is on.
+
+If no password is configured, or the state is missing or invalid, recover it from an SSH session:
+
+```bash
+sudo /usr/local/sbin/avian-admin-control password-reset
+```
+
+The command prompts privately for a new password. Return to **Settings** after it finishes.
+
+### Educators mode
+
+Educators mode is an optional profile for the BirdNET-Pi website. It adds a fifth menu page for starting, pausing, organizing, and reviewing listening periods. Enable it after installation over SSH:
+
+```bash
+sudo /usr/local/sbin/avian-educators enable
+```
+
+New stations can also install with the profile enabled:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Twarner491/AvianVisitors/avian-visitors/newinstaller.sh | bash -s -- --educators
+```
+
+Listening periods scope the Collage, Stats, Atlas, and available detection clips without copying or protecting audio files from normal retention. Saved period and folder exports require a direct local connection. See [the Educators guide](docs/educators.md) for the full workflow and privacy details.
+
+### Updating an existing station
+
+For the first v1 update, or if an interrupted older update left the admin helper missing and Tools locked, keep the existing checkout and run this verified setup over SSH:
+
+```bash
+upgrade=$(mktemp "$HOME/avian-v1-upgrade.XXXXXX")
+curl -fsSL https://raw.githubusercontent.com/Twarner491/AvianVisitors/avian-visitors/scripts/bootstrap_v1.sh -o "$upgrade"
+sudo bash "$upgrade"
+rm -f "$upgrade"
+```
+
+After v1, use **Tools → Pull latest** or run:
+
+```bash
+cd ~/BirdNET-Pi
+./scripts/update_birdnet.sh
+```
+
+The updater preserves custom bird artwork, generated mask data, and existing credentials. It stops if other tracked files have local edits. It verifies and stages one official release before changing the checkout. If applying that release is interrupted, keep the new checkout and resume the same prepared installation without fetching another release:
+
+```bash
+sudo /usr/local/sbin/avian-service-refresh
+```
+
+If the installed refresher itself is missing or unsafe, use the verified setup command above. An already-running older updater cannot gain the new preparation checks until it has finished or been recovered this way. Only use `sudo /usr/local/sbin/avian-admin-control password-reset` for missing credentials after the helper is installed successfully.
 
 ---
 
@@ -69,6 +127,8 @@ python3 ~/BirdNET-Pi/avian/scripts/pregen.py --labels ~/BirdNET-Pi/model/labels.
 python3 ~/BirdNET-Pi/avian/scripts/cutout.py
 python3 ~/BirdNET-Pi/avian/scripts/build_masks.py
 ```
+
+On a Pi with 4 GB of RAM or less, add `--model u2net` to the `cutout.py` command; the default model may be [OOM-killed](https://github.com/Twarner491/AvianVisitors/issues/17).
 
 Filter to your region with `--ebird-region US-CA` (needs `EBIRD_API_KEY`). The full pipeline, prompt, reference images, and per-species tuning live in [`avian/scripts/README.md`](avian/scripts/README.md). Style lives in [`prompt.template.md`](avian/scripts/prompt.template.md).
 
@@ -104,7 +164,7 @@ Everything outside `avian/` and `frame/` is upstream BirdNET-Pi.
 
 ## Wall frame
 
-An optional e-ink frame mirrors the last 24h of birds onto a panel by your window. Build it from [`frame/`](frame/README.md). It can run off your own BirdNET mic, or standalone from BirdWeather data for any ZIP code with no mic at all.
+An optional e-ink frame puts the bird collage on a panel by your window. Build it from [`frame/`](frame/README.md). It can run off your own BirdNET mic, from BirdWeather around a ZIP code, or from one public BirdWeather station with `frame/install.sh --station-id <ID>`.
 
 ---
 

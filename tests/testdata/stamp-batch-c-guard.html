@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Batch C guard fixture</title>
+  <link rel="stylesheet" href="../../avian/frontend/styles.css">
+  <link rel="stylesheet" href="../../avian/frontend/stamps.css">
+  <script>
+    if (new URLSearchParams(location.search).get('css') !== 'missing') {
+      document.write('<link rel="stylesheet" href="../../avian/frontend/stamp-batch-c.css">');
+    }
+  </script>
+  <style>
+    body { margin: 32px; }
+    #result { margin-bottom: 24px; font: 600 16px/1.4 system-ui, sans-serif; }
+    #fixture { width: 260px; }
+    html[data-test="pass"] #result { color: #17652b; }
+    html[data-test="fail"] #result { color: #9f1c16; }
+  </style>
+</head>
+<body>
+  <p id="result">running</p>
+  <div id="fixture"></div>
+  <script src="../../avian/frontend/stamps.js"></script>
+  <script src="../../avian/frontend/stamp-batch-c.js"></script>
+  <script>
+    (function () {
+      var missing = new URLSearchParams(location.search).get('css') === 'missing';
+      var bird = {
+        sci: 'Dendrocopos major',
+        com: 'Great Spotted Woodpecker',
+        index: 1
+      };
+      var expected = missing ? 'geo' : 'ribbonbird';
+      var style = window.STAMPS.styleFor(bird.sci);
+      document.getElementById('fixture').innerHTML = window.STAMPS.markup(
+        bird,
+        '../../avian/assets/illustrations/calypte-anna.png'
+      );
+      var actual = style && style.id;
+      var passed = actual === expected &&
+        document.querySelector('.stamp[data-style="' + expected + '"]');
+      document.documentElement.setAttribute('data-test', passed ? 'pass' : 'fail');
+      document.getElementById('result').textContent = passed
+        ? 'pass: ' + expected + ' rendered'
+        : 'fail: expected ' + expected + ', received ' + actual;
+      if (window.FX) window.FX.run(document);
+    })();
+  </script>
+</body>
+</html>

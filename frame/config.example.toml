@@ -14,10 +14,11 @@ shoot = true
 # Or read a PNG a sibling process drops next to us:
 # image = "~/.birdframe/frame.png"
 
-# Or render from BirdWeather for any ZIP, no mic (what install.sh --bird-weather
-# writes). The panel still refreshes only when the local top birds change:
+# Or render from BirdWeather, no mic. Choose one locator. The panel still
+# refreshes only when that source's top birds change:
 # species_source = "birdweather"
 # zip = "94107"
+# bw_station_id = "12345"  # public number at the end of the station-page URL; use instead of zip
 # bw_days = 7          # BirdWeather lookback window, in days
 # bw_country = "us"    # geocoder country for the ZIP
 # shoot = true         # this Pi renders the collage
@@ -27,6 +28,8 @@ hours = 24             # window shown on the frame
 # --- Titles and look (used when this Pi renders, i.e. shoot = true) ----------
 shoot_title = "Avian Visitors"
 shoot_subtitle = "Heard Today"
+# Set shoot_title = "" to hide the frame title without hiding bird names.
+bird_names = false       # run `birdframe-names on` to show them
 # shoot_headline_px = 42
 # shoot_eyebrow_px = 18
 # shoot_lowercase = false
@@ -38,6 +41,7 @@ shoot_subtitle = "Heard Today"
 rotate = 90            # 90 or 270 if the frame hangs the other way up
 saturation = 0.6       # Inky colour saturation, 0 to 1
 mat = 0.0              # extra shrink of the content inside the A5 opening (0 = none)
+opening = 0.7071       # opening height as a panel fraction; raise toward 0.98 for a bare panel
 # panel = "el133uf1"   # force the 13.3" driver if auto-detect ever fails
 
 # --- Refresh cadence --------------------------------------------------------
@@ -51,7 +55,10 @@ heal_hours = 24        # force a refresh at least this often
 # --- Paths ------------------------------------------------------------------
 state = "~/.birdframe/state.json"
 cache = "~/.birdframe"
-timeout = 45
+# 180s: a Zero 2 W takes ~70-120s to render the collage in headless
+# chromium; the old 45s default made the frame silently never draw on
+# that board (every shoot timed out waiting for tiles).
+timeout = 180
 
 # --- Only if your WHOLE site is behind basic-auth ---------------------------
 # The AvianVisitors default leaves the collage and detection API public, so

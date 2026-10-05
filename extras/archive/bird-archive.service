@@ -1,0 +1,22 @@
+[Unit]
+Description=AvianVisitors nightly Google Drive archive
+Wants=network-online.target time-sync.target
+After=network-online.target time-sync.target
+# StartLimit* are [Unit] directives; in [Service] systemd ignores them
+StartLimitIntervalSec=6h
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+User=pi
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+ExecStart=/home/pi/bird-archive/archive_to_drive.sh
+# Fresh-boot and network guards can wait for more than systemd's normal
+# service-start timeout. The script has its own bounded waits.
+TimeoutStartSec=2h
+# transient failures (WiFi flaps, Drive hiccups) retry a few times, spaced out
+Restart=on-failure
+RestartSec=600

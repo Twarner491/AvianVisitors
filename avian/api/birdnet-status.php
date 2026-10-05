@@ -7,12 +7,18 @@
 //   system    - uptime / load / disk / mem / temp / audio device / db file age
 //   services  - status of every birdnet_* unit + caddy + php-fpm
 //   logs      - &unit=<name>&lines=N: last N lines of that unit's journal
-//   restart   - GET/POST &unit=<name>: restart a single service (whitelisted)
+//   restart   - POST &unit=<name>: restart a single service (whitelisted)
 //   diag      - everything in one go (system + services + recent logs)
 //
-// Default LAN deploy: returns data immediately, no auth.
-// Forwarded deploy:  set AV_REQUIRE_AUTH=1 (env) AND configure Caddy
-// basic_auth on /avian/api/ to gate everything.
+// Direct requests on the station's private address may be available without a
+// password. The station owner can require the configured admin password there
+// too. Forwarded and public-host requests always require it.
+//
+// Every sudo call passes -n so it can never sit waiting for a password:
+// php-fpm has no tty to answer one, and the request would just hang until
+// the worker times out. With /etc/sudoers.d/020_avian-admin in place the
+// flag changes nothing; without it the call fails at once and the panel
+// can say so.
 //
 // Service restart + journalctl need passwordless sudo for the caddy
 // user that runs php-fpm. install_services.sh drops the matching
@@ -23,11 +29,8 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
-if (getenv('AV_REQUIRE_AUTH') === '1' && empty($_SERVER['HTTP_AUTHORIZATION'])) {
-    http_response_code(401);
-    echo json_encode(['error' => 'unauthorized']);
-    exit;
-}
+require_once __DIR__ . '/admin-auth.php';
+avian_require_admin();
 
 $action = $_GET['action'] ?? 'diag';
 
@@ -40,12 +43,41 @@ $BIRDSONGS_DIR = dirname(__DIR__, 3) . '/BirdSongs';
 $DB_PATH       = "$BIRDNETPI_DIR/scripts/birds.db";
 $CONF_PATH     = "$BIRDNETPI_DIR/birdnet.conf";
 $STREAM_DIR    = "$BIRDSONGS_DIR/StreamData";
+$ADMIN_CONTROL = getenv('AV_ADMIN_CONTROL') ?: '/usr/local/sbin/avian-admin-control';
 
 function shellout(string $cmd): string {
     // Always merge stderr so a broken command shows what failed.
     $rc = 0; $out = [];
     exec($cmd . ' 2>&1', $out, $rc);
     return implode("\n", $out);
+}
+
+function admin_control_output(string $control, array $arguments, ?int &$status = null): string {
+    if (!is_executable($control)) {
+        $status = 127;
+        return 'admin control is not installed';
+    }
+    $command = ['/usr/bin/sudo', '-n', $control];
+    foreach ($arguments as $argument) $command[] = (string)$argument;
+    $pipes = [];
+    $process = proc_open($command, [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ], $pipes, null, null, ['bypass_shell' => true]);
+    if (!is_resource($process)) {
+        $status = 127;
+        return 'could not start admin control';
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[2]);
+    $status = proc_close($process);
+    $stdout = is_string($stdout) ? trim($stdout) : '';
+    $stderr = is_string($stderr) ? trim($stderr) : '';
+    return $stdout !== '' ? $stdout : $stderr;
 }
 
 function read_uptime(): array {
@@ -161,7 +193,7 @@ function read_conf_summary(string $p): array {
     if (!is_readable($p)) return ['readable' => false];
     $keys = [
         'CONFIDENCE','SENSITIVITY','OVERLAP','REC_CARD','LATITUDE','LONGITUDE',
-        'MODEL','SITE_NAME','RTSP_STREAM',
+        'MODEL','SITE_NAME',
     ];
     $vals = [];
     foreach (file($p, FILE_IGNORE_NEW_LINES) as $line) {
@@ -177,7 +209,7 @@ function read_conf_summary(string $p): array {
     return ['readable' => true, 'values' => $vals];
 }
 
-// Whitelisted units we'll surface in the system page + allow restart on.
+// Whitelisted units surfaced in the system page and logs.
 // Includes both 8.2 and 8.4 php-fpm so older Debian + Trixie both report
 // the right unit name; missing units come back as "inactive (not-found)".
 const ALLOWED_UNITS = [
@@ -195,8 +227,33 @@ const ALLOWED_UNITS = [
     'php8.2-fpm',
 ];
 
+// Never synchronously restart the web server or PHP worker from the request
+// they are serving. These remain visible for status and logs only.
+const RESTARTABLE_UNITS = [
+    'birdnet_recording',
+    'birdnet_analysis',
+    'birdnet_log',
+    'birdnet_stats',
+    'spectrogram_viewer',
+    'livestream',
+    'chart_viewer',
+    'icecast2',
+];
+
+function restartable_units_for_state(): array {
+    $state = avian_admin_state();
+    if (!empty($state['valid']) && empty($state['required'])) {
+        return RESTARTABLE_UNITS;
+    }
+    return array_values(array_filter(
+        RESTARTABLE_UNITS,
+        static fn(string $unit): bool => $unit !== 'icecast2'
+    ));
+}
+
 function services_status(): array {
     $out = [];
+    $restartableUnits = restartable_units_for_state();
     foreach (ALLOWED_UNITS as $u) {
         $state = trim(shellout('systemctl is-active ' . escapeshellarg($u)));
         // Skip units that systemd doesn't know about at all (e.g. php8.2-fpm
@@ -211,25 +268,25 @@ function services_status(): array {
             'active'  => $state,
             'enabled' => $enabled,
             'since'   => $since ?: null,
+            'restartable' => in_array($u, $restartableUnits, true),
         ];
     }
     return $out;
 }
 
-function logs_for(string $unit, int $lines): array {
+function logs_for(string $control, string $unit, int $lines): array {
     if (!in_array($unit, ALLOWED_UNITS, true)) {
         http_response_code(400);
         return ['error' => 'unit not allowed', 'allowed' => ALLOWED_UNITS];
     }
     $lines = max(10, min(500, $lines));
-    $out = shellout(
-        'sudo /bin/journalctl -u ' . escapeshellarg($unit) .
-        ' --no-pager -n ' . $lines . ' -o short-iso'
-    );
+    $rc = 0;
+    $out = admin_control_output($control, ['journal', $unit, (string)$lines], $rc);
     return [
         'unit'  => $unit,
         'lines' => $lines,
         'text'  => $out,
+        'ok'    => $rc === 0,
     ];
 }
 
@@ -261,35 +318,29 @@ switch ($action) {
     case 'logs': {
         $unit = (string)($_GET['unit'] ?? 'birdnet_recording');
         $lines = (int)($_GET['lines'] ?? 60);
-        echo json_encode(logs_for($unit, $lines));
+        echo json_encode(logs_for($ADMIN_CONTROL, $unit, $lines));
         break;
     }
 
     case 'restart': {
-        // POST-only: blocks a stray <img src="...?action=restart...">
-        // tag on any LAN-reachable page from disrupting the recording
-        // pipeline. The frontend already POSTs; only thing this rejects
-        // is a passive cross-page GET.
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo json_encode(['error' => 'POST required']);
-            break;
-        }
+        avian_require_json_action();
         $unit = (string)($_GET['unit'] ?? '');
-        if (!in_array($unit, ALLOWED_UNITS, true)) {
+        $restartableUnits = restartable_units_for_state();
+        if (!in_array($unit, $restartableUnits, true)) {
             http_response_code(400);
-            echo json_encode(['error' => 'unit not allowed', 'allowed' => ALLOWED_UNITS]);
+            echo json_encode(['error' => 'unit is status-only', 'allowed' => $restartableUnits]);
             break;
         }
-        // Sudoers rule (dropped in by install_services.sh):
-        //   caddy ALL=(root) NOPASSWD: /bin/systemctl restart birdnet_*, ...
-        $rc = 0; $out = [];
-        exec('sudo /bin/systemctl restart ' . escapeshellarg($unit) . ' 2>&1', $out, $rc);
+        $rc = 0;
+        $raw = admin_control_output($ADMIN_CONTROL, ['restart', $unit], $rc);
+        $decoded = json_decode($raw, true);
+        $ok = $rc === 0 && is_array($decoded) && !empty($decoded['ok']);
+        if (!$ok) http_response_code(500);
         echo json_encode([
             'unit' => $unit,
-            'ok'   => $rc === 0,
+            'ok'   => $ok,
             'rc'   => $rc,
-            'out'  => implode("\n", $out),
+            'out'  => $ok ? '' : (string)($decoded['error'] ?? 'restart failed'),
         ]);
         break;
     }
@@ -300,9 +351,9 @@ switch ($action) {
         $key_units = ['birdnet_recording', 'birdnet_analysis'];
         $recent_logs = [];
         foreach ($key_units as $u) {
-            $recent_logs[$u] = trim(shellout(
-                'sudo /bin/journalctl -u ' . escapeshellarg($u) .
-                ' --no-pager -n 20 -o short-iso'
+            $rc = 0;
+            $recent_logs[$u] = trim(admin_control_output(
+                $ADMIN_CONTROL, ['journal', $u, '20'], $rc
             ));
         }
         echo json_encode([

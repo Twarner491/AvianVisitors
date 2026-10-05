@@ -1,0 +1,13 @@
+# AvianVisitors nightly archive configuration
+# (sourced by ~/bird-archive/archive_to_drive.sh)
+
+# rclone remote and Drive folder that receives everything
+REMOTE="gdrive:AvianVisitors"
+
+# The third disk mode: rolling clear. false = archive only (safe test mode);
+# true = delete each day's local recordings AFTER its upload verifies.
+PURGE=false
+
+# Keep this many extra recent days on the Pi beyond today (0 = archive and
+# purge everything before today; 1 = yesterday also stays local, etc.)
+KEEP_DAYS=0

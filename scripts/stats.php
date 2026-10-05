@@ -212,8 +212,21 @@ array_push($excludelines, $results['Date']."/".$comname."/".$results['File_Name'
 <?php
 }
 
-$file = file_get_contents($home."/BirdNET-Pi/scripts/disk_check_exclude.txt");
-file_put_contents($home."/BirdNET-Pi/scripts/disk_check_exclude.txt", "##start"."\n".implode("\n",$excludelines)."\n".substr($file, strpos($file, "##end")));
+$exclude_path = $home."/BirdNET-Pi/scripts/disk_check_exclude.txt";
+$file = @file_get_contents($exclude_path);
+$end_offset = is_string($file) ? strpos($file, "##end") : false;
+if ($end_offset === false) {
+  error_log("Cannot read the protected recording list");
+  http_response_code(500);
+  exit(1);
+}
+$exclude_contents = "##start"."\n".implode("\n",$excludelines)."\n".substr($file, $end_offset);
+$written = @file_put_contents($exclude_path, $exclude_contents, LOCK_EX);
+if ($written !== strlen($exclude_contents)) {
+  error_log("Cannot write the protected recording list");
+  http_response_code(500);
+  exit(1);
+}
 ?>
     </table>
   </form>

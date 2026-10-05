@@ -2,6 +2,7 @@ import argparse
 import datetime
 import os
 
+from utils.classes import birdnet_week
 from utils.helpers import get_settings, MODEL_PATH
 from utils.models import MDataModel1, MDataModel2
 
@@ -11,12 +12,18 @@ if __name__ == '__main__':
     )
     parser.add_argument('--threshold', type=float, default=0.05,
                         help='Occurrence frequency threshold. Defaults to 0.05.')
+    parser.add_argument('--date', help='YYYY-MM-DD to score instead of today.')
+    parser.add_argument('--week', type=int,
+                        help='Override the week sent to the model (1-48). For '
+                             'comparing what a given week actually admits.')
     args = parser.parse_args()
 
     conf = get_settings()
     lat = conf.getfloat('LATITUDE')
     lon = conf.getfloat('LONGITUDE')
-    week = datetime.datetime.today().isocalendar()[1]
+    when = (datetime.datetime.strptime(args.date, '%Y-%m-%d')
+            if args.date else datetime.datetime.today())
+    week = args.week if args.week else birdnet_week(when)
 
     print(f'Getting species list for {lat}/{lon}, Week {week}...', flush=True)
     labels_path = os.path.join(MODEL_PATH, 'labels.txt')

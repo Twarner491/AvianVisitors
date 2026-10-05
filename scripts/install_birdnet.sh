@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # Install BirdNET script
-set -x # Debugging
-exec > >(tee -i installation-$(date +%F).txt) 2>&1 # Make log
+case "$#" in
+  0) AVIAN_INSTALL_EDUCATORS=0 ;;
+  1)
+    [ "$1" = --educators ] \
+      || { echo "Usage: $0 [--educators]" >&2; exit 64; }
+    AVIAN_INSTALL_EDUCATORS=1
+    ;;
+  *) echo "Usage: $0 [--educators]" >&2; exit 64 ;;
+esac
+export AVIAN_INSTALL_EDUCATORS
+exec > >(tee -i "installation-$(date +%F).txt") 2>&1 # Make log
 set -e # exit installation if anything fails
 
 my_dir=$HOME/BirdNET-Pi
@@ -21,6 +30,20 @@ fi
 
 #Install/Configure /etc/birdnet/birdnet.conf
 ./install_config.sh || exit 1
+# Keep Debian's timezone file aligned before AvianVisitors initializes the
+# Educators store. Some fresh images omit it or leave it stale even though
+# systemd already has the correct station timezone.
+CURRENT_TIMEZONE=$(timedatectl show --value --property=Timezone)
+[[ "$CURRENT_TIMEZONE" =~ ^[A-Za-z0-9._+-]+(/[A-Za-z0-9._+-]+)*$ ]] \
+  && [[ "/$CURRENT_TIMEZONE/" != *'/../'* ]] \
+  && [[ "/$CURRENT_TIMEZONE/" != *'/./'* ]] \
+  && [ "${#CURRENT_TIMEZONE}" -le 128 ] \
+  && [ -f "/usr/share/zoneinfo/$CURRENT_TIMEZONE" ] \
+  || { echo "The system timezone is missing or invalid" >&2; exit 1; }
+timezone_temp=$(mktemp)
+printf '%s\n' "$CURRENT_TIMEZONE" >"$timezone_temp"
+sudo install -o root -g root -m 0644 "$timezone_temp" /etc/timezone
+rm -f -- "$timezone_temp"
 sudo -E HOME=$HOME USER=$USER ./install_services.sh || exit 1
 source /etc/birdnet/birdnet.conf
 
@@ -52,10 +75,6 @@ install_birdnet() {
 install_birdnet
 
 cd $my_dir/scripts || exit 1
-
-# tzlocal.get_localzone() will fail if the Debian specific /etc/timezone is not in sync
-CURRENT_TIMEZONE=$(timedatectl show --value --property=Timezone)
-[ -f /etc/timezone ] && echo "$CURRENT_TIMEZONE" | sudo tee /etc/timezone > /dev/null
 
 ./install_language_label.sh || exit 1
 

@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
 <title>your birds</title>
 <meta name="description" content="A live bird collage from your window.">
 <link rel="icon" type="image/png" href="./favicon.png">
@@ -12,7 +13,7 @@
 <script>try{if(localStorage.getItem('bird:theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
 <link rel="stylesheet" href="./styles.css?v=ios12-collage-1">
 </head>
-<body class="av-local">
+<body>
 <!-- Pill in the top-left slot, only visible on admin overlays
      (body.admin-on); CSS in styles.css hides it everywhere else.
      href="/" returns to the collage view via a full reload, which is
@@ -22,6 +23,12 @@
     <path d="M10 3 L4 8 L10 13"/>
   </svg>
   collage
+</a>
+<a class="return-to-atlas educator-return" id="returnToEducators" href="#admin=educators" aria-label="back to educators" hidden>
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M10 3 L4 8 L10 13"/>
+  </svg>
+  educators
 </a>
 <header class="top">
   <div class="window-pick" id="winPick" role="tablist">
@@ -36,13 +43,23 @@
   <button class="menu-btn" id="menuBtn">menu</button>
 </header>
 
-<aside id="menu-dd" aria-hidden="true">
+<!-- The menu button IS its card: one shell, fixed to the top-right
+     corner, is a pill when closed and a sheet when open. #menu-dd must sit
+     inside .menu-surface - the surface's rounded overflow is what clips the
+     reveal - and the button must be the surface's sibling so it is never
+     clipped. .menu-sheet is only the contents, revealed on their own clock
+     while the surface is still the wrong shape for them. -->
+<div class="menu-shell" id="menuShell">
+  <div class="menu-surface">
+  <aside id="menu-dd" aria-hidden="true" role="dialog" aria-label="menu">
+    <div class="menu-sheet">
   <div id="dd-locked">
     <form class="lock-row" id="unlockForm">
       <input id="lockPass" type="password" placeholder="password" autocomplete="current-password">
       <button type="submit" aria-label="unlock">â†’</button>
     </form>
-    <p class="lock-hint" id="lockHint">enter password to unlock tools.</p>
+    <p class="lock-hint" id="lockHint" role="status" aria-live="polite" aria-atomic="true"></p>
+    <p class="lock-transport" id="lockTransport" hidden>Plain HTTP does not protect this password from other devices on the network.</p>
   </div>
   <nav class="menu-items" id="dd-items"></nav>
   <p class="built-by">built by <a href="https://theodore.net" target="_blank" rel="noopener">teddy</a> Â· <a href="https://github.com/Twarner491/AvianVisitors" target="_blank" rel="noopener">github</a></p>
@@ -58,18 +75,70 @@
 
     <!-- ========== View 2 - Stats ========== -->
     <section class="view" id="v1" aria-label="Stats">
-      <div class="stats-grid">
-        <div class="stats-timeline" id="statsTimeline">
-          <!-- Editorial detection timeline. Each column = one species
-               from the current time window. The black square's vertical
-               position encodes detection count; the species name + sci
-               name sit rotated below. Vertical hairlines separate
-               columns. Hard-rendered by renderStatsTimeline(). -->
+      <div class="stats-grid" id="statsGrid">
+        <div class="stats-date-nav" id="statsDateNav" aria-label="Stats date" hidden>
+          <button type="button" id="statsDatePrev" aria-label="Previous day">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 2.5 4 6l3.5 3.5"/></svg>
+          </button>
+          <button type="button" class="stats-date-label" id="statsDateLabel" aria-label="Choose stats date" aria-expanded="false" aria-controls="statsCalendar">today</button>
+          <button type="button" id="statsDateNext" aria-label="Next day" disabled>
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5"/></svg>
+          </button>
+          <div class="stats-calendar" id="statsCalendar" role="dialog" aria-label="Choose stats date" aria-hidden="true">
+            <div class="stats-calendar-head">
+              <button type="button" id="statsMonthPrev" aria-label="Previous month">
+                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 2.5 4 6l3.5 3.5"/></svg>
+              </button>
+              <span id="statsMonthTitle"></span>
+              <button type="button" id="statsMonthNext" aria-label="Next month">
+                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5"/></svg>
+              </button>
+            </div>
+            <div class="stats-calendar-week" aria-hidden="true"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+            <div class="stats-calendar-days" id="statsCalendarDays" role="grid"></div>
+            <div class="stats-calendar-foot">
+              <button type="button" id="statsLatestDate">latest heard</button>
+              <button type="button" id="statsTodayDate">today</button>
+            </div>
+          </div>
+        </div>
+        <!-- The chart slot holds two readings of the same window; the
+             icon pick swaps between them while the side panel and the
+             rhythm below stay put, so nothing is hidden to see either. -->
+        <div class="stats-chart">
+          <div class="chart-pick" id="chartPick" role="tablist" aria-label="chart">
+            <i class="seg-pill" aria-hidden="true"></i>
+            <!-- Material Symbols Outlined (Apache 2.0), path data verbatim. -->
+            <button data-chart="timeline" type="button" aria-current="true" aria-label="detection timeline">
+              <svg viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true">
+                <path d="M640-160v-280h160v280H640Zm-240 0v-640h160v640H400Zm-240 0v-440h160v440H160Z"/>
+              </svg>
+              <span class="tip">timeline</span>
+            </button>
+            <button data-chart="hourly" type="button" aria-label="by hour">
+              <svg viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true">
+                <path d="M760-200v-120H200v120h560Zm0-200v-160H200v160h560Zm0-240v-120H200v120h560ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Z"/>
+              </svg>
+              <span class="tip">by hour</span>
+            </button>
+          </div>
+          <div class="stats-timeline" id="statsTimeline">
+            <!-- Editorial detection timeline. Each column = one species
+                 from the current time window. The black square's vertical
+                 position encodes detection count; the species name + sci
+                 name sit rotated below. Vertical hairlines separate
+                 columns. Hard-rendered by renderStatsTimeline(). -->
+          </div>
+          <!-- Species-by-hour ledger for the globally selected Stats date.
+               Rendered by renderHourly(); hidden until its icon. -->
+          <div class="stats-heatmap" id="statsHeatmap">
+            <div class="heatmap-wrap" id="heatmapWrap"></div>
+          </div>
         </div>
         <aside class="stats-side">
           <div class="grp">
             <h3>By Period</h3>
-            <small>detections, grouped by recency</small>
+            <small id="statsByPeriodCap">detections, grouped by recency</small>
             <ol id="statsByPeriod"></ol>
           </div>
           <div class="grp">
@@ -79,10 +148,16 @@
           </div>
           <div class="grp">
             <h3>First Detections</h3>
-            <small>newest additions to the life list</small>
+            <small id="statsFirstSeenCap">newest additions to the life list</small>
             <ol id="statsFirstSeen"></ol>
           </div>
         </aside>
+        <div class="grp stats-rhythm">
+          <h3 id="statsRhythmTitle">Today's Rhythm</h3>
+          <small id="statsRhythmCap">detections through the day, over last week's average</small>
+          <!-- SVG line chart, rendered by renderRhythm(). -->
+          <div class="rh-plot" id="statsRhythm"></div>
+        </div>
       </div>
     </section>
 
@@ -91,19 +166,20 @@
       <div class="atlas-controls">
         <div class="atlas-sort" id="atlasSort" role="tablist" aria-label="sort atlas">
           <i class="seg-pill" aria-hidden="true"></i>
-          <button data-sort="count"  type="button" aria-current="true" aria-label="most heard">
-            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-              <path d="M2 12 V8"/><path d="M6 12 V5"/><path d="M10 12 V3"/>
-            </svg>
-            <span class="tip">most heard</span>
-          </button>
-          <button data-sort="recent" type="button" aria-label="most recent">
+          <button data-sort="life" type="button" aria-current="true" aria-label="life list">
             <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="7" cy="7" r="5.2"/><path d="M7 4 V7 L9.2 8.3"/>
             </svg>
-            <span class="tip">most recent</span>
+            <span class="tip">life list</span>
           </button>
-          <button data-sort="alpha"  type="button" aria-label="alphabetical">
+          <button data-sort="family" type="button" aria-label="by family">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="4.2" height="4.2" rx="0.8"/><rect x="7.8" y="2" width="4.2" height="4.2" rx="0.8"/>
+              <rect x="2" y="7.8" width="4.2" height="4.2" rx="0.8"/><rect x="7.8" y="7.8" width="4.2" height="4.2" rx="0.8"/>
+            </svg>
+            <span class="tip">by family</span>
+          </button>
+          <button data-sort="alpha" type="button" aria-label="alphabetical">
             <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
               <path d="M2.4 11.5 L4 4.5 L5.6 11.5"/><path d="M2.9 9.2 H5.1"/>
               <path d="M8.2 11.5 V4.5 H10.4 a1.3 1.3 0 0 1 0 2.6 H8.2"/><path d="M8.2 7.1 H10.6 a1.5 1.5 0 0 1 0 3 H8.2"/>
@@ -116,6 +192,7 @@
     </section>
 
   </div>
+  <div class="educator-data-loading-state" id="educatorDataLoading" role="status" aria-live="polite" hidden>loading birds...</div>
 </main>
 
 <div id="detail-modal" aria-hidden="true" role="dialog" aria-labelledby="modalCommon">
@@ -127,56 +204,73 @@
         <img id="modalImg" src="" alt="" loading="eager">
         <div class="pose-toggle" id="modalPoseToggle" role="tablist" aria-label="Pose">
           <i class="seg-pill" aria-hidden="true"></i>
+          <!-- Font Awesome Free 6.7.2 crow and dove glyphs, copied verbatim
+               from FortAwesome's free-solid SVG set (icons: CC BY 4.0). -->
           <button type="button" data-pose="1" aria-label="perched">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3.5 6.5 C 4 4, 6 3, 8 4 C 10 3.6, 11.6 4.6, 12 6.5 L 11.5 8 C 11 9.6, 9.4 10.4, 8 10.4 C 6.4 10.4, 4.8 9.6, 4.2 8 Z"/>
-              <circle cx="10.6" cy="5.7" r=".4" fill="currentColor"/>
-              <path d="M12 6.2 L 13.6 5.8"/>
-              <path d="M7.5 10.4 L 7.2 12.2"/>
-              <path d="M8.6 10.4 L 8.9 12.2"/>
-              <path d="M2 12.6 H 13"/>
+            <svg viewBox="0 0 640 512" fill="currentColor" aria-hidden="true">
+              <path d="M456 0c-48.6 0-88 39.4-88 88l0 29.2L12.5 390.6c-14 10.8-16.6 30.9-5.9 44.9s30.9 16.6 44.9 5.9L126.1 384l133.1 0 46.6 113.1c5 12.3 19.1 18.1 31.3 13.1s18.1-19.1 13.1-31.3L311.1 384l40.9 0c1.1 0 2.1 0 3.2 0l46.6 113.2c5 12.3 19.1 18.1 31.3 13.1s18.1-19.1 13.1-31.3l-42-102C484.9 354.1 544 280 544 192l0-64 0-8 80.5-20.1c8.6-2.1 13.8-10.8 11.6-19.4C629 52 603.4 32 574 32l-50.1 0C507.7 12.5 483.3 0 456 0zm0 64a24 24 0 1 1 0 48 24 24 0 1 1 0-48z"/>
             </svg>
             <span class="tip">perched</span>
           </button>
           <button type="button" data-pose="2" aria-label="in flight">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M1.5 8 Q 4.5 4, 7.5 7.5 Q 11 4, 14.5 8"/>
-              <path d="M7.5 7.5 L 8 9.5"/>
-              <circle cx="8.5" cy="7.2" r=".4" fill="currentColor"/>
-              <path d="M8.6 7 L 10 6.6"/>
+            <svg viewBox="0 0 512 512" fill="currentColor" aria-hidden="true">
+              <path d="M160.8 96.5c14 17 31 30.9 49.5 42.2c25.9 15.8 53.7 25.9 77.7 31.6l0-31.5C265.8 108.5 250 71.5 248.6 28c-.4-11.3-7.5-21.5-18.4-24.4c-7.6-2-15.8-.2-21 5.8c-13.3 15.4-32.7 44.6-48.4 87.2zM320 144l0 30.6s0 0 0 0l0 1.3s0 0 0 0l0 32.1c-60.8-5.1-185-43.8-219.3-157.2C97.4 40 87.9 32 76.6 32c-7.9 0-15.3 3.9-18.8 11C46.8 65.9 32 112.1 32 176c0 116.9 80.1 180.5 118.4 202.8L11.8 416.6C6.7 418 2.6 421.8 .9 426.8s-.8 10.6 2.3 14.8C21.7 466.2 77.3 512 160 512c3.6 0 7.2-1.2 10-3.5L245.6 448l74.4 0c88.4 0 160-71.6 160-160l0-160 29.9-44.9c1.3-2 2.1-4.4 2.1-6.8c0-6.8-5.5-12.3-12.3-12.3L400 64c-44.2 0-80 35.8-80 80zm80-16a16 16 0 1 1 0 32 16 16 0 1 1 0-32z"/>
             </svg>
             <span class="tip">in flight</span>
           </button>
         </div>
+        <button id="modalGenerate" class="postcard-generate" type="button" aria-live="polite" aria-atomic="true" hidden>generate image</button>
+        <nav class="postcard-links" aria-label="External bird references">
+          <a id="modalWiki" target="_blank" rel="noopener">Wikipedia <span aria-hidden="true">↗</span></a>
+          <a id="modalEbird" target="_blank" rel="noopener">eBird <span aria-hidden="true">↗</span></a>
+        </nav>
       </div>
-      <div class="modal-info">
-        <h2 id="modalCommon">-</h2>
-        <p class="sci" id="modalSci"></p>
-        <div class="modal-stats">
-          <div><span class="n" id="modalAllTime">-</span><span class="lbl">all time</span></div>
-          <div id="modalWindowStat"><span class="n" id="modalWindow">-</span><span class="lbl" id="modalWindowLbl">window</span></div>
-          <div><span class="n" id="modalFirstSeen">-</span><span class="lbl">first heard</span></div>
+    </section>
+
+    <section class="postcard-content">
+      <header class="postcard-identity">
+        <div class="postcard-heading">
+          <h2 id="modalCommon">-</h2>
+          <span id="modalSci" hidden></span>
+          <div class="postcard-stats" aria-label="Bird history">
+            <span><b id="modalAllTime">-</b> heard</span>
+            <span><b id="modalFirstSeen">-</b> first heard</span>
+          </div>
         </div>
-        <p class="desc placeholder" id="modalDesc">Loading description...</p>
-        <div class="modal-meta">
-          <span class="meta-item"><span class="k">genus</span><span class="v" id="modalGenus">-</span></span>
-          <span class="meta-item"><span class="k">rarity</span><span class="v" id="modalRarity">-</span></span>
+        <div class="postcard-stamp-slot" aria-label="selected stamp"></div>
+      </header>
+
+      <details class="postcard-section postcard-about" name="postcard-info" open>
+        <summary>
+          <span>About</span>
+        </summary>
+        <div class="postcard-section-body">
+          <div class="desc placeholder" id="modalDesc">Loading description...</div>
+          <div class="modal-meta">
+            <span class="meta-item"><span class="k">Family</span><span class="v" id="modalFamily">-</span></span>
+            <span class="meta-item"><span class="k">Genus</span><span class="v" id="modalGenus">-</span></span>
+            <span class="meta-item"><span class="k">Species</span><span class="v" id="modalSpecies">-</span></span>
+            <span class="meta-item"><span class="k">Rarity</span><span class="v" id="modalRarity">-</span></span>
+          </div>
         </div>
-      </div>
-    </div>
-    <div class="modal-recordings">
-      <div class="rec-head">
-        <h3>Recordings</h3>
-        <span class="rec-count" id="modalRecCount"></span>
-      </div>
-      <ol id="modalRecordings">
-        <li class="rec-empty">Loading recordings...</li>
-      </ol>
-    </div>
-    <div class="modal-actions">
-      <a id="modalWiki" class="chip ext" target="_blank" rel="noopener">wiki</a>
-      <a id="modalEbird" class="chip ext" target="_blank" rel="noopener">ebird</a>
-    </div>
+      </details>
+
+      <details class="postcard-section postcard-recordings" name="postcard-info">
+        <summary>
+          <span>Recordings</span>
+          <small id="modalRecCount"></small>
+        </summary>
+        <div class="postcard-section-body">
+          <div class="rec-table-head" aria-hidden="true">
+            <span>Last heard</span><span>Confidence</span><span>Date &amp; time</span>
+          </div>
+          <ol id="modalRecordings">
+            <li class="rec-empty">Loading recordings...</li>
+          </ol>
+        </div>
+      </details>
+
+    </section>
   </article>
 </div>
 
@@ -198,11 +292,9 @@
 </nav>
 
 
-<!-- AvianVisitors: empty admin-screen stub. The live JS expects this
-     element to exist (openAdmin/closeAdmin call setAttribute on it).
-     Menu items navigate to BirdNET-Pi's stock pages instead of opening
-     in-app admin views, so this stays empty. -->
-<section class="admin-screen" id="adminScreen" aria-hidden="true">
+<!-- Native Settings, System, Logs, Tools, and Educators views render here. The live JS
+     clears this workspace whenever the admin session locks or changes. -->
+<section class="admin-screen" id="adminScreen" aria-hidden="true" inert>
   <div class="admin-frame">
     <header class="admin-title"><h1 id="adminTitle"></h1></header>
     <div class="admin-body" id="adminBody"></div>

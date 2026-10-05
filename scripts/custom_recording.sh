@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-set -x
 source /etc/birdnet/birdnet.conf
+if [ "${BIRDNET_RECORDING_DEBUG:-0}" = 1 ]; then
+  set -x
+fi
 
 STAMP="%H:%M:%S"
 
@@ -71,5 +73,4 @@ while [ $now -ge ${CUSTOM_WINDOW_START[3]} ] && [ $now -le ${CUSTOM_WINDOW_END[3
   sleep $PAUSE_DURATION
   now=$(date +%H)
 done
-
 

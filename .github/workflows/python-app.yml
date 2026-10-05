@@ -5,14 +5,28 @@ name: Python application
 
 on:
   push:
-    branches: [ "main", "test_me" ]
+    branches: [ "main", "test_me", "avian-visitors" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "avian-visitors" ]
 
 permissions:
   contents: read
 
 jobs:
+  frame-capture:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    - name: Install capture test dependencies
+      run: |
+        pip install pytest Pillow -r frame/requirements-shoot.txt
+        python -m playwright install --with-deps chromium
+    - name: Test partial image transfers
+      run: pytest tests/test_frame_capture_browser.py -v
+
   build:
 
     runs-on: ubuntu-latest

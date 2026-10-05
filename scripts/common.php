@@ -2,6 +2,8 @@
 
 define('__ROOT__', dirname(dirname(__FILE__)));
 
+require_once dirname(__DIR__) . '/avian/api/admin-state.php';
+
 if (session_status() !== PHP_SESSION_ACTIVE)
   session_start();
 
@@ -67,12 +69,37 @@ function get_service_mount_name() {
 }
 
 function is_authenticated() {
-  $ret = false;
-  if (isset($_SERVER['PHP_AUTH_USER'])) {
-    $config = get_config();
-    $ret = ($_SERVER['PHP_AUTH_PW'] == $config['CADDY_PWD'] && $_SERVER['PHP_AUTH_USER'] == 'birdnet');
+  static $cached_proof = null;
+  static $cached_result = false;
+  $state = avian_admin_state();
+  if (empty($state['valid'])
+      || empty($state['configured'])
+      || !empty($state['required'])) {
+    return false;
   }
-  return $ret;
+  if (hash_equals('1', (string)($_SERVER['AVIAN_LEGACY_AUTH'] ?? ''))) {
+    $markerEpoch = (string)($_SERVER['AVIAN_LEGACY_AUTH_EPOCH'] ?? '');
+    if ($markerEpoch !== ''
+        && hash_equals((string)$state['epoch'], $markerEpoch)) {
+      return true;
+    }
+  }
+  if (!isset($_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW'])) {
+    return false;
+  }
+  $proof = hash('sha256', implode("\0", [
+    (string)$state['epoch'],
+    (string)$state['verifier'],
+    (string)$_SERVER['PHP_AUTH_USER'],
+    (string)$_SERVER['PHP_AUTH_PW'],
+  ]));
+  if (is_string($cached_proof) && hash_equals($cached_proof, $proof)) {
+    return $cached_result;
+  }
+  $cached_proof = $proof;
+  $cached_result = hash_equals('birdnet', (string)$_SERVER['PHP_AUTH_USER'])
+    && avian_admin_password_matches((string)$_SERVER['PHP_AUTH_PW'], $state);
+  return $cached_result;
 }
 
 function ensure_authenticated($error_message = 'You cannot edit the settings for this installation') {
@@ -295,7 +322,7 @@ class ImageProvider {
 
 class Flickr extends ImageProvider {
 
-  protected $db_path = __ROOT__ . '/scripts/flickr.db';
+  protected $db_path = '/var/lib/avian-visitors/image-cache/flickr.db';
 
   private $flickr_api_key = null;
   private $args = "&license=2%2C3%2C4%2C5%2C6%2C9&orientation=square,portrait";
@@ -420,7 +447,7 @@ class Flickr extends ImageProvider {
 
 class Wikipedia extends ImageProvider {
 
-  protected $db_path = __ROOT__ . '/scripts/wikipedia.db';
+  protected $db_path = '/var/lib/avian-visitors/image-cache/wikipedia.db';
 
   protected function get_from_source($sci_name) {
     $page_title = str_replace(' ', '_', $sci_name);

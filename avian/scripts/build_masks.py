@@ -20,9 +20,11 @@ species produce non-overlapping diffs instead of colliding. The tables
 used to be inlined in apt.js as single ~800KB lines, which turned every
 species-add into a whole-line rewrite and an unavoidable merge conflict.
 
-Run after changing the illustration set. Bump SKETCH_VERSION and
-IMG_VERSION in apt.js when you re-render a bird so browsers drop the
-stale image (and the freshly written dims.json/masks.json).
+Run after changing the illustration set. If dims.json or masks.json changes,
+always bump TABLE_VERSION in apt.js. For a one-species correction, also add or
+update that species in ART_REVISIONS. For a regional or library-wide rebuild,
+bump SKETCH_VERSION and IMG_VERSION instead of creating hundreds of species
+revisions.
 
 Usage:
     python3 build_masks.py            # write dims.json + masks.json
@@ -41,12 +43,15 @@ MASK_MAX = 93   # long side of the stored silhouette
 ALPHA_ON = 127  # opaque above this -> silhouette bit set
 
 
-def build_tables(illus_dir: Path):
-    """Return (dims, masks) dicts keyed by slug, in sorted order."""
+def build_tables(illus_dir: Path, only=None):
+    """Return (dims, masks) dicts keyed by slug, in sorted order.
+    `only` (a set of slugs) restricts the scan for incremental --add runs."""
     from PIL import Image
     dims, masks = {}, {}
     pngs = sorted(p for p in illus_dir.glob("*.png")
                   if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", p.stem))
+    if only is not None:
+        pngs = [p for p in pngs if p.stem in only]
     for p in pngs:
         slug = p.stem
         im = Image.open(p).convert("RGBA")
@@ -91,9 +96,13 @@ def main() -> int:
                     help="Dir to write dims.json + masks.json (default: avian/frontend/)")
     ap.add_argument("--check", action="store_true",
                     help="Report counts against the current dims.json, don't write")
+    ap.add_argument("--add", nargs="+", metavar="SLUG",
+                    help="Update only these slugs, merged into the existing "
+                         "dims.json/masks.json (the on-Pi generate path - a "
+                         "full rescan of hundreds of cutouts is slow there)")
     args = ap.parse_args()
 
-    dims, masks = build_tables(args.illustrations)
+    dims, masks = build_tables(args.illustrations, only=set(args.add) if args.add else None)
     perched = sum(1 for k in dims if not k.endswith("-2"))
     flight = sum(1 for k in dims if k.endswith("-2"))
     print(f"built {len(dims)} masks ({perched} perched + {flight} flight) "
@@ -104,6 +113,21 @@ def main() -> int:
 
     dims_path = args.frontend / "dims.json"
     masks_path = args.frontend / "masks.json"
+
+    if args.add:
+        missing = sorted(set(args.add) - set(dims))
+        if missing:
+            print(f"error: no cutout for: {', '.join(missing)}", file=sys.stderr)
+            return 1
+        cur_d = json.loads(dims_path.read_text()) if dims_path.exists() else {}
+        cur_m = json.loads(masks_path.read_text()) if masks_path.exists() else {}
+        cur_d.update(dims)
+        cur_m.update(masks)
+        dims_path.write_text(dump_perkey(cur_d))
+        masks_path.write_text(dump_perkey(cur_m))
+        print(f"merged {len(dims)} slug(s) into {dims_path.name} + {masks_path.name} "
+              f"({len(cur_d)} entries total)")
+        return 0
 
     if args.check:
         cur = json.loads(dims_path.read_text()) if dims_path.exists() else {}
@@ -120,7 +144,9 @@ def main() -> int:
     dims_path.write_text(dump_perkey(dims))
     masks_path.write_text(dump_perkey(masks))
     print(f"wrote {dims_path} + {masks_path} ({len(dims)} entries each)\n"
-          f"remember to bump SKETCH_VERSION + IMG_VERSION in apt.js if pixels changed")
+          "cache reminder: if the tables changed, always bump TABLE_VERSION; "
+          "for one corrected species update ART_REVISIONS, or for a regional "
+          "or library-wide rebuild bump SKETCH_VERSION + IMG_VERSION")
     return 0
 
 

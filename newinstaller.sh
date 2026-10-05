@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
 
+installer_args=()
+case "$#" in
+  0) ;;
+  1)
+    [ "$1" = --educators ] \
+      || { echo "Usage: $0 [--educators]" >&2; exit 64; }
+    installer_args=(--educators)
+    ;;
+  *) echo "Usage: $0 [--educators]" >&2; exit 64 ;;
+esac
+
 if [ "$EUID" == 0 ]
   then echo "Please run as a non-root user."
   exit
@@ -46,7 +57,7 @@ fi
 branch=avian-visitors
 git clone -b $branch --depth=1 https://github.com/Twarner491/AvianVisitors.git ${HOME}/BirdNET-Pi &&
 
-$HOME/BirdNET-Pi/scripts/install_birdnet.sh
+"$HOME/BirdNET-Pi/scripts/install_birdnet.sh" "${installer_args[@]}"
 if [ ${PIPESTATUS[0]} -eq 0 ];then
   echo "Installation completed successfully"
   sudo reboot

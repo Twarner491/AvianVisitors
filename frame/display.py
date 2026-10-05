@@ -11,6 +11,7 @@ look can be checked on any machine without the panel.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import base64
 import hashlib
 import inspect
@@ -40,8 +41,9 @@ SPECTRA6 = [(236, 234, 223), (26, 26, 28), (165, 60, 56),
 
 DEFAULTS = {
     "base_url": "http://birdnet.local",
-    "species_source": "",   # "" = the recent API at base_url; "birdweather" = BirdWeather near a ZIP
-    "zip": "",              # BirdWeather ZIP / postal code (with species_source = "birdweather")
+    "species_source": "",   # "" = the recent API; "birdweather" = one station or a ZIP
+    "zip": "",              # BirdWeather ZIP / postal code (use one locator only)
+    "bw_station_id": "",    # public BirdWeather station ID (use instead of zip)
     "bw_days": 7,           # BirdWeather lookback window, in days
     "bw_country": "us",     # geocoder country for the ZIP
     "hours": 24,
@@ -51,7 +53,9 @@ DEFAULTS = {
     "shoot_title": None, "shoot_subtitle": None,
     "shoot_headline_px": 42, "shoot_eyebrow_px": 18, "shoot_lowercase": False,
     "shoot_mat": 0.04, "shoot_small_floor": 0.04, "shoot_count_exp": 0.65,
+    "bird_names": False,
     "mat": 0.0,             # extra global shrink of the content inside the A5 opening
+    "opening": 0.7071,      # opening height as a panel fraction; 0.7071 preserves A5
     "rotate": 90,           # 90 or 270 if the frame hangs the other way up
     "saturation": 0.6,
     "panel": "",            # "el133uf1" forces the 13.3" driver if auto() fails
@@ -59,7 +63,7 @@ DEFAULTS = {
     "heal_hours": 24,
     "state": "~/.birdframe/state.json",
     "cache": "~/.birdframe",
-    "timeout": 45,
+    "timeout": 180,      # seconds; a Zero 2 W needs ~70-120s to shoot the collage
     "basic_user": None, "basic_pass": None,
 }
 
@@ -89,21 +93,51 @@ def fetch_recent(base, hours, timeout, auth=None):
     if auth:
         req.add_header("Authorization", auth)
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read(2_000_000)).get("species", [])
+        data = json.loads(r.read(2_000_000))
+    if not isinstance(data, dict) or not isinstance(data.get("species"), list):
+        raise ValueError("recent API has no species list")
+    return data["species"]
 
 
-def signature(species):
+def signature(species, scope=""):
     items = sorted((slugify(s["sci"]), _bucket(int(s.get("n") or 1))) for s in species)
-    return hashlib.sha256(json.dumps(items).encode()).hexdigest()[:16]
+    material = [scope, items] if scope else items
+    return hashlib.sha256(json.dumps(material).encode()).hexdigest()[:16]
+
+
+def birdweather_locator(cfg):
+    """Return (kind, value) for the one configured BirdWeather source."""
+    station = cfg.get("bw_station_id")
+    has_station = station not in (None, "", 0)
+    zip_code = cfg.get("zip")
+    has_zip = isinstance(zip_code, str) and bool(zip_code.strip())
+    if has_station and has_zip:
+        raise ValueError("BirdWeather config must use either bw_station_id or zip, not both")
+    if has_station:
+        import birdweather
+        return "station", birdweather.station_id(station)
+    if has_zip:
+        return "zip", zip_code.strip()
+    raise ValueError("BirdWeather config needs bw_station_id or zip")
+
+
+def birdweather_signature_scope(cfg):
+    kind, value = birdweather_locator(cfg)
+    if kind == "station":
+        return f"birdweather:station:{value}:days:{cfg['bw_days']}"
+    return f"birdweather:zip:{cfg['bw_country']}:{value}:days:{cfg['bw_days']}"
 
 
 def fetch_species(cfg, auth=None):
     """The species list the signature is built from: the BirdNET-Pi recent API
-    by default, or BirdWeather's recent detections near a ZIP when
+    by default, or BirdWeather detections from one station or near a ZIP when
     species_source = "birdweather"."""
     if cfg.get("species_source") == "birdweather":
         import birdweather
-        return birdweather.species_for_zip(cfg["zip"], country=cfg["bw_country"], days=cfg["bw_days"])
+        kind, value = birdweather_locator(cfg)
+        if kind == "station":
+            return birdweather.species_for_station(value, days=cfg["bw_days"])
+        return birdweather.species_for_zip(value, country=cfg["bw_country"], days=cfg["bw_days"])
     return fetch_recent(cfg["base_url"], cfg["hours"], cfg["timeout"], auth)
 
 
@@ -131,14 +165,24 @@ def _paper(img):
     return tuple(int(statistics.median(c)) for c in zip(*px))
 
 
-# The mat opening is an A5 rectangle (1 : sqrt(2)) centred in the panel; the
-# content floats inside it with `mat` of inner whitespace.
-A5_H = PANEL_H * 0.7071           # A5 is 1/sqrt(2) of the panel height
-A5_W = A5_H / 1.41421             # A5 aspect 1 : sqrt(2)
+# The opening is a 1:sqrt(2) rectangle centred in the panel. `opening` sets
+# how much of the panel height it covers; 0.7071 preserves the A5 default.
+def opening_size(opening):
+    if isinstance(opening, bool):
+        raise ValueError("opening must be greater than 0 and at most 1")
+    try:
+        opening = float(opening)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("opening must be greater than 0 and at most 1") from exc
+    if not 0 < opening <= 1:
+        raise ValueError("opening must be greater than 0 and at most 1")
+    h = PANEL_H * opening
+    return h / 1.41421, h
 
 
-def _place(content, paper, mat):
-    s = min(A5_W * (1 - mat) / content.width, A5_H * (1 - mat) / content.height)
+def _place(content, paper, mat, opening):
+    box_w, box_h = opening_size(opening)
+    s = min(box_w * (1 - mat) / content.width, box_h * (1 - mat) / content.height)
     nw, nh = max(1, round(content.width * s)), max(1, round(content.height * s))
     content = content.resize((nw, nh), Image.LANCZOS)
     canvas = Image.new("RGB", (PANEL_W, PANEL_H), paper)
@@ -177,8 +221,8 @@ def _centroid_x(img, paper):
 TITLE_H_FRAC, COLLAGE_FRAC, GAP_FRAC = 0.065, 0.66, 0.1
 
 
-def mat_and_center(img, mat):
-    """Crop the title and collage, size each to a fraction of the A5 opening,
+def mat_and_center(img, mat, opening):
+    """Crop the title and collage, size each to a fraction of the opening,
     stack with a gap, and centre on the panel."""
     img = img.convert("RGB")
     paper = _paper(img)
@@ -203,9 +247,10 @@ def mat_and_center(img, mat):
             run = 0
     tb = _region_bbox(img, paper, top, split[0]) if split else None
     cb = _region_bbox(img, paper, split[1], bot + 1) if split else None
-    box_w, box_h = A5_W * (1 - mat), A5_H * (1 - mat)
+    ow, oh = opening_size(opening)
+    box_w, box_h = ow * (1 - mat), oh * (1 - mat)
     if not (tb and cb):
-        return _place(img.crop(full), paper, mat)
+        return _place(img.crop(full), paper, mat, opening)
     title = _scale_h(img.crop(tb), box_h * TITLE_H_FRAC)
     gap = round(box_h * GAP_FRAC)
     # Size the collage to fill the room left under the fixed-size title,
@@ -242,9 +287,10 @@ def quantize_spectra6(img):
     return img.convert("RGB").quantize(palette=pal, dither=Image.Dither.FLOYDSTEINBERG).convert("RGB")
 
 
-def _draw_mat_box(img):
-    """Dev aid: outline the A5 mat opening so the matte and centring show."""
-    x0, y0 = round((PANEL_W - A5_W) / 2), round((PANEL_H - A5_H) / 2)
+def _draw_mat_box(img, opening):
+    """Dev aid: outline the configured mat opening."""
+    ow, oh = opening_size(opening)
+    x0, y0 = round((PANEL_W - ow) / 2), round((PANEL_H - oh) / 2)
     ImageDraw.Draw(img).rectangle((x0, y0, PANEL_W - x0 - 1, PANEL_H - y0 - 1),
                                   outline=(170, 60, 56), width=2)
 
@@ -297,8 +343,18 @@ def in_quiet_hours(cfg, hour):
     return s <= hour < e if s < e else hour >= s or hour < e
 
 
+def frame_url(url, bird_names):
+    """Set the frame's label preference without disturbing other URL state."""
+    import urllib.parse
+    parts = urllib.parse.urlsplit(url)
+    query = [(k, v) for k, v in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+             if k != "labels"]
+    query.append(("labels", "1" if bird_names else "0"))
+    return urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(query)))
+
+
 # --- run --------------------------------------------------------------------
-def obtain_image(cfg, species=None):
+def obtain_image(cfg, species=None, *, capture=None):
     if cfg.get("species_source") == "birdweather":
         from shoot import shoot_birdweather
         if species is None:  # gate skipped (--no-signature): fetch the list to render
@@ -306,7 +362,7 @@ def obtain_image(cfg, species=None):
         out = os.path.join(os.path.expanduser(cfg["cache"]), "frame.png")
         os.makedirs(os.path.dirname(out), exist_ok=True)
         shoot_birdweather(out, species, title=cfg["shoot_title"], subtitle=cfg["shoot_subtitle"],
-                          timeout_ms=cfg["timeout"] * 1000)
+                          timeout_ms=cfg["timeout"] * 1000, bird_names=cfg["bird_names"], capture=capture)
         return Image.open(out).convert("RGB")
     if cfg["shoot"]:
         from shoot import shoot
@@ -316,11 +372,18 @@ def obtain_image(cfg, species=None):
               headline_px=cfg["shoot_headline_px"], eyebrow_px=cfg["shoot_eyebrow_px"],
               lowercase=cfg["shoot_lowercase"], mat=cfg["shoot_mat"],
               small_floor=cfg["shoot_small_floor"], count_exp=cfg["shoot_count_exp"], timeout_ms=cfg["timeout"] * 1000,
-              user=cfg["basic_user"], password=cfg["basic_pass"])
+              user=cfg["basic_user"], password=cfg["basic_pass"], window_hours=cfg["hours"],
+              bird_names=cfg["bird_names"], capture=capture)
         return Image.open(out).convert("RGB")
     src = cfg["image_url"] or cfg["image"]
     if not src:
         raise ValueError("set image, image_url, or shoot in config")
+    # A pre-rendered frame is still someone's render, so ask it for names the
+    # same way this Pi asks its own browser. A source that does not know the
+    # parameter ignores it and sends what it always sent, so this is safe
+    # against anything. URLs only: a local file path has no query string.
+    if cfg["image_url"]:
+        src = frame_url(src, cfg["bird_names"])
     return get_image(src, cfg["timeout"], _auth(cfg))
 
 
@@ -332,7 +395,8 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
     if use_signature:
         try:
             species = fetch_species(cfg, _auth(cfg))
-            sig = signature(species)
+            scope = birdweather_signature_scope(cfg) if cfg.get("species_source") == "birdweather" else ""
+            sig = signature(species, scope)
         except Exception as e:
             print(f"signature fetch failed: {e}", file=sys.stderr)  # treat as no change
     heal_due = now - state.get("last_refresh", 0) >= cfg["heal_hours"] * 3600
@@ -347,15 +411,19 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
         print("refresh:", "changed" if changed else "heal")
 
     try:
-        img = fit_panel(obtain_image(cfg, species))
+        capture = {}
+        img = fit_panel(obtain_image(cfg, species, capture=capture))
+        if "species" in capture:
+            scope = birdweather_signature_scope(cfg) if cfg.get("species_source") == "birdweather" else ""
+            sig = signature(capture["species"], scope)
     except Exception as e:
         print(f"could not get image: {e}", file=sys.stderr)  # keep last panel image
         return
-    img = mat_and_center(img, cfg["mat"])
+    img = mat_and_center(img, cfg["mat"], cfg["opening"])
     if preview:
         out = quantize_spectra6(img)
         if mat_box:
-            _draw_mat_box(out)
+            _draw_mat_box(out, cfg["opening"])
         out.save(preview)
         print(f"wrote preview {preview}")
         return
@@ -396,6 +464,19 @@ def main():
             cfg[key] = val
     if args.rotate is not None:
         cfg["rotate"] = args.rotate
+    # One render at a time. A manual --force colliding with the timer's run
+    # pushes two refreshes into the panel mid-cycle; on the 13.3" (two
+    # half-panel controllers) that shows a split image and can wedge one
+    # controller until a full power cycle. The lock lives in the cache dir
+    # and is dropped automatically on exit.
+    lock_path = os.path.join(os.path.expanduser(cfg["cache"]), ".render.lock")
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    lock = open(lock_path, "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("another render is in progress; skipping")
+        return
     run(cfg, preview=args.preview, force=args.force, use_signature=not args.no_signature, mat_box=args.mat_box)
 
 

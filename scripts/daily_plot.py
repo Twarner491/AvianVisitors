@@ -1,10 +1,13 @@
 import argparse
+import gc
 import os
 import sqlite3
 import textwrap
 from datetime import datetime
 from time import sleep
 
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.font_manager as font_manager
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,6 +26,7 @@ def get_data(now=None):
         now = datetime.now()
     df = pd.read_sql_query(f"SELECT * from detections WHERE Date = DATE('{now.strftime('%Y-%m-%d')}')",
                            conn)
+    conn.close()
 
     # Convert Date and Time Fields to Panda's format
     df['Date'] = pd.to_datetime(df['Date'])
@@ -181,7 +185,8 @@ def create_plot(df_plt_today, now, is_top=None):
     save_name = os.path.expanduser(f"~/BirdSongs/Extracted/Charts/{name}-{now.strftime('%Y-%m-%d')}.png")
     plt.savefig(save_name)
     plt.show()
-    plt.close()
+    plt.close(f)
+    gc.collect()
 
 
 def load_fonts():

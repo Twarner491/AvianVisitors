@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate the kachō-e illustrations a ZIP needs but the repo doesn't bundle.
+"""Generate the kachō-e illustrations a ZIP or station needs but the repo doesn't bundle.
 
-Compares a ZIP's most-detected birds (BirdWeather) against the bundled
+Compares one ZIP or BirdWeather station's most-detected birds against the bundled
 illustration set and, for the gap, runs the repo's illustration pipeline:
 
     pregen.py (Gemini, cream ground)
@@ -21,8 +21,9 @@ history) or let it prompt:
     GEMINI_API_KEY=KEY python3 frame/generate_illustrations.py --zip 10001
     python3 frame/generate_illustrations.py --zip 10001            # prompts for the key
     python3 frame/generate_illustrations.py --zip 10001 --gemini-key KEY
+    python3 frame/generate_illustrations.py --station-id 12345
 
---country and --sample carry through for non-US postcodes or a wider region.
+--country supports non-US postcodes; --sample controls how many top species are checked.
 """
 from __future__ import annotations
 
@@ -81,31 +82,43 @@ def _generate(missing, key):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--zip", required=True)
+    source = ap.add_mutually_exclusive_group(required=True)
+    source.add_argument("--zip")
+    source.add_argument("--station-id", help="Public numeric BirdWeather station ID.")
     ap.add_argument("--country", default="us")
     ap.add_argument("--gemini-key", default=os.environ.get("GEMINI_API_KEY", ""),
                     help="Paid Google Gemini API key (or GEMINI_API_KEY env).")
     ap.add_argument("--sample", type=int, default=15,
-                    help="How many of the ZIP's top birds to weigh (default 15).")
+                    help="How many of the source's top birds to weigh (default 15).")
     a = ap.parse_args()
 
+    if a.station_id:
+        try:
+            source_name = f"station {birdweather.station_id(a.station_id)}"
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+    else:
+        source_name = a.zip
     try:
-        have, missing = birdweather.coverage_for_zip(a.zip, a.country, a.sample)
+        if a.station_id:
+            have, missing = birdweather.coverage_for_station(a.station_id, a.sample)
+        else:
+            have, missing = birdweather.coverage_for_zip(a.zip, a.country, a.sample)
     except Exception as e:
-        print(f"coverage lookup for {a.zip} failed ({e})", file=sys.stderr)
+        print(f"coverage lookup for {source_name} failed ({e})", file=sys.stderr)
         return 1
     total = len(have) + len(missing)
     if not missing:
         if total == 0:
-            print(f"Couldn't find local birds for {a.zip} (BirdWeather may have no "
-                  f"station nearby).")
+            print(f"Couldn't find recent birds for {source_name}.")
         else:
-            print(f"All {total} of the top birds near {a.zip} are already bundled - "
+            print(f"All {total} of the top birds for {source_name} are already bundled - "
                   f"nothing to generate.")
         return 0
 
     names = ", ".join(s["com"] for s in missing[:6]) + (" ..." if len(missing) > 6 else "")
-    print(f"{len(missing)} of the top {total} birds near {a.zip} aren't bundled:\n  {names}")
+    print(f"{len(missing)} of the top {total} birds for {source_name} aren't bundled:\n  {names}")
 
     key = a.gemini_key
     if not key:

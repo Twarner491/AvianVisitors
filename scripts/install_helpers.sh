@@ -63,13 +63,42 @@ EOF
 }
 
 install_tmp_mount() {
-  STATE=$(systemctl is-enabled tmp.mount 2>&1 | grep -E '(enabled|disabled|static)')
-  ! [ -f /usr/share/systemd/tmp.mount ] && echo "Warning: no /usr/share/systemd/tmp.mount found"
-  if [ -z $STATE ]; then
-    cp -f /usr/share/systemd/tmp.mount /etc/systemd/system/tmp.mount
-    systemctl daemon-reload
-    systemctl enable tmp.mount
+  local source=${1:-/usr/share/systemd/tmp.mount}
+  local target=${2:-/etc/systemd/system/tmp.mount}
+  local state state_status
+
+  if state=$(LC_ALL=C systemctl is-enabled tmp.mount 2>&1); then
+    state_status=0
   else
-    echo "tmp.mount is $STATE, skipping"
+    state_status=$?
   fi
+
+  case "$state" in
+    enabled|enabled-runtime|disabled|static|masked|masked-runtime|indirect|generated|linked|linked-runtime|alias)
+      echo "tmp.mount is $state, skipping"
+      return 0
+      ;;
+    not-found|'Failed to get unit file state for tmp.mount: No such file or directory')
+      ;;
+    *)
+      printf 'Could not inspect tmp.mount (status %s): %s\n' \
+        "$state_status" "${state:-no response from systemctl}" >&2
+      return 1
+      ;;
+  esac
+
+  if [ ! -f "$source" ] || [ -L "$source" ]; then
+    printf 'Cannot install tmp.mount: vendor unit is missing or unsafe: %s\n' \
+      "$source" >&2
+    return 1
+  fi
+  if [ -e "$target" ] || [ -L "$target" ]; then
+    printf 'Cannot install tmp.mount: target already exists: %s\n' \
+      "$target" >&2
+    return 1
+  fi
+
+  cp -- "$source" "$target"
+  systemctl daemon-reload
+  systemctl enable tmp.mount
 }
