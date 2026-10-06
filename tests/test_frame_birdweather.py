@@ -3,11 +3,7 @@ import contextlib
 import hashlib
 import io
 import json
-import os
 import pathlib
-import shutil
-import stat
-import subprocess
 import sys
 import tempfile
 import types
@@ -153,9 +149,12 @@ class FrameDisplayTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.birdweather = load_module("birdweather", FRAME / "birdweather.py")
-        sys.modules["birdweather"] = cls.birdweather
+        modules = {"birdweather": cls.birdweather}
         if sys.version_info < (3, 11):
-            sys.modules.setdefault("tomli", types.SimpleNamespace(load=lambda _stream: {}))
+            modules["tomli"] = sys.modules.get("tomli", types.SimpleNamespace(load=lambda _stream: {}))
+        module_patch = mock.patch.dict(sys.modules, modules)
+        module_patch.start()
+        cls.addClassCleanup(module_patch.stop)
         cls.display = load_module("frame_display_test", FRAME / "display.py")
 
     def config(self, **updates):
@@ -223,7 +222,9 @@ class FrameGeneratorTests(unittest.TestCase):
     def setUpClass(cls):
         cls.birdweather = sys.modules.get("birdweather") or load_module(
             "birdweather", FRAME / "birdweather.py")
-        sys.modules["birdweather"] = cls.birdweather
+        module_patch = mock.patch.dict(sys.modules, {"birdweather": cls.birdweather})
+        module_patch.start()
+        cls.addClassCleanup(module_patch.stop)
         cls.generator = load_module("frame_generator_test", FRAME / "generate_illustrations.py")
 
     def test_generator_routes_station_and_preserves_zip_mode(self):
@@ -248,355 +249,239 @@ class FrameGeneratorTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, 2)
 
 
-class FrameInstallerTests(unittest.TestCase):
+
+class FrameConfigContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        candidates = (sys.executable, shutil.which("python3.11"), shutil.which("python3"))
-        cls.config_python = None
-        for candidate in candidates:
-            if not candidate or candidate == cls.config_python:
-                continue
-            probe = subprocess.run(
-                [candidate, "-c", "try:\n import tomllib\nexcept ModuleNotFoundError:\n import tomli"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
+        cls.contract = load_module(
+            "frame_config_contract_test",
+            FRAME / "config_contract.py",
+        )
+
+    def verify(self, text, mode, station=None, zip_code=None, image_url=None):
+        with tempfile.TemporaryDirectory() as directory:
+            config = pathlib.Path(directory) / "config.toml"
+            config.write_text(text, encoding="utf-8")
+            return self.contract.verify(
+                config,
+                mode,
+                station,
+                zip_code,
+                image_url,
             )
-            if probe.returncode == 0:
-                cls.config_python = candidate
-                break
-        if cls.config_python is None:
-            raise unittest.SkipTest("frame config tests need Python tomllib or tomli")
 
-    def make_fixture(self):
-        temp = tempfile.TemporaryDirectory()
-        root = pathlib.Path(temp.name)
-        frame = root / "frame"
-        frame.mkdir()
-        (frame / "systemd").mkdir()
-        for name in ("install.sh", "requirements-frame.txt", "birdweather.py",
-                     "config_contract.py", "birdframe-names"):
-            shutil.copy2(FRAME / name, frame / name)
-        for name in ("birdframe.service", "birdframe.timer"):
-            shutil.copy2(FRAME / "systemd" / name, frame / "systemd" / name)
-
-        bin_dir = root / "bin"
-        bin_dir.mkdir()
-        sudo = bin_dir / "sudo"
-        sudo.write_text(
-            "#!/usr/bin/env bash\n"
-            "if [ \"${1:-}\" = tee ]; then cat >/dev/null; fi\n"
-            "exit 0\n",
-            encoding="utf-8",
+    def test_exact_station_contract_accepts_only_the_requested_station(self):
+        station = (
+            '# birdframe-mode: birdweather\n'
+            'species_source = "birdweather"\n'
+            'bw_station_id = "314"\n'
+            'shoot_title = ""\n'
         )
-        python = bin_dir / "python3"
-        python.write_text(
-            "#!/usr/bin/env bash\n"
-            "case \" $* \" in\n"
-            "  *\"config_contract.py \"*) exec \"$BIRDFRAME_TEST_REAL_PYTHON\" \"$@\" ;;\n"
-            "esac\n"
-            "case \" $* \" in\n"
-            "  *\"import tomllib\"*|*\"import tomli\"*) "
-            "[ \"${BIRDFRAME_TEST_SYSTEM_TOML_FAIL:-0}\" = 1 ] && exit 1 ;;\n"
-            "esac\n"
-            "case \" $* \" in\n"
-            "  *\" --check-station \"*) [ \"${BIRDFRAME_TEST_STATION_FAIL:-0}\" = 1 ] && exit 1 ;;\n"
-            "esac\n"
-            "if [ \"${1:-}\" = -m ] && [ \"${2:-}\" = venv ]; then\n"
-            "  mkdir -p \"$3/bin\"\n"
-            "  for tool in pip playwright python; do\n"
-            "    printf '#!/usr/bin/env bash\\nexit 0\\n' > \"$3/bin/$tool\"\n"
-            "    chmod +x \"$3/bin/$tool\"\n"
-            "  done\n"
-            "fi\n"
-            "exit 0\n",
-            encoding="utf-8",
-        )
-        sleep = bin_dir / "sleep"
-        sleep.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-        for path in (sudo, python, sleep):
-            path.chmod(path.stat().st_mode | stat.S_IXUSR)
-        home = root / "home"
-        home.mkdir()
-        self.addCleanup(temp.cleanup)
-        return frame, home, bin_dir
-
-    def run_install(self, *args, existing=None, extra_env=None, existing_venv=False):
-        frame, home, bin_dir = self.make_fixture()
-        if existing_venv:
-            venv_bin = frame / ".venv" / "bin"
-            venv_bin.mkdir(parents=True)
-            venv_python = venv_bin / "python"
-            venv_python.write_text(
-                "#!/usr/bin/env bash\nexec \"$BIRDFRAME_TEST_REAL_PYTHON\" \"$@\"\n",
-                encoding="utf-8",
+        self.assertTrue(self.verify(station, "birdweather", station="314"))
+        self.assertFalse(self.verify(station, "birdweather", station="313"))
+        self.assertFalse(
+            self.verify(
+                station + 'zip = "94107"\n',
+                "birdweather",
+                station="314",
             )
-            venv_python.chmod(venv_python.stat().st_mode | stat.S_IXUSR)
-        if existing is not None:
-            config_dir = home / ".birdframe"
-            config_dir.mkdir()
-            (config_dir / "config.toml").write_text(existing, encoding="utf-8")
-        env = dict(os.environ, HOME=str(home), USER="reviewer",
-                   BIRDFRAME_TEST_REAL_PYTHON=self.config_python,
-                   PATH=str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
-        env.update(extra_env or {})
-        result = subprocess.run(
-            ["bash", str(frame / "install.sh"), *args],
-            cwd=frame,
-            env=env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=20,
-            check=False,
         )
-        config = home / ".birdframe" / "config.toml"
-        return result, config.read_text(encoding="utf-8") if config.exists() else ""
 
-    def test_station_id_alone_writes_exact_station_config(self):
-        result, config = self.run_install("--station-id", "314")
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertIn('species_source = "birdweather"', config)
-        self.assertIn('bw_station_id = "314"', config)
-        self.assertNotRegex(config, r"(?m)^zip\s*=")
-        self.assertNotIn("bw_country", config)
-        self.assertIn("Installed for BirdWeather station 314", result.stdout)
+    def test_zip_image_and_preserved_local_contracts_remain_supported(self):
+        zip_config = (
+            '# birdframe-mode: birdweather\n'
+            'species_source = "birdweather"\n'
+            'zip = "SW1A 1AA"\n'
+            'bw_country = "gb"\n'
+        )
+        self.assertTrue(
+            self.verify(
+                zip_config,
+                "birdweather",
+                zip_code="SW1A 1AA",
+            )
+        )
+        self.assertFalse(
+            self.verify(
+                zip_config,
+                "birdweather",
+                zip_code="94107",
+            )
+        )
 
-        explicit, explicit_config = self.run_install("--bird-weather", "--station-id=314")
-        self.assertEqual(explicit.returncode, 0, explicit.stdout)
-        self.assertEqual(config, explicit_config)
+        image = (
+            '# birdframe-mode: image\n'
+            'image_url = "https://bird.example/frame.png"\n'
+            'shoot = false\n'
+        )
+        self.assertTrue(
+            self.verify(
+                image,
+                "image",
+                image_url="https://bird.example/frame.png",
+            )
+        )
+        self.assertFalse(
+            self.verify(
+                image,
+                "image",
+                image_url="https://bird.example/other.png",
+            )
+        )
 
-    def test_fresh_zip_and_image_modes_keep_their_configs(self):
-        zip_result, zip_config = self.run_install("--bird-weather", "--zip", "94107")
-        self.assertEqual(zip_result.returncode, 0, zip_result.stdout)
-        self.assertIn('zip = "94107"', zip_config)
-        self.assertIn('bw_country = "us"', zip_config)
-        self.assertNotIn("bw_station_id", zip_config)
-
-        image_result, image_config = self.run_install(
-            "--image-url", "https://bird.example/frame.png?k=review")
-        self.assertEqual(image_result.returncode, 0, image_result.stdout)
-        self.assertIn('image_url = "https://bird.example/frame.png?k=review"', image_config)
-        self.assertNotIn('species_source = "birdweather"', image_config)
-
-    def test_existing_source_must_match_the_requested_zip_or_image(self):
-        zip_config = ('# birdframe-mode: birdweather\n'
-                      'species_source = "birdweather"\n'
-                      'zip = "94107"\n'
-                      'bw_country = "us"\n')
-        same_zip, unchanged = self.run_install(
-            "--bird-weather", "--zip", "94107", existing=zip_config)
-        self.assertEqual(same_zip.returncode, 0, same_zip.stdout)
-        self.assertEqual(unchanged, zip_config)
-
-        for args in (("--bird-weather", "--zip", "10001"), ("--station-id", "314")):
-            with self.subTest(args=args):
-                result, unchanged = self.run_install(*args, existing=zip_config)
-                self.assertNotEqual(result.returncode, 0, result.stdout)
-                self.assertNotIn("1/5", result.stdout)
-                self.assertEqual(unchanged, zip_config)
-
-        image_config = ('# birdframe-mode: image\n'
-                        'image_url = "https://bird.example/old.png"\n'
-                        'shoot = false\n')
-        same_image, unchanged = self.run_install(
-            "--image-url", "https://bird.example/old.png", existing=image_config)
-        self.assertEqual(same_image.returncode, 0, same_image.stdout)
-        self.assertEqual(unchanged, image_config)
-
-        different_image, unchanged = self.run_install(
-            "--image-url", "https://bird.example/new.png", existing=image_config)
-        self.assertNotEqual(different_image.returncode, 0, different_image.stdout)
-        self.assertNotIn("1/5", different_image.stdout)
-        self.assertEqual(unchanged, image_config)
-
-    def test_existing_supported_custom_sources_remain_upgradeable(self):
-        custom_local = ('# birdframe-mode: local\n'
-                        'base_url = "https://birds.example.test"\n'
-                        'shoot = true\n')
-        result, unchanged = self.run_install(existing=custom_local)
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(unchanged, custom_local)
-
-        for bad_url in ("http://", "https://?x=1", "http:// bad host", "https://[broken"):
+        local = (
+            'base_url = "https://birds.example.test"\n'
+            'shoot = true\n'
+        )
+        preserved_image = (
+            'image = "~/.birdframe/frame.png"\n'
+            'shoot = false\n'
+        )
+        self.assertTrue(self.verify(local, "local"))
+        self.assertTrue(self.verify(preserved_image, "local"))
+        for bad_url in (
+            "http://",
+            "https://?x=1",
+            "http:// bad host",
+            "https://[broken",
+        ):
             with self.subTest(bad_url=bad_url):
-                invalid_local = ('base_url = "' + bad_url + '"\nshoot = true\n')
-                result, unchanged = self.run_install(existing=invalid_local)
-                self.assertNotEqual(result.returncode, 0, result.stdout)
-                self.assertNotIn("1/5", result.stdout)
-                self.assertEqual(unchanged, invalid_local)
+                self.assertFalse(
+                    self.verify(
+                        f'base_url = "{bad_url}"\nshoot = true\n',
+                        "local",
+                    )
+                )
 
-        local_image = ('image = "~/.birdframe/frame.png"\n'
-                       'shoot = false\n')
-        result, unchanged = self.run_install(existing=local_image)
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(unchanged, local_image)
-
-        international_zip = ('# birdframe-mode: birdweather\n'
-                             'species_source = "birdweather"\n'
-                             'zip = "SW1A 1AA"\n'
-                             'bw_country = "gb"\n')
-        result, unchanged = self.run_install(
-            "--bird-weather", "--zip", "SW1A 1AA", existing=international_zip)
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(unchanged, international_zip)
-
-        markerless_station = ('species_source = "birdweather"\n'
-                              'bw_station_id = "314"\n')
-        result, unchanged = self.run_install(
-            "--station-id", "314", existing=markerless_station)
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(unchanged, markerless_station)
-
-    def test_existing_config_source_must_be_unambiguous_and_effective(self):
-        malformed_station_configs = (
+    def test_malformed_or_ambiguous_sources_fail_closed(self):
+        malformed_station = (
             '# birdframe-mode: birdweather\nbw_station_id = "314"\n',
-            '# birdframe-mode: birdweather\nspecies_source = "birdweather"\n[wrong]\nbw_station_id = "314"\n',
-            '# birdframe-mode: birdweather\nspecies_source = "birdweather"\nbw_station_id = "314\n',
-            ('# birdframe-mode: birdweather\nspecies_source = "birdweather"\n'
-             'bw_station_id = "313"\nbw_station_id = "314"\n'),
-            ('# birdframe-mode: birdweather\nnotes = """\n'
-             'species_source = "birdweather"\nbw_station_id = "314"\n"""\n'),
-            ('# birdframe-mode: birdweather\nspecies_source = "birdweather"\n'
-             'bw_station_id = "314"\n"zip" = "94107"\n'),
-            ('# birdframe-mode: birdweather\nspecies_source = "birdweather"\n'
-             'bw_station_id = "314"\nbw_station_id.extra = "x"\n'),
+            (
+                '# birdframe-mode: birdweather\n'
+                'species_source = "birdweather"\n'
+                '[wrong]\n'
+                'bw_station_id = "314"\n'
+            ),
+            (
+                '# birdframe-mode: birdweather\n'
+                'species_source = "birdweather"\n'
+                'bw_station_id = "314\n'
+            ),
+            (
+                '# birdframe-mode: birdweather\n'
+                'species_source = "birdweather"\n'
+                'bw_station_id = "313"\n'
+                'bw_station_id = "314"\n'
+            ),
+            (
+                '# birdframe-mode: birdweather\n'
+                'notes = """\n'
+                'species_source = "birdweather"\n'
+                'bw_station_id = "314"\n'
+                '"""\n'
+            ),
+            (
+                '# birdframe-mode: birdweather\n'
+                'species_source = "birdweather"\n'
+                'bw_station_id = "314"\n'
+                '"zip" = "94107"\n'
+            ),
+            (
+                '# birdframe-mode: birdweather\n'
+                'species_source = "birdweather"\n'
+                'bw_station_id = "314"\n'
+                'bw_station_id.extra = "x"\n'
+            ),
         )
-        for existing in malformed_station_configs:
-            with self.subTest(existing=existing):
-                result, unchanged = self.run_install(
-                    "--station-id", "314", existing=existing)
-                self.assertNotEqual(result.returncode, 0, result.stdout)
-                self.assertNotIn("1/5", result.stdout)
-                self.assertEqual(unchanged, existing)
+        for config in malformed_station:
+            with self.subTest(config=config):
+                self.assertFalse(
+                    self.verify(
+                        config,
+                        "birdweather",
+                        station="314",
+                    )
+                )
 
-        malformed_zip = ('# birdframe-mode: birdweather\n'
-                         'zip = "94107"\n'
-                         'bw_country = "us"\n')
-        result, unchanged = self.run_install(
-            "--bird-weather", "--zip", "94107", existing=malformed_zip)
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertNotIn("1/5", result.stdout)
-        self.assertEqual(unchanged, malformed_zip)
-
-        ineffective_image = ('# birdframe-mode: image\n'
-                              'image_url = "https://bird.example/frame.png"\n'
-                              'shoot = true\n')
-        result, unchanged = self.run_install(
-            "--image-url", "https://bird.example/frame.png", existing=ineffective_image)
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertNotIn("1/5", result.stdout)
-        self.assertEqual(unchanged, ineffective_image)
-
-        disguised_image = ('# birdframe-mode: image\n'
-                           'image_url = "https://bird.example/frame.png"\n'
-                           'shoot = false\n'
-                           '"species_source" = "birdweather"\n'
-                           '"bw_station_id" = "314"\n')
-        result, unchanged = self.run_install(
-            "--image-url", "https://bird.example/frame.png", existing=disguised_image)
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertNotIn("1/5", result.stdout)
-        self.assertEqual(unchanged, disguised_image)
-
-        local_config = ('# birdframe-mode: local\n'
-                        'base_url = "http://birdnet.local"\n'
-                        'shoot = true\n')
-        same_local, unchanged = self.run_install(existing=local_config)
-        self.assertEqual(same_local.returncode, 0, same_local.stdout)
-        self.assertEqual(unchanged, local_config)
-
-        disguised_local = local_config + ('species_source = "birdweather"\n'
-                                          'bw_station_id = "314"\n')
-        result, unchanged = self.run_install(existing=disguised_local)
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertNotIn("1/5", result.stdout)
-        self.assertEqual(unchanged, disguised_local)
-
-        malformed_preserved_image = ('image_url = { hidden = "source" }\n'
-                                     'image = "/tmp/frame.png"\n'
-                                     'shoot = false\n')
-        result, unchanged = self.run_install(existing=malformed_preserved_image)
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertNotIn("1/5", result.stdout)
-        self.assertEqual(unchanged, malformed_preserved_image)
-
-    def test_station_mode_rejects_conflicts_and_invalid_ids_before_install(self):
-        cases = (
-            ("--station-id", "0"),
-            ("--station-id", "01"),
-            ("--station-id", " 1"),
-            ("--station-id", "token"),
-            ("--station-id", "2147483648"),
-            ("--bird-weather", "--zip", "94107 "),
-            ("--station-id", "314", "--zip", "94107"),
-            ("--zip", "94107", "--station-id", "314"),
-            ("--station-id", "314", "--ebird-key", "ABC"),
-            ("--station-id", "314", "--image-url", "https://example.test/frame.png"),
+        malformed_zip = (
+            '# birdframe-mode: birdweather\n'
+            'zip = "94107"\n'
+            'bw_country = "us"\n'
         )
-        for args in cases:
-            with self.subTest(args=args):
-                result, config = self.run_install(*args)
-                self.assertNotEqual(result.returncode, 0, result.stdout)
-                self.assertEqual(config, "")
-                self.assertNotIn("1/5", result.stdout)
+        self.assertFalse(
+            self.verify(
+                malformed_zip,
+                "birdweather",
+                zip_code="94107",
+            )
+        )
 
-    def test_existing_config_cannot_claim_a_different_station(self):
-        existing = '# birdframe-mode: birdweather\nspecies_source = "birdweather"\nbw_station_id = "313"\n'
-        result, config = self.run_install("--station-id", "314", existing=existing)
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("does not select BirdWeather station 314", result.stdout)
-        self.assertNotIn("1/5", result.stdout)
-        self.assertEqual(config, existing)
+        ineffective_image = (
+            '# birdframe-mode: image\n'
+            'image_url = "https://bird.example/frame.png"\n'
+            'shoot = true\n'
+        )
+        self.assertFalse(
+            self.verify(
+                ineffective_image,
+                "image",
+                image_url="https://bird.example/frame.png",
+            )
+        )
 
-        ambiguous = existing.replace('bw_station_id = "313"',
-                                     'bw_station_id = "314"\nzip = "94107"')
-        result, config = self.run_install("--station-id", "314", existing=ambiguous)
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(config, ambiguous)
+        disguised_image = (
+            '# birdframe-mode: image\n'
+            'image_url = "https://bird.example/frame.png"\n'
+            'shoot = false\n'
+            '"species_source" = "birdweather"\n'
+            '"bw_station_id" = "314"\n'
+        )
+        self.assertFalse(
+            self.verify(
+                disguised_image,
+                "image",
+                image_url="https://bird.example/frame.png",
+            )
+        )
 
-    def test_existing_matching_station_is_left_untouched(self):
-        existing = ('# birdframe-mode: birdweather\n'
-                    'species_source = "birdweather"\n'
-                    'bw_station_id = "314"\n'
-                    'shoot_title = "Backyard birds"\n')
-        result, config = self.run_install("--station-id", "314", existing=existing)
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertIn("already exists, leaving it untouched", result.stdout)
-        self.assertEqual(config, existing)
+        disguised_local = (
+            '# birdframe-mode: local\n'
+            'base_url = "http://birdnet.local"\n'
+            'shoot = true\n'
+            'species_source = "birdweather"\n'
+            'bw_station_id = "314"\n'
+        )
+        self.assertFalse(self.verify(disguised_local, "local"))
 
-        offline, unchanged = self.run_install(
-            "--station-id", "314", existing=existing,
-            extra_env={"BIRDFRAME_TEST_STATION_FAIL": "1"})
-        self.assertEqual(offline.returncode, 0, offline.stdout)
-        self.assertNotIn("Checking public BirdWeather station", offline.stdout)
-        self.assertEqual(unchanged, existing)
+        malformed_preserved_image = (
+            'image_url = { hidden = "source" }\n'
+            'image = "/tmp/frame.png"\n'
+            'shoot = false\n'
+        )
+        self.assertFalse(self.verify(malformed_preserved_image, "local"))
 
-    def test_existing_config_uses_prior_venv_parser_or_fails_before_mutation(self):
-        existing = ('# birdframe-mode: birdweather\n'
-                    'species_source = "birdweather"\n'
-                    'bw_station_id = "314"\n')
-        no_parser, unchanged = self.run_install(
-            "--station-id", "314", existing=existing,
-            extra_env={"BIRDFRAME_TEST_SYSTEM_TOML_FAIL": "1"})
-        self.assertNotEqual(no_parser.returncode, 0, no_parser.stdout)
-        self.assertIn("without Python tomllib or tomli", no_parser.stdout)
-        self.assertNotIn("1/5", no_parser.stdout)
-        self.assertEqual(unchanged, existing)
 
-        prior_venv, unchanged = self.run_install(
-            "--station-id", "314", existing=existing, existing_venv=True,
-            extra_env={"BIRDFRAME_TEST_SYSTEM_TOML_FAIL": "1"})
-        self.assertEqual(prior_venv.returncode, 0, prior_venv.stdout)
-        self.assertEqual(unchanged, existing)
-
-    def test_unavailable_station_stops_before_host_mutation(self):
-        result, config = self.run_install(
-            "--station-id", "314", extra_env={"BIRDFRAME_TEST_STATION_FAIL": "1"})
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("could not be verified", result.stdout)
-        self.assertNotIn("1/5", result.stdout)
-        self.assertEqual(config, "")
+class FrameInstallerSourceTests(unittest.TestCase):
+    def test_hardened_installer_retains_station_and_timer_contracts(self):
+        installer = (FRAME / "install.sh").read_text(encoding="utf-8")
+        self.assertTrue(installer.startswith("#!/bin/bash -p\n"))
+        self.assertIn("--station-id)", installer)
+        self.assertIn("--station-id=*)", installer)
+        self.assertIn(
+            'SANITIZED_ARGS+=(--station-id "$2")',
+            installer,
+        )
+        self.assertIn(
+            'SANITIZED_ARGS+=(--station-id "$STATION_ID")',
+            installer,
+        )
+        self.assertIn('"$FRAME/config_contract.py"', installer)
+        self.assertNotIn(
+            '"$FRAME/.venv/bin/python" -c \'import tomllib\'',
+            installer,
+        )
+        self.assertIn('printf "%s\\n" "OnActiveSec=2min"', installer)
+        self.assertTrue(installer.rstrip().endswith('{ main "$@"; exit; }'))
 
 
 if __name__ == "__main__":

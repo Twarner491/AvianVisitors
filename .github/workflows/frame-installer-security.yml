@@ -1,0 +1,64 @@
+name: Frame installer security
+
+on:
+  push:
+    branches:
+      - avian-visitors
+    paths:
+      - .github/workflows/frame-installer-security.yml
+      - frame/Dockerfile.install-security
+      - frame/avian-bundle
+      - frame/avian-bundle-installed
+      - frame/birdweather.py
+      - frame/check_install_security.sh
+      - frame/config_contract.py
+      - frame/capture_art.py
+      - frame/shoot.py
+      - avian/scripts/png_validation.py
+      - frame/install.sh
+      - frame/requirements-bundle-species.txt
+      - frame/requirements-shoot.txt
+      - frame/systemd/birdframe.service
+      - frame/systemd/birdframe.timer
+      - frame/test_bundle_render_integration.py
+      - frame/test_ebird_credentials.py
+      - frame/test_install_security.py
+      - frame/vendor/avian-bundle-control
+  pull_request:
+    branches:
+      - avian-visitors
+    paths:
+      - .github/workflows/frame-installer-security.yml
+      - frame/Dockerfile.install-security
+      - frame/avian-bundle
+      - frame/avian-bundle-installed
+      - frame/birdweather.py
+      - frame/check_install_security.sh
+      - frame/config_contract.py
+      - frame/capture_art.py
+      - frame/shoot.py
+      - avian/scripts/png_validation.py
+      - frame/install.sh
+      - frame/requirements-bundle-species.txt
+      - frame/requirements-shoot.txt
+      - frame/systemd/birdframe.service
+      - frame/systemd/birdframe.timer
+      - frame/test_bundle_render_integration.py
+      - frame/test_ebird_credentials.py
+      - frame/test_install_security.py
+      - frame/vendor/avian-bundle-control
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-root:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Lint and exercise the installer and sudo boundary
+        run: frame/check_install_security.sh
