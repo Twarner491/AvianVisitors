@@ -26,7 +26,8 @@ official=https://github.com/Twarner491/AvianVisitors.git
 official_remote=$test_root/official.git
 rm -rf "$test_root"
 mkdir -p "$repo/scripts" "$repo/avian/frontend/fonts" "$repo/avian/frontend/assets" \
-  "$repo/avian/assets" "$webroot" /etc/birdnet /etc/sudoers.d /etc/caddy \
+  "$repo/avian/assets/illustrations" "$repo/avian/scripts" "$repo/avian/bundles" \
+  "$webroot" /etc/birdnet /etc/sudoers.d /etc/caddy \
   /usr/local/bin /usr/local/sbin
 id "$station_user" >/dev/null 2>&1 \
   || useradd -M -d "$station_home" -s /bin/bash "$station_user"
@@ -45,14 +46,23 @@ cp /source/scripts/link_webroot.sh "$repo/scripts/link_webroot.sh"
 cp /source/scripts/livestream.sh "$repo/scripts/livestream.sh"
 cp /source/scripts/update_caddyfile.sh "$repo/scripts/update_caddyfile.sh"
 cp /source/scripts/security_refresh.sh "$repo/scripts/security_refresh.sh"
+cp /source/scripts/generation_runtime_control.sh \
+  "$repo/scripts/generation_runtime_control.sh"
 cp /source/scripts/educators_control.sh "$repo/scripts/educators_control.sh"
+cp /source/scripts/avian-bundle "$repo/scripts/avian-bundle"
+cp /source/avian/scripts/bundle_manager.py "$repo/avian/scripts/bundle_manager.py"
+cp /source/avian/scripts/bundle_species.py "$repo/avian/scripts/bundle_species.py"
+cp /source/avian/scripts/build_masks.py "$repo/avian/scripts/build_masks.py"
+cp /source/avian/bundles/catalog-v1.json "$repo/avian/bundles/catalog-v1.json"
+cp /source/avian/assets/illustrations/corvus-brachyrhynchos.png \
+  "$repo/avian/assets/illustrations/corvus-brachyrhynchos.png"
 cat >"$repo/scripts/example.sh" <<'EOF'
 #!/usr/bin/env bash
 echo example
 EOF
 
 for frontend_file in \
-  index.html styles.css apt.js masks.json dims.json nest.webp nest-eggs.webp \
+  index.html styles.css bundles.css bundle-ui.js apt.js masks.json dims.json nest.webp nest-eggs.webp \
   stamps.css stamps.js stamp-batch-root.css stamp-batch-root.js \
   stamp-batch-a.css stamp-batch-a.js stamp-batch-b.css stamp-batch-b.js \
   stamp-batch-c.css stamp-batch-c.js grain.png stats-press.png; do
@@ -60,6 +70,7 @@ for frontend_file in \
 done
 printf 'favicon\n' >"$repo/avian/assets/favicon.png"
 chmod 0755 "$repo/scripts/"*.sh
+chmod 0755 "$repo/scripts/avian-bundle"
 
 git -C "$repo" init -q -b avian-visitors
 git -C "$repo" config user.name 'Refresh smoke'
@@ -119,6 +130,11 @@ cat >/usr/local/bin/apt <<'EOF'
 touch /tmp/avian-service-refresh-smoke/apt.called
 exit 99
 EOF
+cat >/usr/bin/apt-get <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>/tmp/avian-service-refresh-smoke/apt-get.log
+exit 0
+EOF
 cat >/usr/local/bin/pgrep <<'EOF'
 #!/usr/bin/env bash
 if [ "$*" = '-u birdrefresh -x pulseaudio' ]; then
@@ -141,8 +157,41 @@ printf '%s\n' "$*" >>/tmp/avian-service-refresh-smoke/mktemp.log
 exec /usr/bin/mktemp "$@"
 EOF
 chmod 0755 \
-  /usr/bin/systemctl /usr/local/bin/apt /usr/local/bin/pgrep \
+  /usr/bin/systemctl /usr/bin/apt-get /usr/local/bin/apt /usr/local/bin/pgrep \
   /usr/local/bin/mktemp
+
+fpm_version=$(php -r 'printf("%d.%d", PHP_MAJOR_VERSION, PHP_MINOR_VERSION);')
+generic_fpm_socket=/run/php/php${fpm_version}-fpm.sock
+bundle_fpm_socket=/run/php/avian-bundle-export-${fpm_version}.sock
+mkdir -p /run/php
+python3 -c 'import os, select, socket, sys
+generic, dedicated, uid, gid = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+sockets=[]
+for path, mode in ((generic, 0o660), (dedicated, 0o600)):
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    current=socket.socket(socket.AF_UNIX)
+    current.bind(path)
+    os.chown(path, uid, gid)
+    os.chmod(path, mode)
+    current.listen()
+    sockets.append(current)
+while True:
+    readable, _, _ = select.select(sockets, [], [])
+    for current in readable:
+        connection, _ = current.accept()
+        connection.close()' "$generic_fpm_socket" "$bundle_fpm_socket" \
+  "$(id -u caddy)" "$(id -g caddy)" &
+fake_fpm_pid=$!
+trap 'kill "$fake_fpm_pid" 2>/dev/null || true' EXIT
+for _ in $(seq 1 50); do
+  [ -S "$generic_fpm_socket" ] && [ -S "$bundle_fpm_socket" ] && break
+  sleep 0.1
+done
+[ -S "$generic_fpm_socket" ] && [ -S "$bundle_fpm_socket" ] \
+  || fail 'fake PHP-FPM sockets did not start'
 
 previous_refresh=/source/tests/testdata/reinstall_services_16c7217d.sh
 if [ "${1:-}" = --upgrade-recovery ] || [ "${1:-}" = --old-helper-recovery ] \
@@ -161,7 +210,8 @@ if [ "${1:-}" = --upgrade-recovery ] || [ "${1:-}" = --old-helper-recovery ] \
   target=$(station_git rev-parse HEAD)
   git -c safe.directory="$repo" -C "$repo" push -q "$official_remote" avian-visitors
   station_git reset --hard "$baseline" >/dev/null
-  printf 'custom art\n' >"$repo/avian/assets/illustrations/custom-bird.png"
+  cp /source/avian/assets/illustrations/corvus-brachyrhynchos.png \
+    "$repo/avian/assets/illustrations/custom-bird.png"
   printf '{"custom-bird":{}}\n' >"$repo/avian/frontend/masks.json"
   printf '{"custom-bird":[1,1]}\n' >"$repo/avian/frontend/dims.json"
   chown -R "$station_user:$station_user" "$repo"
@@ -262,6 +312,14 @@ EOF
   printf '\n# tampered\n' >>"$prepared/admin_control.sh"
   if /usr/local/sbin/avian-service-refresh --prepare-update "$target" >"$test_root/refresh.log" 2>&1; then fail 'accepted manifest mismatch'; fi
   git -C "$official_remote" show "$target:scripts/admin_control.sh" >"$prepared/admin_control.sh"
+  for payload in bundle_manager.py bundle_species.py catalog-v1.json; do
+    cp "$prepared/$payload" "$test_root/$payload"
+    printf '\n' >>"$prepared/$payload"
+    if /usr/local/sbin/avian-service-refresh --prepare-update "$target" >"$test_root/refresh.log" 2>&1; then
+      fail "accepted tampered prepared bundle payload: $payload"
+    fi
+    cp "$test_root/$payload" "$prepared/$payload"
+  done
   [ "$(station_git rev-parse HEAD)" = "$baseline" ] || fail 'preparation changed checkout'
   prepared_admin_helper=$test_root/prepared-admin
   git -C "$official_remote" show "$target:scripts/admin_control.sh" >"$prepared_admin_helper"
@@ -269,7 +327,11 @@ EOF
   station_git stash -qu --include-untracked
   station_git merge --ff-only "$target" >/dev/null
   printf '\n# next release\n' >>"$repo/scripts/admin_control.sh"
-  station_git add scripts/admin_control.sh
+  printf '\n# next release\n' >>"$repo/avian/scripts/bundle_manager.py"
+  printf '\n# next release\n' >>"$repo/avian/scripts/bundle_species.py"
+  printf '\n' >>"$repo/avian/bundles/catalog-v1.json"
+  station_git add scripts/admin_control.sh avian/scripts/bundle_manager.py \
+    avian/scripts/bundle_species.py avian/bundles/catalog-v1.json
   station_git commit -qm 'later release'
   git -c safe.directory="$repo" -C "$repo" push -q "$official_remote" avian-visitors
   station_git reset --hard "$target" >/dev/null
@@ -305,6 +367,12 @@ EOF
   /usr/local/sbin/avian-service-refresh >"$test_root/refresh.log" 2>&1 || fail 'offline resume failed'
   [ "$(station_git rev-parse HEAD)" = "$target" ] || fail 'resume changed selected release'
   cmp "$prepared_admin_helper" /usr/local/sbin/avian-admin-control || fail 'installed different release helper'
+  cmp "$test_root/bundle_manager.py" /usr/local/sbin/avian-bundle-control \
+    || fail 'installed different release bundle manager'
+  cmp "$test_root/bundle_species.py" /usr/share/avian-visitors/bundles/bundle_species.py \
+    || fail 'installed different release species helper'
+  cmp "$test_root/catalog-v1.json" /usr/share/avian-visitors/bundles/catalog-v1.json \
+    || fail 'installed different release catalog'
   cmp "$original_auth" /var/lib/avian-visitors/admin-auth.state || fail 'resume changed credentials'
   cmp "$original_art" "$repo/avian/assets/illustrations/custom-bird.png" || fail 'resume changed art'
   mv /var/lib/avian-visitors/admin-auth.state "$test_root/auth.saved"
@@ -358,6 +426,29 @@ AVIAN_UPDATE_LOCK_FD=9 /usr/local/sbin/avian-service-refresh \
   >"$test_root/refresh.log" 2>&1 || fail 'inherited-lock service refresh failed'
 flock -u 9
 exec 9>&-
+bundle_lock_policy=/etc/tmpfiles.d/avian-bundle-locks.conf
+station_gid=$(id -g "$station_user")
+[ "$(stat -c '%u:%g:%a:%h' -- "$bundle_lock_policy")" = '0:0:644:1' ] \
+  || fail 'bundle lock tmpfiles policy metadata is unsafe'
+for coordination_lock in \
+  /run/lock/avian-generation.lock /run/lock/avian-bundle-export.lock; do
+  [ "$(stat -c '%u:%g:%a:%h' -- "$coordination_lock")" = \
+    "0:$station_gid:660:1" ] || fail "unsafe coordination lock: $coordination_lock"
+done
+bundle_fpm_pool=/etc/php/${fpm_version}/fpm/pool.d/zz-avian-bundle-export.conf
+[ "$(stat -c '%U:%G:%a:%h' "$bundle_fpm_pool")" = root:root:644:1 ] \
+  || fail 'first-hop refresh did not install the bundle FPM pool safely'
+grep -Fxq 'request_terminate_timeout = 3700s' "$bundle_fpm_pool" \
+  || fail 'first-hop refresh omitted the bundle export hard deadline'
+grep -Fxq 'pm.max_children = 2' "$bundle_fpm_pool" \
+  || fail 'first-hop refresh omitted the bundle busy-response worker'
+rm -f /run/lock/avian-generation.lock /run/lock/avian-bundle-export.lock
+/usr/bin/systemd-tmpfiles --create "$bundle_lock_policy"
+for coordination_lock in \
+  /run/lock/avian-generation.lock /run/lock/avian-bundle-export.lock; do
+  [ "$(stat -c '%u:%g:%a:%h' -- "$coordination_lock")" = \
+    "0:$station_gid:660:1" ] || fail "boot did not recreate coordination lock: $coordination_lock"
+done
 [ "$(grep -c '^daemon-reload$' "$test_root/systemctl.log")" -eq 4 ] \
   || fail 'first-hop refresh performed an unexpected daemon reload'
 
@@ -418,6 +509,13 @@ php -r 'exit(password_verify("FirstHopLegacy12!", $argv[1]) ? 0 : 1);' \
   || fail 'first-hop admin auth lock metadata is unsafe'
 [ "$(stat -c '%U:%G:%a:%h' "$auth_rate")" = root:caddy:660:1 ] \
   || fail 'first-hop admin rate state metadata is unsafe'
+[ "$(stat -c '%U:%G:%a:%h:%s' "$auth_dir/included-art.revision")" \
+  = "root:$station_user:660:1:65" ] \
+  || fail 'first-hop illustration revision metadata is unsafe'
+grep -Eq '^[0-9a-f]{64}$' "$auth_dir/included-art.revision" \
+  || fail 'first-hop illustration rebuild did not commit its persistent revision'
+[ ! -s /run/lock/avian-generation.lock ] \
+  || fail 'first-hop illustration rebuild wrote its revision into the mutex'
 [ "$(stat -c '%U:%G:%a:%h:%s' "$auth_marker")" = root:root:400:1:3 ] \
   || fail 'first-hop migration marker metadata is unsafe'
 grep -Fxq 'CADDY_PWD=""' /etc/birdnet/birdnet.conf \
@@ -514,18 +612,34 @@ fi
   || fail 'security policy hook did not install its focused sudo rule'
 [ ! -e /etc/sudoers.d/010_caddy-nopasswd ] \
   || fail 'legacy unrestricted sudo rule survived'
-[ ! -e "$test_root/apt.called" ] || fail 'service refresh ran a package command'
+[ ! -e "$test_root/apt.called" ] || fail 'service refresh used the legacy apt command'
+if [ -f "$test_root/apt-get.log" ]; then
+  grep -Fxq 'install --no-install-recommends -qqy python3-pil' "$test_root/apt-get.log" \
+    || fail 'service refresh installed an unexpected package'
+fi
 grep -qx 'cron sentinel' /etc/crontab || fail 'crontab was changed'
 grep -qx 'keep local bin' /usr/local/bin/avian-refresh-unknown \
   || fail 'unknown /usr/local/bin file was changed'
 
 for helper in \
   avian-update-control avian-service-refresh avian-maintenance-control \
-  avian-archive-control avian-security-refresh avian-admin-control \
-  avian-link-webroot avian-caddy-refresh avian-educators; do
+  avian-archive-control avian-security-refresh avian-generation-runtime \
+  avian-admin-control \
+  avian-link-webroot avian-caddy-refresh avian-educators \
+  avian-bundle-control; do
   [ "$(stat -c '%U:%G:%a' "/usr/local/sbin/$helper")" = root:root:755 ] \
     || fail "unsafe helper installation: $helper"
 done
+[ "$(stat -c '%U:%G:%a' /usr/local/bin/avian-bundle)" = root:root:755 ] \
+  || fail "unsafe bundle command installation"
+[ ! -L /usr/local/bin/avian-bundle ] \
+  || fail "bundle command was installed from a mutable checkout link"
+[ "$(stat -c '%U:%G:%a:%h' /var/lib/avian-visitors/bundles-v1.enabled)" = root:root:644:1 ] \
+  || fail 'first-hop bundle provisioning marker is unsafe'
+[ "$(stat -c '%U:%G:%a:%h' /usr/share/avian-visitors/bundles/catalog-v1.json)" = root:root:644:1 ] \
+  || fail 'first-hop bundle catalog is unsafe'
+[ "$(stat -c '%U:%G:%a:%h' /var/lib/avian-visitors/bundles/active.json)" = root:root:644:1 ] \
+  || fail 'first-hop active bundle state is unsafe'
 [ ! -e /var/lib/avian-visitors/educators.state ] \
   || fail 'disabled service refresh created Educators profile state'
 [ ! -e /var/lib/avian-visitors/educators ] \
@@ -543,7 +657,7 @@ if [ ! -L /usr/local/bin/example.sh ] \
 fi
 
 for target in \
-  avian index.html styles.css apt.js masks.json dims.json nest.webp nest-eggs.webp \
+  avian index.html styles.css bundles.css bundle-ui.js apt.js masks.json dims.json nest.webp nest-eggs.webp \
   stamps.css stamps.js stamp-batch-root.css stamp-batch-root.js \
   stamp-batch-a.css stamp-batch-a.js stamp-batch-b.css stamp-batch-b.js \
   stamp-batch-c.css stamp-batch-c.js grain.png stats-press.png fonts assets \

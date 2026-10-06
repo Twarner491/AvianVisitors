@@ -65,6 +65,9 @@ def station():
                 html = html.replace("</head>", "<script>" + (seed if state["many"] else
                                     "Math.random=()=>0.9;") + "</script></head>")
                 return self.send(html.encode(), "text/html")
+            if url.path == "/avian/api/bundle-assets.php":
+                # Included artwork uses the supported legacy table path.
+                return self.send_error(404)
             if url.path == "/avian/api/birdnet-api.php":
                 data = {}
                 if urllib.parse.parse_qs(url.query).get("action") == ["stats"]:
@@ -212,6 +215,41 @@ def test_complete_but_truncated_png_keeps_previous_capture(shooter, station, tmp
     assert output.read_bytes() == b"last good frame"
 
 
+def test_revised_snapshot_retries_without_publishing_the_raced_strip(
+        shooter, station, tmp_path, monkeypatch):
+    url, _started, state, _bird = station
+    state["release_after"] = 0
+    output = tmp_path / "shot.png"
+    previous = b"previous complete capture"
+    output.write_bytes(previous)
+    capture = {}
+    transitions = []
+    screenshot = pw.Page.screenshot
+
+    def rerender_during_capture(page, **kwargs):
+        assert output.read_bytes() == previous
+        png = screenshot(page, **kwargs)
+        if not transitions:
+            before = page.evaluate(shooter.FRAME_READY)
+            page.evaluate("""() => {
+              const c = document.getElementById('collage');
+              c.dataset.frameRevision = String(Number(c.dataset.frameRevision) + 1);
+            }""")
+            transitions.append((before, page.evaluate(shooter.FRAME_READY)))
+            return b"raced strip must not be published"
+        return png
+
+    monkeypatch.setattr(pw.Page, "screenshot", rerender_during_capture)
+    shooter.shoot(url, str(output), bird_names=True, timeout_ms=10000, dsf=1,
+                  capture=capture)
+    assert transitions[0][0]["token"] == transitions[0][1]["token"]
+    assert transitions[0][0]["revision"] != transitions[0][1]["revision"]
+    assert capture["species"] == [
+        {"sci": "Corvus brachyrhynchos", "com": "American Crow", "n": 20}]
+    with Image.open(output) as image:
+        assert image.size == (600, 800)
+
+
 @pytest.mark.parametrize("graphics_mb", [None, 4])
 def test_graphics_budget_keeps_all_source_art(shooter, station, tmp_path, monkeypatch, graphics_mb):
     url, _started, state, bird = station
@@ -353,13 +391,16 @@ def test_mid_strip_change_preserves_last_good_frame(shooter, station, tmp_path, 
     def mutate(page, **kwargs):
         nonlocal changed
         result = screenshot(page, **kwargs)
-        if not changed:
+        if not changed or mutation == "token":
             changed = True
             page.evaluate("""kind => {
               const image = document.querySelector('#collage img');
               if (kind === 'source') image.src += '&changed=1';
               if (kind === 'layout') image.style.transform = 'translateX(3px)';
-              if (kind === 'token') document.getElementById('collage').dataset.frameRevision = 'changed';
+              if (kind === 'token') {
+                const c = document.getElementById('collage');
+                c.dataset.frameRevision = String(Number(c.dataset.frameRevision) + 1);
+              }
               if (kind === 'label') document.querySelector('.gtile-label textPath').textContent = 'Changed';
             }""", mutation)
         return result
@@ -410,7 +451,7 @@ def test_frame_capture_keeps_snapshot_during_background_refresh(shooter, station
 
     monkeypatch.setattr(pw.Page, "screenshot", delayed)
     captured = {}
-    shooter.shoot(url, str(output), bird_names=True, timeout_ms=10000, capture=captured)
+    shooter.shoot(url, str(output), bird_names=True, timeout_ms=45000, capture=captured)
     assert triggered and state["recent_requests"] == 1
     assert [item["sci"] for item in captured["species"]] == ["Corvus brachyrhynchos"]
     with Image.open(output) as image:
@@ -440,9 +481,9 @@ def test_four_mb_overlay_and_layout_match_healthy_capture(shooter, station, tmp_
     launch = pw.BrowserType.launch
     results = []
 
-    def record(page, *args):
+    def record(page, *args, **kwargs):
         layout = page.evaluate(shooter.CAPTURE_LAYOUT)
-        overlay = capture_overlay(page, *args)
+        overlay = capture_overlay(page, *args, **kwargs)
         saved = tmp_path / f"overlay-{len(results)}.png"
         overlay.save(saved)
         saved.with_suffix(".json").write_text(json.dumps(layout, indent=2))

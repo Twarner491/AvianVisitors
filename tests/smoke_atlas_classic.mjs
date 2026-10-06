@@ -218,6 +218,9 @@ const renderContext = {
   fmtNK(value) { return String(value); },
   windowLabel() { return '24h'; },
   artRevision() { return 'r12'; },
+  defaultCutoutSrc(sci, pose, _version, common) {
+    return `./avian/api/cutout.php?sci=${encodeURIComponent(sci)}&com=${encodeURIComponent(common || '')}&pose=${pose}&bundle=${'a'.repeat(64)}&v=${'a'.repeat(64)}`;
+  },
   SKETCH_VERSION: 'r12',
   tablesReady: false,
   DIMS: {},
@@ -611,6 +614,6 @@ assert.match(css, /#atlasGrid\[data-layout="classic"\][\s\S]*?repeat\(auto-fill,
 assert.match(css, /#atlasGrid\[data-layout="classic"\][\s\S]*?repeat\(2, minmax\(0, 1fr\)\)/,
   'Classic mode restores the historical two-up mobile grid');
 assert.match(html, /styles\.css\?v=r196/, 'Classic Atlas styles have a fresh cache key');
-assert.match(html, /apt\.js\?v=r235/, 'Classic Atlas and admin recovery behavior have a fresh cache key');
+assert.match(html, /apt\.js\?v=r240/, 'Classic Atlas and admin recovery behavior have a fresh cache key');
 
 console.log('classic Atlas smoke: ok');

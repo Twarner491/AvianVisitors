@@ -164,3 +164,35 @@ def test_root_runtime_smoke_refuses_execution_without_opt_in():
         env=env, text=True, capture_output=True)
     assert result.returncode != 0
     assert "refusing generation runtime smoke" in result.stderr
+
+
+@pytest.mark.parametrize("value", ["/", "/tmp/../avian-invalid", "relative/path"])
+def test_webroot_preparation_rejects_unsafe_paths_before_writes(tmp_path, value):
+    result = run_install_functions(tmp_path, f'''
+getent() {{ [ "$1 $2" = "passwd station" ]; }}
+sudo() {{ echo unexpected-write >&2; return 99; }}
+BIRDNET_USER=station
+EXTRACTED={json.dumps(value)}
+prepare_caddy_webroot
+''')
+    assert result.returncode != 0
+    assert "Invalid BirdNET-Pi webroot" in result.stderr
+    assert "unexpected-write" not in result.stderr
+
+
+def test_webroot_preparation_creates_missing_directory_and_rejects_file(tmp_path):
+    webroot = tmp_path / "new-webroot"
+    body = f'''
+getent() {{ [ "$1 $2" = "passwd station" ]; }}
+BIRDNET_USER=station
+EXTRACTED={json.dumps(str(webroot))}
+prepare_caddy_webroot
+'''
+    result = run_install_functions(tmp_path, body)
+    assert result.returncode == 0, result.stderr
+    assert webroot.is_dir()
+    webroot.rmdir()
+    webroot.write_text("untouched")
+    result = run_install_functions(tmp_path, body)
+    assert result.returncode != 0
+    assert webroot.read_text() == "untouched"

@@ -4112,6 +4112,6 @@ assert.equal(pendingCountRemoved, 1, 'the patched row leaves the pending observa
 assert.match(functionSource('suspendEducatorScopes'), /clearEducatorCountState/,
   'admin authorization loss clears private saved-count state');
 assert.match(html, /styles\.css\?v=r196/, 'the Educators workspace styles use the frozen cache key');
-assert.match(html, /apt\.js\?v=r235/, 'the Educators workspace behavior uses the frozen cache key');
+assert.match(html, /apt\.js\?v=r240/, 'the Educators workspace behavior uses the frozen cache key');
 
 console.log('Educators frontend smoke: ok');

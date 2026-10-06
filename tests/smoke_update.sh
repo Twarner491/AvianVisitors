@@ -17,6 +17,18 @@ command -v git >/dev/null
 command -v runuser >/dev/null
 command -v flock >/dev/null
 command -v sha256sum >/dev/null
+command -v od >/dev/null
+command -v sync >/dev/null
+command -v tr >/dev/null
+command -v dd >/dev/null
+command -v truncate >/dev/null
+
+generation_revision() {
+  local revision
+  revision=$(tr -d '\n' </var/lib/avian-visitors/included-art.revision) || return 1
+  [[ "$revision" =~ ^[0-9a-f]{64}$ ]] || return 1
+  printf '%s\n' "$revision"
+}
 
 test_root=/tmp/avian-update-smoke
 case_log=$test_root/current.log
@@ -54,7 +66,7 @@ git -C "$seed" commit -qm base
 
 git -C "$seed" switch -qc avian-visitors
 mkdir -p "$seed/avian/frontend" "$seed/avian/assets/illustrations" \
-  "$seed/avian/assets/cutouts"
+  "$seed/avian/assets/cutouts" "$seed/avian/scripts"
 printf 'one\n' >"$seed/version.txt"
 printf '{"shared-bird":{"w":1,"h":1,"bits":"AA=="},"identical-bird":{"w":1,"h":1,"bits":"AA=="}}\n' \
   >"$seed/avian/frontend/masks.json"
@@ -66,6 +78,45 @@ printf 'official shared cutout\n' >"$seed/avian/assets/cutouts/shared-photo.png"
 printf 'official collision\n' >"$seed/avian/legacy.txt"
 printf 'fail-filter.txt filter=fail\n' >"$seed/.gitattributes"
 printf 'filter content\n' >"$seed/fail-filter.txt"
+cat >"$seed/avian/scripts/build_masks.py" <<'PY'
+#!/usr/bin/env python3
+import fcntl
+import json
+import os
+from pathlib import Path
+import secrets
+
+lock_fd = int(os.environ["AVIAN_GENERATION_LOCK_FD"])
+fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+repo = Path(__file__).resolve().parents[2]
+if (repo / "avian/assets/illustrations/identical-bird.png").read_text() == \
+        "release-three reshaped official art\n":
+    dims_path = repo / "avian/frontend/dims.json"
+    masks_path = repo / "avian/frontend/masks.json"
+    dims = json.loads(dims_path.read_text())
+    masks = json.loads(masks_path.read_text())
+    dims["identical-bird"] = [3, 3]
+    masks["identical-bird"] = {"w": 3, "h": 3, "bits": "AAA="}
+    dims_path.write_text(json.dumps(dims, separators=(",", ":")) + "\n")
+    masks_path.write_text(json.dumps(masks, separators=(",", ":")) + "\n")
+for name in ("dims.json", "masks.json"):
+    path = repo / "avian" / "frontend" / name
+    data = path.read_bytes()
+    with path.open("r+b") as handle:
+        handle.seek(0)
+        handle.write(data)
+        handle.truncate()
+        handle.flush()
+        os.fsync(handle.fileno())
+state = Path(os.environ["AVIAN_ART_REVISION_STATE"])
+with state.open("r+", encoding="ascii") as handle:
+    handle.seek(0)
+    handle.write(secrets.token_hex(32) + "\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+    os.ftruncate(handle.fileno(), 65)
+Path("/tmp/avian-update-rebuild-called").write_text("yes\n", encoding="ascii")
+PY
 git -C "$seed" add .
 git -C "$seed" commit -qm release-one
 release_one=$(git -C "$seed" rev-parse HEAD)
@@ -75,10 +126,12 @@ git -C "$seed" commit -qm release-two
 release_two=$(git -C "$seed" rev-parse HEAD)
 printf 'three\n' >"$seed/version.txt"
 printf 'release-three shared art\n' >"$seed/avian/assets/illustrations/shared-bird.png"
+printf 'release-three reshaped official art\n' \
+  >"$seed/avian/assets/illustrations/identical-bird.png"
 printf 'release-three Swiss collision\n' >"$seed/avian/assets/illustrations/swiss-only.png"
-printf '{"shared-bird":{"w":1,"h":1,"bits":"AA=="},"identical-bird":{"w":1,"h":1,"bits":"AA=="},"swiss-only":{"w":1,"h":1,"bits":"AA=="}}\n' \
+printf '{"shared-bird":{"w":1,"h":1,"bits":"AA=="},"identical-bird":{"w":3,"h":3,"bits":"AAA="},"swiss-only":{"w":1,"h":1,"bits":"AA=="}}\n' \
   >"$seed/avian/frontend/masks.json"
-printf '{"shared-bird":[1,1],"identical-bird":[1,1],"swiss-only":[1,1]}\n' \
+printf '{"shared-bird":[1,1],"identical-bird":[3,3],"swiss-only":[1,1]}\n' \
   >"$seed/avian/frontend/dims.json"
 git -C "$seed" add .
 git -C "$seed" commit -qm release-three
@@ -146,6 +199,8 @@ BIRDNET_USER=$station_user
 AUTOMATIC_UPDATE=1
 EOF
   mkdir -p /var/lib/avian-visitors
+  rm -f /var/lib/avian-visitors/included-art.revision \
+    /tmp/avian-update-rebuild-called
   auth_verifier='$2y$14$FJs8skDlFXw6UEyzPutTQuQBPcFdy0iyGDrL3silEC/X6CwX7aOhi'
   printf 'v1\t1\t27\t%s\n' "$auth_verifier" \
     >/var/lib/avian-visitors/admin-auth.state
@@ -175,6 +230,22 @@ expect_success 'clean fast-forward'
 [ -e "$test_root/refresh.called" ] || fail 'clean update omitted service refresh'
 [ "$(sha256sum /var/lib/avian-visitors/admin-auth.state)" = "$auth_state_before" ] \
   || fail 'clean update changed root-owned admin auth state'
+clean_generation_revision=$(generation_revision) \
+  || fail 'clean update did not publish a valid illustration cache revision'
+[ -f /tmp/avian-update-rebuild-called ] \
+  || fail 'first update did not rebuild before initializing persistent art state'
+
+printf 'invalid%057d\n' 0 | tr 0 '!' \
+  >/var/lib/avian-visitors/included-art.revision
+rm -f /tmp/avian-update-rebuild-called
+clean_head=$(as_station "$station_user" "$station_home" git -C "$repo_dir" rev-parse HEAD)
+expect_success 'no-op recovery after interrupted writer'
+[ "$(as_station "$station_user" "$station_home" git -C "$repo_dir" rev-parse HEAD)" = "$clean_head" ] \
+  || fail 'no-op recovery moved the release head'
+[ -f /tmp/avian-update-rebuild-called ] \
+  || fail 'no-op recovery did not rebuild the illustration inventory'
+generation_revision >/dev/null \
+  || fail 'no-op recovery did not republish a valid persistent revision'
 
 setup_case automatic release-one
 cat >/etc/birdnet/birdnet.conf <<EOF
@@ -204,6 +275,8 @@ generated_backup=$(find "$backup_root" -mindepth 1 -maxdepth 1 -type d | head -n
 [ -n "$generated_backup" ] || fail 'generated files were not backed up'
 (cd "$generated_backup" && sha256sum -c SHA256SUMS >/dev/null) \
   || fail 'generated backup checksum failed'
+generation_revision >/dev/null \
+  || fail 'generated-index preservation did not publish a valid cache revision'
 
 setup_case dirty release-one
 printf 'local edit\n' >"$repo_dir/version.txt"
@@ -443,6 +516,8 @@ grep -q '"shared-bird"' "$repo_dir/avian/frontend/dims.json" \
 grep -qx 'rollback custom art' \
   "$repo_dir/avian/assets/illustrations/shared-bird.png" \
   || fail 'failed release update did not restore custom bird art'
+generation_revision >/dev/null \
+  || fail 'complete release rollback did not republish a valid cache revision'
 
 setup_case repair release-one
 touch "$test_root/refresh.fail"
@@ -544,6 +619,8 @@ legacy_backup=$(find "$station_home/.local/state/avian-visitors/update-backups" 
 [ -n "$legacy_backup" ] || fail 'legacy collision backup was not created'
 (cd "$legacy_backup" && sha256sum -c SHA256SUMS >/dev/null) \
   || fail 'legacy backup checksum failed'
+legacy_generation_revision=$(generation_revision) \
+  || fail 'legacy migration did not publish a valid cache revision'
 mkdir -p "$test_root/legacy-restore"
 tar -C "$test_root/legacy-restore" -xf "$legacy_backup/legacy-collisions.tar"
 grep -qx 'legacy local copy' "$test_root/legacy-restore/avian/legacy.txt" \
@@ -557,8 +634,11 @@ grep -qx 'local German shared cutout' \
   || fail 'custom-art backup did not preserve the cutout collision'
 
 # The next release updates an already-overridden tracked illustration and starts
-# tracking a formerly unique Swiss file. Both local assets must remain active.
+# tracking a formerly unique Swiss file. It also reshapes an unoverridden
+# official illustration. Local assets remain active, while the restored full
+# geometry snapshot must be rebuilt for that changed official image.
 git -C "$remote" update-ref refs/heads/avian-visitors "$release_three"
+rm -f /tmp/avian-update-rebuild-called
 expect_success 'subsequent update with regional overrides'
 [ "$(as_station "$station_user" "$station_home" git -C "$repo_dir" rev-parse HEAD)" \
   = "$release_three" ] \
@@ -579,6 +659,14 @@ grep -q '"swiss-only"' "$repo_dir/avian/frontend/masks.json" \
   || fail 'subsequent update replaced regional masks.json'
 grep -q '"swiss-only"' "$repo_dir/avian/frontend/dims.json" \
   || fail 'subsequent update replaced regional dims.json'
+grep -q '"identical-bird":\[3,3\]' "$repo_dir/avian/frontend/dims.json" \
+  || fail 'subsequent update blessed stale geometry for changed official art'
+[ -f /tmp/avian-update-rebuild-called ] \
+  || fail 'subsequent update did not rebuild the final mixed illustration inventory'
+subsequent_generation_revision=$(generation_revision) \
+  || fail 'subsequent update did not publish a valid cache revision'
+[ "$subsequent_generation_revision" != "$legacy_generation_revision" ] \
+  || fail 'subsequent art update reused its prior cache revision'
 git -C "$remote" update-ref refs/heads/avian-visitors "$release_two"
 
 # Model a legacy Pi that first cloned main at depth one, then shallow-fetched
@@ -696,6 +784,8 @@ grep -qx 'restore custom German cutout' \
   || fail 'failed migration did not restore custom cutout collision'
 grep -qx 'keep this too' "$repo_dir/custom/notes.txt" \
   || fail 'failed migration changed unrelated file'
+[ ! -e /var/lib/avian-visitors/included-art.revision ] \
+  || fail 'complete pre-journal rollback did not restore the absent revision state'
 
 setup_case existingrollback main
 as_station "$station_user" "$station_home" git -C "$repo_dir" branch \

@@ -15,7 +15,7 @@ repo=/home/aviandiag/BirdNET-Pi
 
 case "${1:-all}" in
 lock|all)
-  policy=/etc/tmpfiles.d/avian-generation.conf
+  policy=/etc/tmpfiles.d/avian-bundle-locks.conf
   lock=/run/lock/avian-generation.lock
   [ -f "$policy" ] || fail "generation lock has no boot recreation policy"
   [ "$(stat -c '%u:%g:%a' "$policy")" = 0:0:644 ] || fail "unsafe tmpfiles policy"

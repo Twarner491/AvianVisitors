@@ -4,11 +4,13 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import sys
 
 import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "avian/scripts"))
 SPEC = importlib.util.spec_from_file_location(
     "pregen_reference_urls", ROOT / "avian/scripts/pregen.py"
 )

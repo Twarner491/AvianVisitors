@@ -27,7 +27,9 @@ test_root=$(mktemp -d)
 site=$test_root/site
 caddy_pid=''
 fpm_pid=''
+blocked_client_pid=''
 cleanup() {
+  [ -z "$blocked_client_pid" ] || kill "$blocked_client_pid" 2>/dev/null || true
   [ -z "$caddy_pid" ] || kill "$caddy_pid" 2>/dev/null || true
   [ -z "$fpm_pid" ] || kill "$fpm_pid" 2>/dev/null || true
   wait 2>/dev/null || true
@@ -42,7 +44,8 @@ mkdir -p /etc/birdnet /etc/caddy /var/lib/avian-visitors \
   "$site/Processed/x" "$site/Processed-old" "$site/planted" \
   "$site/nested" "$site/By_Date/x" "$site/Charts/x" \
   "$site/avian/api" "$site/scripts/filemanager" "$site/scripts-old" \
-  "$site/phpsysinfo"
+  "$site/phpsysinfo" "$site/assets/bundle-catalog/fonts" \
+  "$site/assets/bundle-catalog/bundle-previews/collage"
 chmod 0755 "$test_root" "$site"
 printf 'US/Pacific\n' >/etc/timezone
 ln -sfn /usr/share/zoneinfo/US/Pacific /etc/localtime
@@ -89,10 +92,31 @@ printf '<?php echo "info"; ?>\n' >"$site/phpsysinfo/index.php"
 printf '<?php echo "js"; ?>\n' >"$site/phpsysinfo/js.php"
 printf '<?php echo "info backup"; ?>\n' >"$site/phpsysinfo/js.php.bak"
 
-api_names=(archive birdnet-api birdnet-status birdweather config cutout educator-audio-check educator-audio educators export generate maintenance menu recording spectrogram wiki)
+api_names=(archive birdnet-api birdnet-status birdweather bundle-assets bundle-preview bundle-species bundles config cutout educator-audio-check educator-audio educators export generate maintenance menu recording spectrogram wiki)
 for name in "${api_names[@]}"; do
   printf '<?php echo "api"; ?>\n' >"$site/avian/api/$name.php"
 done
+cat >"$site/avian/api/export.php" <<'PHP'
+<?php
+$dedicated = ($_SERVER['AVIAN_BUNDLE_EXPORT_POOL'] ?? '') === '1';
+if ($dedicated) {
+    $lock = fopen('/tmp/avian-bundle-deadline.lock', 'c');
+    if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) {
+        http_response_code(409);
+        echo 'busy';
+        exit;
+    }
+    if (($_SERVER['HTTP_X_AVIAN_BLOCK'] ?? '') === '1') {
+        file_put_contents('/tmp/avian-bundle-deadline-worker.pid', (string)getmypid());
+        while (true) {
+            echo str_repeat('x', 1048576);
+            flush();
+        }
+    }
+}
+echo ($dedicated ? 'dedicated' : 'general') . '|'
+    . ($_SERVER['AVIAN_DIRECT_LOCAL'] ?? 'missing');
+PHP
 cp /source/avian/api/admin-auth.php /source/avian/api/admin-state.php \
   "$site/avian/api/"
 cat >"$site/avian/api/config.php" <<'PHP'
@@ -105,6 +129,12 @@ echo (avian_is_direct_local_request($_SERVER) ? 'direct' : 'forwarded') . '|'
     . ($_SERVER['AVIAN_STATION_TIMEZONE'] ?? 'missing');
 PHP
 printf '<?php echo "unknown"; ?>\n' >"$site/avian/api/unknown.php"
+printf '<!doctype html><title>bundle catalog</title>\n' >"$site/assets/bundle-catalog/index.html"
+printf '{"ok":true}\n' >"$site/assets/bundle-catalog/catalog.json"
+printf 'font\n' >"$site/assets/bundle-catalog/fonts/test.ttf"
+printf 'png\n' >"$site/assets/bundle-catalog/bundle-previews/collage/test.png"
+printf 'png\n' >"$site/assets/bundle-catalog/bundle-previews/collage/test.0000000000000000000000000000000000000000000000000000000000000000.png"
+printf '<?php echo "blocked"; ?>\n' >"$site/assets/bundle-catalog/blocked.php"
 cp /source/avian/api/educator-state.php "$site/avian/api/educator-state.php"
 printf '<?php echo "cli only"; ?>\n' >"$site/avian/api/educator-store.php"
 
@@ -122,6 +152,7 @@ EOF
 chmod 0755 /usr/bin/systemctl
 
 mkdir -p /run/php
+fpm_version=$(php -r 'printf("%d.%d", PHP_MAJOR_VERSION, PHP_MINOR_VERSION);')
 cat >/tmp/avian-generated-fpm.conf <<EOF
 [global]
 pid = /tmp/avian-generated-fpm.pid
@@ -131,12 +162,28 @@ daemonize = no
 [avian]
 user = bird
 group = bird
-listen = /run/php/php-test-fpm.sock
+listen = /run/php/php${fpm_version}-fpm.sock
 listen.owner = bird
 listen.group = bird
 listen.mode = 0660
 pm = static
 pm.max_children = 2
+catch_workers_output = yes
+clear_env = no
+
+[avian-bundle-export]
+user = bird
+group = bird
+listen = /run/php/avian-bundle-export-${fpm_version}.sock
+listen.owner = caddy
+listen.group = caddy
+listen.mode = 0600
+pm = ondemand
+pm.max_children = 2
+pm.process_idle_timeout = 10s
+pm.max_requests = 1
+request_terminate_timeout = 2s
+request_terminate_timeout_track_finished = yes
 catch_workers_output = yes
 clear_env = no
 EOF
@@ -200,6 +247,47 @@ body() {
   curl -fsS "$@"
 }
 
+assert_bundle_catalog_static_route() {
+  local headers api_headers collage_headers bare_collage_headers catalog_csp
+  for target in index.html catalog.json fonts/test.ttf bundle-previews/collage/test.png; do
+    [ "$(code "http://127.0.0.1/assets/bundle-catalog/$target")" = 200 ] \
+      || fail "bundle catalog static asset was blocked: $target"
+    headers=$(curl -sS -D - -o /dev/null \
+      "http://127.0.0.1/assets/bundle-catalog/$target")
+    printf '%s\n' "$headers" | tr -d '\r' \
+      | grep -Fqx 'Access-Control-Allow-Origin: *' \
+      || fail "bundle catalog static asset is missing opaque-frame CORS: $target"
+  done
+  catalog_csp=$(curl -sS -D - -o /dev/null \
+    http://127.0.0.1/assets/bundle-catalog/index.html \
+    | tr -d '\r' | sed -n 's/^Content-Security-Policy: //p')
+  [ "$catalog_csp" = "default-src 'none'; base-uri 'none'; connect-src 'self' https://avianvisitors.com; font-src 'self'; form-action 'none'; frame-ancestors 'self'; img-src 'self' data: https://avianvisitors.com; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'" ] \
+    || fail 'bundle catalog frame is missing its narrow CSP'
+  collage_headers=$(curl -sS -D - -o /dev/null \
+    http://127.0.0.1/assets/bundle-catalog/bundle-previews/collage/test.0000000000000000000000000000000000000000000000000000000000000000.png)
+  printf '%s\n' "$collage_headers" | tr -d '\r' \
+    | grep -Fqx 'Cache-Control: public, max-age=31536000, immutable' \
+    || fail 'versioned collage render is missing immutable caching'
+  bare_collage_headers=$(curl -sS -D - -o /dev/null \
+    http://127.0.0.1/assets/bundle-catalog/bundle-previews/collage/test.png)
+  if printf '%s\n' "$bare_collage_headers" | tr -d '\r' \
+    | grep -Fqi 'Cache-Control: public, max-age=31536000, immutable'; then
+    fail 'mutable collage basename received immutable caching'
+  fi
+  [ "$(code http://127.0.0.1/assets/bundle-catalog/blocked.php)" = 404 ] \
+    || fail 'bundle catalog route exposed executable source'
+  api_headers=$(curl -sS -D - -o /dev/null \
+    http://127.0.0.1/avian/api/bundles.php)
+  if printf '%s\n' "$api_headers" | tr -d '\r' \
+    | grep -Fqi 'Access-Control-Allow-Origin:'; then
+    fail 'station bundle API inherited catalog CORS'
+  fi
+  if printf '%s\n' "$api_headers" | tr -d '\r' \
+    | grep -Fqi 'Content-Security-Policy:'; then
+    fail 'station bundle API inherited catalog CSP'
+  fi
+}
+
 assert_notification_image_route() {
   [ "$(code 'http://127.0.0.1/api/v1/image/Calypte%20anna')" = 200 ] \
     || fail "notification image API did not reach its reviewed front controller"
@@ -236,6 +324,65 @@ assert_unknowns_closed() {
     result=$(code "http://127.0.0.1$target")
     [ "$result" = 404 ] || fail "served planted or stale executable path $target as $result"
   done
+}
+
+assert_bundle_export_pool_routes() {
+  local result worker_pid
+  [ "$(body 'http://127.0.0.1/avian/api/export.php?what=bundle')" = 'dedicated|1' ] \
+    || fail 'exact direct bundle GET missed its dedicated FPM pool'
+  [ "$(body -H 'Forwarded: for=198.51.100.2' \
+    'http://127.0.0.1/avian/api/export.php?what=bundle')" = 'dedicated|0' ] \
+    || fail 'exact forwarded bundle GET missed its dedicated FPM pool'
+  [ "$(body 'http://127.0.0.1/avian/api/export.php')" = 'general|1' ] \
+    || fail 'ordinary export moved off the general FPM pool'
+  [ "$(body -X POST 'http://127.0.0.1/avian/api/export.php?what=bundle')" = 'general|1' ] \
+    || fail 'bundle POST reached the dedicated FPM pool'
+  for query in \
+    'what=bundle&extra=1' \
+    'extra=1&what=bundle' \
+    'what=bundle&what=bundle' \
+    'what=%62undle' \
+    '%77hat=bundle'; do
+    [ "$(body "http://127.0.0.1/avian/api/export.php?$query")" = 'general|1' ] \
+      || fail "noncanonical query reached the dedicated FPM pool: $query"
+  done
+  result=$(curl -sS --path-as-is \
+    'http://127.0.0.1/avian/api/export.php/extra?what=bundle')
+  [ "$result" != 'dedicated|1' ] \
+    || fail 'bundle PATH_INFO reached the dedicated FPM pool'
+
+  rm -f /tmp/avian-bundle-deadline.lock \
+    /tmp/avian-bundle-deadline-worker.pid
+  python3 -c 'import socket,time
+s=socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
+s.connect(("127.0.0.1", 80))
+s.sendall(b"GET /avian/api/export.php?what=bundle HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Avian-Block: 1\r\nConnection: close\r\n\r\n")
+time.sleep(8)' &
+  blocked_client_pid=$!
+  for _ in $(seq 1 50); do
+    [ -s /tmp/avian-bundle-deadline-worker.pid ] && break
+    sleep 0.1
+  done
+  [ -s /tmp/avian-bundle-deadline-worker.pid ] \
+    || fail 'blocked bundle worker did not start'
+  worker_pid=$(cat /tmp/avian-bundle-deadline-worker.pid)
+  [[ "$worker_pid" =~ ^[1-9][0-9]*$ ]] || fail 'blocked worker PID was invalid'
+  [ "$(code --max-time 2 \
+    'http://127.0.0.1/avian/api/export.php?what=bundle')" = 409 ] \
+    || fail 'second bundle request did not reach the application lock'
+  sleep 3
+  kill -0 "$fpm_pid" 2>/dev/null || fail 'FPM master died with timed-out worker'
+  if kill -0 "$worker_pid" 2>/dev/null; then
+    fail 'hard FPM deadline did not terminate the blocked worker'
+  fi
+  flock -n /tmp/avian-bundle-deadline.lock true \
+    || fail 'timed-out bundle worker retained the export lock'
+  [ "$(body 'http://127.0.0.1/avian/api/export.php?what=bundle')" = 'dedicated|1' ] \
+    || fail 'replacement bundle worker did not serve the next request'
+  kill "$blocked_client_pid" 2>/dev/null || true
+  wait "$blocked_client_pid" 2>/dev/null || true
+  blocked_client_pid=''
 }
 
 assert_password_transition_lock() {
@@ -299,6 +446,8 @@ ln -sfn /usr/share/zoneinfo/US/Pacific /etc/localtime
 write_config 0 ''
 generate
 start_caddy
+assert_bundle_catalog_static_route
+assert_bundle_export_pool_routes
 shell_headers=$(curl -sS -D - -o /dev/null \
   'http://127.0.0.1/?edu=c_0123456789abcdef0123456789abcdef')
 printf '%s\n' "$shell_headers" | tr -d '\r' | grep -Fqi 'Cache-Control: no-store' \

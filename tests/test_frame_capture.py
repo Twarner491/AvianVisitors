@@ -74,7 +74,10 @@ class CapturePage:
         self.mode = mode
         self.routes = {}
         self.screenshots = 0
+        self.token = "1"
+        self.revision = "1"
         self.events = {}
+        self.paper = "rgb(255, 255, 255)"
         self.visible_surfaces = []
         self.context = types.SimpleNamespace(new_cdp_session=lambda _page: types.SimpleNamespace(
             send=lambda method, params: self.visible_surfaces.append((method, params))))
@@ -89,7 +92,7 @@ class CapturePage:
         pass
 
     def add_style_tag(self, **_kwargs):
-        pass
+        self.paper = "rgba(0, 0, 0, 0)"
 
     def goto(self, *_args, **_kwargs):
         self.routes["**/birdnet-api.php**"](Route({"species": SPECIES, "hours": 24}))
@@ -111,21 +114,23 @@ class CapturePage:
             raise TimeoutError("image decode did not finish")
         if self.mode == "font-timeout" and "fonts.load" in script:
             raise TimeoutError("label font did not finish")
-        return types.SimpleNamespace(json_value=lambda: {"token": "1", "revision": "1"})
+        return types.SimpleNamespace(json_value=lambda: {"token": self.token, "revision": self.revision})
 
     def evaluate(self, script, *_args):
         if "__frameImageIds" in script:
             return {"images": [{"id": 1, "src": "http://station/bird.png", "box": [10, 20, 2, 1],
                                 "natural": [2, 1], "fit": "fill", "position": "50% 50%", "filter": "none"}],
-                    "labels": [], "token": "1", "revision": "1"}
+                    "labels": [], "token": self.token, "revision": self.revision}
         if "backgroundColor" in script:
-            return "rgb(255, 255, 255)"
+            return self.paper
         if "fonts.load" in script:
             return True
         if "decode" in script:
             return {"token": "1", "revision": "1"}
         if "frame" in script:
-            return not (self.mode == "rerender" and self.screenshots)
+            return (all(_args[0][key] == value for key, value in
+                        (("token", self.token), ("revision", self.revision)))
+                    and not (self.mode == "rerender" and self.screenshots))
 
     def wait_for_timeout(self, *_args):
         pass
@@ -147,6 +152,15 @@ class FrameCaptureTests(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"playwright.sync_api": api}):
             cls.shoot = load("capture_shoot", "frame/shoot.py")
         cls.display = load("capture_display", "frame/display.py")
+        cls.bundle_runtime = load("capture_bundle_runtime", "frame/bundle_runtime.py")
+
+    def setUp(self):
+        for patcher in (
+            mock.patch.dict(sys.modules, {"bundle_runtime": self.bundle_runtime}),
+            mock.patch.object(self.bundle_runtime, "active_bundle", return_value=None),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def test_recent_errors_are_not_rewritten_as_success(self):
         for payload, status in (({"error": "database unavailable"}, 503),
@@ -195,8 +209,8 @@ class FrameCaptureTests(unittest.TestCase):
                 mock.patch.object(self.display, "push_panel", side_effect=lambda *args: panel.append(args)), \
                 mock.patch.object(self.display, "save_state", side_effect=lambda *args: saves.append(args)), \
                 contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
-            self.display.run(cfg)
-            self.display.run(cfg)
+            self.assertFalse(self.display.run(cfg))
+            self.assertFalse(self.display.run(cfg))
         self.assertEqual(capture.call_count, 2)
         self.assertEqual(panel, [])
         self.assertEqual(saves, [])
@@ -206,7 +220,7 @@ class FrameCaptureTests(unittest.TestCase):
         captured = [{"sci": "Turdus migratorius", "com": "Robin", "n": 2}]
         saved = []
 
-        def obtain(_cfg, _species, *, capture=None):
+        def obtain(_cfg, _species, _bundle=None, *, capture=None):
             if capture is not None:
                 capture["species"] = captured
             return Image.new("RGB", (20, 20))
@@ -222,15 +236,179 @@ class FrameCaptureTests(unittest.TestCase):
             self.display.run(cfg)
         self.assertEqual(saved, [self.display.signature(captured)])
 
-    def capture_page(self, page, output, capture=None):
+    def test_captured_signature_keeps_the_exact_bundle_selection(self):
+        import bundle_runtime
+
+        cfg = dict(self.display.DEFAULTS, shoot=True)
+        bundle = types.SimpleNamespace(
+            drawable_slugs=frozenset({"turdus-migratorius"}),
+            reference={"revision": "a" * 64, "selection_revision": "b" * 64},
+        )
+        saved = []
+
+        def obtain(_cfg, _species, selected, *, capture=None):
+            self.assertIs(selected, bundle)
+            capture["species"] = [{"sci": "Turdus migratorius", "com": "Robin", "n": 2}]
+            return Image.new("RGB", (20, 20))
+
+        with mock.patch.object(bundle_runtime, "active_bundle", return_value=bundle), \
+                mock.patch.object(self.display, "load_state", return_value={}), \
+                mock.patch.object(self.display, "fetch_species", return_value=SPECIES), \
+                mock.patch.object(self.display, "obtain_image", side_effect=obtain), \
+                mock.patch.object(self.display, "fit_panel", side_effect=lambda image: image), \
+                mock.patch.object(self.display, "mat_and_center", side_effect=lambda image, *args: image), \
+                mock.patch.object(self.display, "push_panel"), \
+                mock.patch.object(self.display, "save_state", side_effect=lambda _path, sig, _now: saved.append(sig)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(self.display.run(cfg, force=True))
+        self.assertEqual(saved, ["58d0ae600e086fb2"])
+
+    def capture_page(self, page, output, capture=None, **options):
         browser = mock.Mock()
         browser.new_context.return_value.new_page.return_value = page
         manager = contextlib.nullcontext(types.SimpleNamespace(
             chromium=types.SimpleNamespace(launch=lambda **_kwargs: browser)))
         with mock.patch.object(self.shoot, "sync_playwright", return_value=manager):
             kwargs = {} if capture is None else {"capture": capture}
-            return self.shoot.shoot("http://station", output, timeout_ms=5,
-                                    bird_names=page.mode == "font-timeout", **kwargs)
+            return self.shoot.shoot("http://station", output, timeout_ms=options.pop("timeout_ms", 5000),
+                                    bird_names=page.mode == "font-timeout", **kwargs, **options)
+
+    def test_bundle_integrity_failure_during_screenshot_keeps_previous_png(self):
+        page = CapturePage("ready")
+        screenshot = page.screenshot
+
+        def fail_resolve(*_args):
+            raise RuntimeError("checksum mismatch")
+
+        def capture_with_late_failure(**kwargs):
+            route = Route({})
+            route.request.url = "http://station/avian/api/cutout.php?sci=Corvus%20corax&pose=1"
+            page.routes["**/cutout.php*"](route)
+            return screenshot(**kwargs)
+
+        page.screenshot = capture_with_late_failure
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "shot.png"
+            output.write_bytes(b"previous capture")
+            with self.assertRaisesRegex(RuntimeError, "collage changed during capture"):
+                self.capture_page(page, str(output), cutout_resolver=fail_resolve)
+            self.assertEqual(output.read_bytes(), b"previous capture")
+            self.assertEqual(page.screenshots, 1, "integrity failures are not retried")
+
+    def test_changed_recent_before_capture_retries_and_reports_the_new_species(self):
+        page = CapturePage("ready")
+        wait = page.wait_for_function
+        newer = [{"sci": "Turdus migratorius", "com": "Robin", "n": 2}]
+
+        def refresh_during_decode(script, **kwargs):
+            if "decode" in script and page.token == "1":
+                page.routes["**/birdnet-api.php**"](Route({"species": newer, "hours": 24}))
+                page.token = "2"
+                page.revision = "2"
+            return wait(script, **kwargs)
+
+        page.wait_for_function = refresh_during_decode
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "shot.png"
+            output.write_bytes(b"previous capture")
+            capture = {}
+            self.capture_page(page, str(output), capture)
+            with Image.open(output) as result:
+                self.assertEqual(result.getpixel((20, 40)), (255, 0, 0))
+            self.assertEqual(capture["species"], newer)
+            self.assertEqual(page.screenshots, 16, "the invalidated pre-capture attempt takes no screenshot")
+
+    def test_recent_response_during_final_validation_cannot_relabel_an_older_png(self):
+        page = CapturePage("ready")
+        evaluate = page.evaluate
+        newer = [{"sci": "Turdus migratorius", "com": "Robin", "n": 2}]
+
+        def response_during_validation(script, *args):
+            unchanged = evaluate(script, *args)
+            if "frame" in script and page.screenshots == 1 and page.token == "1":
+                # Playwright pumps route callbacks while evaluate is in flight;
+                # Python can observe a new response after the JS result was
+                # computed. The successful screenshot still belongs to token 1.
+                page.routes["**/birdnet-api.php**"](Route({"species": newer, "hours": 24}))
+                page.token = "2"
+                page.revision = "2"
+            return unchanged
+
+        page.evaluate = response_during_validation
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "shot.png"
+            output.write_bytes(b"previous capture")
+            capture = {}
+            self.capture_page(page, str(output), capture)
+            self.assertEqual(page.screenshots, 17)
+            self.assertEqual(capture["species"], newer)
+
+    def test_api_failure_during_final_validation_is_not_retried_or_published(self):
+        page = CapturePage("ready")
+        evaluate = page.evaluate
+
+        def fail_during_validation(script, *args):
+            unchanged = evaluate(script, *args)
+            if "frame" in script and page.screenshots:
+                page.routes["**/birdnet-api.php**"](Route({"error": "unavailable"}, 503))
+            return unchanged
+
+        page.evaluate = fail_during_validation
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stderr(io.StringIO()):
+            output = pathlib.Path(directory) / "shot.png"
+            output.write_bytes(b"previous capture")
+            capture = {"species": []}
+            with self.assertRaises(RuntimeError):
+                self.capture_page(page, str(output), capture)
+            self.assertEqual(page.screenshots, 1)
+            self.assertEqual(output.read_bytes(), b"previous capture")
+            self.assertEqual(capture, {"species": []})
+
+    def test_continuous_rerenders_are_bounded_and_preserve_png_and_capture_metadata(self):
+        page = CapturePage("ready")
+        screenshot = page.screenshot
+
+        def rerender(**kwargs):
+            png = screenshot(**kwargs)
+            page.revision = str(int(page.revision) + 1)
+            return png
+
+        page.screenshot = rerender
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "shot.png"
+            output.write_bytes(b"previous capture")
+            capture = {"species": [{"sci": "previous snapshot"}]}
+            with self.assertRaisesRegex(RuntimeError, "collage changed during capture"):
+                self.capture_page(page, str(output), capture)
+            self.assertEqual(page.screenshots, 3)
+            self.assertEqual(output.read_bytes(), b"previous capture")
+            self.assertEqual(capture, {"species": [{"sci": "previous snapshot"}]})
+            self.assertEqual(list(pathlib.Path(directory).iterdir()), [output])
+
+    def test_capture_retries_share_one_deadline_including_the_screenshot(self):
+        page = CapturePage("ready")
+        screenshot = page.screenshot
+        elapsed = [0.0]
+        timeouts = []
+
+        def slow_rerender(**kwargs):
+            timeouts.append(kwargs.get("timeout"))
+            png = screenshot(**kwargs)
+            elapsed[0] += 0.003
+            page.revision = str(int(page.revision) + 1)
+            return png
+
+        page.screenshot = slow_rerender
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch("time.monotonic", side_effect=lambda: elapsed[0]):
+            output = pathlib.Path(directory) / "shot.png"
+            output.write_bytes(b"previous capture")
+            capture = {"species": []}
+            with self.assertRaises(RuntimeError):
+                self.capture_page(page, str(output), capture, timeout_ms=5)
+            self.assertEqual(timeouts, [5, 2])
+            self.assertEqual(output.read_bytes(), b"previous capture")
+            self.assertEqual(capture, {"species": []})
 
     def test_incomplete_or_changed_capture_keeps_previous_png(self):
         for mode in ("broken-image", "old-frontend", "rerender", "decode-timeout", "font-timeout"):
