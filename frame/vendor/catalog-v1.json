@@ -1,0 +1,30 @@
+{
+  "format": "avian-visitors-frame-bundle-catalog",
+  "format_version": 1,
+  "updated": "2026-09-01",
+  "object_base_url": "https://avianvisitors.com/api/bundles/objects/",
+  "packs": [
+    {
+      "id": "official-western-us-woodblock",
+      "version": "1.0.0",
+      "name": "Japanese Woodblock",
+      "availability": "installable",
+      "manifest": {
+        "url": "https://avianvisitors.com/api/bundles/manifests/019d21f5f54b1a68a4510b089544eb7316a3db54dfd37fc129b950eeeffa591f.json",
+        "sha256": "019d21f5f54b1a68a4510b089544eb7316a3db54dfd37fc129b950eeeffa591f",
+        "bytes": 131283
+      }
+    },
+    {
+      "id": "official-western-us-impressionist",
+      "version": "1.0.0",
+      "name": "Evolutionary Impressionist",
+      "availability": "installable",
+      "manifest": {
+        "url": "https://avianvisitors.com/api/bundles/manifests/e069f2ee62cef44d923e136d8eb2011b36ef45d1da46a4cc441ef1916fc3a402.json",
+        "sha256": "e069f2ee62cef44d923e136d8eb2011b36ef45d1da46a4cc441ef1916fc3a402",
+        "bytes": 131310
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Narrow launcher kept beside the release-pinned frame catalog. The frame user
+# owns the checkout and panel process; isolated Python mode prevents ambient
+# PYTHONPATH/user-site packages from changing bundle verification behavior.
+set -eu
+
+vendor_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+frame_dir=$(CDPATH='' cd -- "$vendor_dir/.." && pwd -P)
+python="$frame_dir/.venv/bin/python"
+[ -x "$python" ] || {
+  printf '%s\n' "avian-bundle: the frame virtual environment is missing; run frame/install.sh first" >&2
+  exit 1
+}
+
+exec "$python" -I "$frame_dir/bundle_runtime.py" "$@"

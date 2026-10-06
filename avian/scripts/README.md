@@ -26,6 +26,12 @@ python3 cutout.py
 python3 build_masks.py
 ```
 
+When this is the checkout used by a running station, always finish with
+`build_masks.py`. `pregen.py` and `cutout.py` invalidate the live artwork cache
+before each durable replacement, and the final mask build is what republishes
+the complete PNG/geometry snapshot. Never `scp` or copy individual PNGs over
+the station's live illustration directory.
+
 If `dims.json` or `masks.json` changed, always bump `TABLE_VERSION` in
 `apt.js`. For a one-species correction, also add or update that species in
 `ART_REVISIONS`. For a regional or library-wide rebuild, bump

@@ -1,6 +1,10 @@
-# Illustration bundles
+# Legacy illustration bundle index
 
-The main repo ships a Western-US set reviewed by hand. Other people have generated sets for their own regions and keep them in their forks. Grab one that matches your area, or add yours with a PR editing this file.
+**\* This index is being retired. Bundles are now shared through [avianvisitors.com/bundles](https://avianvisitors.com/bundles). The old community links are retained below during migration.**
+
+Do not add new bundles here. See the [README](README.md#3-illustration-bundles) for the new bundle workflow, and follow the tracked [migration checklist](docs/bundle-catalog-migration.md) before removing this file.
+
+The main repo ships a Western-US set reviewed by hand. Other people have generated sets for their own regions and keep them in their forks. These links are retained during the catalog migration.
 
 ## North America
 
@@ -14,11 +18,7 @@ The main repo ships a Western-US set reviewed by hand. Other people have generat
 - **The Iberian Peninsula**: [RoqueAlonso's fork](https://github.com/RoqueAlonso/AvianVisitors/tree/iberia-illustrations), 440 species. Work in progress: covers Madrid and Castilla-La Mancha (ES-MD, ES-CM) in full, with partial coverage elsewhere in the Peninsula.
 - **Derbyshire, UK**: [jonnywright's repo](https://github.com/jonnywright/AvianAssets), not a full fork but just the illustrations, `dims.json` and `masks.json` for 302 species from Derbyshire, UK (GB-ENG-DBY).
 - **England, UK**: [lloydalexporter's repo](https://github.com/lloydalexporter/AvianAssets_GB-ENG), just the illustration assets for 724 species.
-- - **Netherlands (NL-GR)**: [peterdeboer-nl's fork](https://github.com/peterdeboer-nl/AvianVisitors/tree/avian-visitors), 572 species
-
-## South America
-
-- 
+- **Netherlands (NL-GR)**: [peterdeboer-nl's fork](https://github.com/peterdeboer-nl/AvianVisitors/tree/avian-visitors), 572 species
 
 ## Oceania
 

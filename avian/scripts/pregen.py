@@ -65,6 +65,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import build_masks
+
 # Gemini's image-out model. The endpoint changes occasionally; if you
 # get a 404 here, check Google's model catalog and bump this.
 GEMINI_URL = (
@@ -646,7 +648,8 @@ def main() -> int:
         for pose in args.poses:
             fname = f"{slug}.png" if pose == 1 else f"{slug}-{pose}.png"
             path = args.out / fname
-            if path.exists() and not args.force:
+            original_identity = build_masks.regular_file_identity(path)
+            if original_identity is not None and not args.force:
                 skipped_existing += 1
                 continue
             try:
@@ -660,7 +663,11 @@ def main() -> int:
                                style_ref=style_ref_path)
                 with open_source_image(data) as image:
                     image.load()
-                    save_png_atomic(image, path)
+                    with build_masks.included_art_write_transaction(
+                        args.out, {path: original_identity}
+                    ):
+                        save_png_atomic(image, path)
+                        build_masks.fsync_directory(path.parent)
                 done += 1
                 refs_tag = "+ref" if pos_ref else ""
                 anti_tag = "+anti" if anti else ""

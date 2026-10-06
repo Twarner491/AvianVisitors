@@ -22,6 +22,7 @@ import argparse
 import fcntl
 import json
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -33,6 +34,7 @@ from PIL import Image, ImageDraw, ImageFilter
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import pregen  # noqa: E402  (reuses gen_one + the reference machinery)
+import build_masks  # noqa: E402  (shared table transaction/cache commit)
 from image_files import open_source_image, save_png_atomic  # noqa: E402
 
 ILLUS = HERE.parent / "assets" / "illustrations"
@@ -42,6 +44,31 @@ STATE = ILLUS / ".generate.state.json"
 GENERATION_LOCK = Path(os.environ.get(
     "AVIAN_GENERATION_LOCK", "/run/lock/avian-generation.lock"
 ))
+
+
+def durable_atomic_bytes(path: Path, contents: bytes) -> None:
+    temporary = path.with_name(f".{path.name}.tmp.{secrets.token_hex(8)}")
+    descriptor = None
+    try:
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o664)
+        view = memoryview(contents)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise OSError("short illustration write")
+            view = view[written:]
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = None
+        os.replace(temporary, path)
+        build_masks.fsync_directory(path.parent)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def write_state(**kw) -> None:
@@ -116,6 +143,7 @@ def chroma_cut(src: Path, dst: Path) -> None:
     y0 = max(0, y0 - pad); x0 = max(0, x0 - pad)
     y1 = min(h, y1 + pad); x1 = min(w, x1 + pad)
     save_png_atomic(Image.fromarray(rgba[y0:y1, x0:x1]), dst)
+    build_masks.fsync_directory(dst.parent)
 
 
 def record_cut(slug: str, kind: str) -> None:
@@ -150,10 +178,21 @@ def main() -> int:
     # The updater takes the lock only after its separate root update lock, while
     # generation never takes that update lock, so there is no lock-order cycle.
     try:
-        generation_lock = GENERATION_LOCK.open("r+")
+        generation_lock = build_masks.open_generation_lock(GENERATION_LOCK)
         fcntl.flock(generation_lock.fileno(), fcntl.LOCK_EX)
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
         print(f"error: illustration generation lock unavailable: {exc}", file=sys.stderr)
+        return 2
+    try:
+        revision_state = build_masks.open_art_revision_state(
+            os.fstat(generation_lock.fileno()).st_gid
+        )
+        if revision_state is None:
+            raise RuntimeError("illustration content revision state is missing")
+    except (OSError, RuntimeError) as exc:
+        fcntl.flock(generation_lock.fileno(), fcntl.LOCK_UN)
+        generation_lock.close()
+        print(f"error: illustration content revision unavailable: {exc}", file=sys.stderr)
         return 2
 
     sci, com = args.sci.strip(), args.com.strip()
@@ -172,6 +211,7 @@ def main() -> int:
 
         made = []
         have = []   # poses already on disk - may still need mask registration
+        content_invalidated = False
         for pose in (1, 2):
             fname = f"{slug}.png" if pose == 1 else f"{slug}-{pose}.png"
             out = ILLUS / fname
@@ -194,7 +234,13 @@ def main() -> int:
                                  species_note=notes.get(sci),
                                  style_ref=style_path)
             raw_path = RAW / fname
-            raw_path.write_bytes(png)          # keep the raw for the upgrade pass
+            if not content_invalidated:
+                # From this point a killed or partially failed render may have
+                # changed pixels without matching geometry. Readers stay closed
+                # until build_masks commits both tables and a fresh nonce.
+                build_masks.invalidate_content_revision(revision_state)
+                content_invalidated = True
+            durable_atomic_bytes(raw_path, png)  # keep the raw for the upgrade pass
             chroma_cut(raw_path, out)
             record_cut(fname[:-4], "chroma")
             made.append(fname)
@@ -211,13 +257,26 @@ def main() -> int:
             # self-heals installs already stuck that way.
             write_state(running=True, sci=sci, com=com, step="masks")
             slugs = [f[:-4] for f in made + have]
-            r = subprocess.run([sys.executable, str(HERE / "build_masks.py"), "--add", *slugs])
+            mask_environment = os.environ.copy()
+            mask_environment["AVIAN_GENERATION_LOCK_FD"] = str(generation_lock.fileno())
+            r = subprocess.run(
+                [sys.executable, str(HERE / "build_masks.py"), "--add", *slugs],
+                env=mask_environment,
+                pass_fds=(generation_lock.fileno(),),
+            )
             if r.returncode != 0:
                 raise RuntimeError("build_masks --add failed")
     except Exception as e:
         write_state(running=False, sci=sci, com=com, ok=False, error=str(e))
         print(f"error: {e}", file=sys.stderr)
         return 1
+    finally:
+        # Publish the successful state only after readers can acquire the lock
+        # and observe the committed nonce/tables. Failed jobs likewise release
+        # promptly while retaining the invalid marker when pixels changed.
+        fcntl.flock(generation_lock.fileno(), fcntl.LOCK_UN)
+        generation_lock.close()
+        revision_state.close()
 
     write_state(running=False, sci=sci, com=com, ok=True, made=made)
     print(f"done: {len(made)} rendered for {sci}")

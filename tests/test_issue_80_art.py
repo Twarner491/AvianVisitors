@@ -99,12 +99,17 @@ def test_cache_revision_is_narrow_and_reaches_every_image_builder():
     )
     assert revision_map["aphelocoma-woodhouseii"] == "anatomy-1"
 
-    assert (
-        "return base + '&v=' + artRevision(sci, version || SKETCH_VERSION);"
-        in apt
-    )
-    assert "'&v=' + artRevision(s.sci, SKETCH_VERSION);" in apt
-    assert "'&v=' + artRevision(sci, SKETCH_VERSION);" in apt
+    # All three surfaces now share the bundle-bound builder; included artwork
+    # still adds the narrow per-species revision inside that shared cache key.
+    assert apt.count("./avian/api/cutout.php?sci=") == 1
+    assert "ACTIVE_BUNDLE.contentRevision + '-' + artRevision(sci, fallback)" in apt
+    assert "base += '&v=' + encodeURIComponent(activeArtRevision(sci, version || SKETCH_VERSION));" in apt
+    assert "return defaultCutoutSrc(sci, pose, IMG_VERSION, commonName);" in apt
+    assert "var sketchSrc = defaultCutoutSrc(s.sci, 1, SKETCH_VERSION, s.com);" in apt
+    assert "return defaultCutoutSrc(sci, +pose || 1, SKETCH_VERSION, com);" in apt
+    # HTML interpolation must remain escaped; DOM image.src assignments use
+    # the raw URL. Do not reinstate the old unescaped image-builder assertion.
+    assert 'src="\' + escHtml(imageSrc) + \'' in apt
     assert "var q = '?v=' + TABLE_VERSION" in apt
     assert re.search(r'<script src="\./apt\.js\?v=[^"]+"></script>', index)
 

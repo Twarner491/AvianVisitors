@@ -51,17 +51,17 @@ if grep -Fq 'path_regexp publicFrontendStamp' /source/scripts/update_caddyfile.s
   fail "Caddy stamp policy is broader than the reviewed asset list"
 fi
 
-# Bundle discovery, installation, sharing, and regional generation belong to
-# the next release. Keep their endpoints, handoffs, and UI out of this one.
-deferred_bundle_pattern='BUNDLE_FEATURE_ENABLED|bird:style|local-packs/|bundles[.]php|bundle-generate[.]php|avianvisitors[.]com/bundles|install-bundle|bundle-catalog|data-bundle-(plan|start|share)|Bird bundle|regional bundle'
-for production_frontend in \
-  /source/avian/frontend/index.html \
-  /source/avian/frontend/apt.js \
-  /source/avian/frontend/styles.css; do
-  if grep -Eiq "$deferred_bundle_pattern" "$production_frontend"; then
-    fail "deferred bundle code leaked into production frontend: $production_frontend"
-  fi
-done
+# Bundle installation terminates in the reviewed, root-owned manager. The web
+# API may pass catalog IDs and fixed actions, never URLs or filesystem paths.
+grep -Fq "'/usr/local/sbin/avian-bundle-control'" \
+  /source/avian/api/bundle-runtime.php \
+  || fail 'bundle runtime does not use the installed fixed helper'
+grep -Fq "\$action === 'use'" /source/avian/api/bundles.php \
+  || fail 'bundle API is missing its server-resolved use action'
+if grep -Eq "\$body\[['\"]?(url|path|sha256)['\"]?\]" \
+  /source/avian/api/bundles.php; then
+  fail 'bundle API accepts an untrusted install location or digest'
+fi
 
 for blossom in sparrow-blossom-single-v2.png sparrow-blossom-pair-v2.png; do
   asset_path="avian/assets/references/$blossom"
@@ -83,7 +83,8 @@ recordings=$bird_home/BirdSongs
 extracted=$recordings/Extracted
 processed=$recordings/Processed
 mkdir -p "$test_bin" "$repo/scripts" "$repo/avian/frontend" \
-  "$repo/avian/assets/references" \
+  "$repo/avian/scripts" "$repo/avian/bundles" \
+  "$repo/avian/assets/references" "$repo/avian/assets/illustrations" \
   "$repo/homepage/images" "$repo/model" "$repo/templates" "$repo/.git" /etc/birdnet
 chmod 0777 "$test_root"
 
@@ -100,8 +101,17 @@ cp /source/scripts/admin_control.sh "$repo/scripts/admin_control.sh"
 cp /source/scripts/update_birdnet.sh "$repo/scripts/update_birdnet.sh"
 cp /source/scripts/reinstall_services.sh "$repo/scripts/reinstall_services.sh"
 cp /source/scripts/security_refresh.sh "$repo/scripts/security_refresh.sh"
+cp /source/scripts/generation_runtime_control.sh \
+  "$repo/scripts/generation_runtime_control.sh"
 cp /source/scripts/update_caddyfile.sh "$repo/scripts/update_caddyfile.sh"
 cp /source/scripts/educators_control.sh "$repo/scripts/educators_control.sh"
+cp /source/scripts/avian-bundle "$repo/scripts/avian-bundle"
+cp /source/avian/scripts/bundle_manager.py "$repo/avian/scripts/bundle_manager.py"
+cp /source/avian/scripts/bundle_species.py "$repo/avian/scripts/bundle_species.py"
+cp /source/avian/scripts/build_masks.py "$repo/avian/scripts/build_masks.py"
+cp /source/avian/bundles/catalog-v1.json "$repo/avian/bundles/catalog-v1.json"
+cp /source/avian/assets/illustrations/corvus-brachyrhynchos.png \
+  "$repo/avian/assets/illustrations/corvus-brachyrhynchos.png"
 cp -R /source/avian/frontend/. "$repo/avian/frontend/"
 cp /source/avian/assets/favicon.png "$repo/avian/assets/favicon.png"
 cp /source/avian/assets/references/sparrow-blossom-single-v2.png \
@@ -142,8 +152,6 @@ cat >"$repo/scripts/update_caddyfile.sh" <<'EOF'
 if [ -e /tmp/avian-release-flow/fail-caddy ]; then
   exit 1
 fi
-[ -d /home/bird/BirdSongs/Extracted ] \
-  || { echo "webroot missing before Caddy render" >&2; exit 1; }
 touch /tmp/avian-release-flow/caddy.called
 printf 'caddy\n' >>/tmp/avian-release-flow/service-order.log
 EOF
@@ -195,6 +203,8 @@ assert_avian_runtime_links() {
   assert_link "$extracted/avian" "$repo/avian"
   assert_link "$extracted/index.html" "$repo/avian/frontend/index.html"
   assert_link "$extracted/styles.css" "$repo/avian/frontend/styles.css"
+  assert_link "$extracted/bundles.css" "$repo/avian/frontend/bundles.css"
+  assert_link "$extracted/bundle-ui.js" "$repo/avian/frontend/bundle-ui.js"
   assert_link "$extracted/apt.js" "$repo/avian/frontend/apt.js"
   assert_link "$extracted/masks.json" "$repo/avian/frontend/masks.json"
   assert_link "$extracted/dims.json" "$repo/avian/frontend/dims.json"
@@ -258,59 +268,53 @@ grep -q "Refusing to replace directory: $collision_root/fonts" "$test_root/colli
   || fail "directory collision did not report its target"
 
 # Clean overlay installation. Source the installer with no repository config
-# so only the bounded functions below run.
-[ ! -e "$extracted" ] || fail "fresh-install webroot already exists"
+# so only the two bounded functions below run.
 (
+  my_dir=$repo
   USER=bird
   HOME=$bird_home
-  export BIRDNET_USER=bird
-  export RECS_DIR=$recordings
-  export EXTRACTED=$extracted
-  export PROCESSED=$processed
+  RECS_DIR=$recordings
+  EXTRACTED=$extracted
+  PROCESSED=$processed
   source "$repo/scripts/install_services.sh"
   install_avian_controls
-  prepare_caddy_webroot
-  [ "$(stat -c '%U:%G' "$EXTRACTED")" = bird:bird ] \
-    || fail "fresh-install webroot has the wrong owner"
-  install_Caddyfile
-  prepare_caddy_webroot
   create_necessary_dirs
 )
 
-[ -e "$test_root/caddy.called" ] \
-  || fail "Caddy was not rendered after webroot preparation"
-: >"$test_root/systemctl.log"
-chown bird:bird "$test_root/systemctl.log"
+bundle_lock_policy=/etc/tmpfiles.d/avian-bundle-locks.conf
+bird_gid=$(id -g bird)
+[ "$(stat -c '%u:%g:%a:%h' -- "$bundle_lock_policy")" = '0:0:644:1' ] \
+  || fail "bundle lock tmpfiles policy metadata"
+grep -Fxq "f /run/lock/avian-generation.lock :0660 :root :$bird_gid -" \
+  "$bundle_lock_policy" || fail "generation lock tmpfiles rule"
+grep -Fxq "f /run/lock/avian-bundle-export.lock :0660 :root :$bird_gid -" \
+  "$bundle_lock_policy" || fail "bundle export lock tmpfiles rule"
+for coordination_lock in \
+  /run/lock/avian-generation.lock /run/lock/avian-bundle-export.lock; do
+  [ "$(stat -c '%u:%g:%a:%h' -- "$coordination_lock")" = \
+    "0:$bird_gid:660:1" ] || fail "unsafe coordination lock: $coordination_lock"
+done
+# Simulate the volatile /run filesystem being recreated at boot.
+rm -f /run/lock/avian-generation.lock /run/lock/avian-bundle-export.lock
+/usr/bin/systemd-tmpfiles --create "$bundle_lock_policy"
+for coordination_lock in \
+  /run/lock/avian-generation.lock /run/lock/avian-bundle-export.lock; do
+  [ "$(stat -c '%u:%g:%a:%h' -- "$coordination_lock")" = \
+    "0:$bird_gid:660:1" ] || fail "boot did not recreate coordination lock: $coordination_lock"
+done
 
-unsafe_webroot=$test_root/unsafe-webroot
-printf 'not a directory\n' >"$unsafe_webroot"
-chown bird:bird "$unsafe_webroot"
-(
-  USER=bird
-  HOME=$bird_home
-  export BIRDNET_USER=bird
-  export EXTRACTED=$unsafe_webroot
-  source "$repo/scripts/install_services.sh"
-  if prepare_caddy_webroot >"$test_root/unsafe-webroot.log" 2>&1; then
-    fail "fresh-install preparation accepted a file as the webroot"
-  fi
-)
-grep -Fq "Could not create the BirdNET-Pi webroot" \
-  "$test_root/unsafe-webroot.log" \
-  || fail "unsafe fresh-install webroot returned the wrong error"
-
-(
-  USER=bird
-  HOME=$bird_home
-  export BIRDNET_USER=bird
-  export EXTRACTED=/
-  source "$repo/scripts/install_services.sh"
-  if prepare_caddy_webroot >"$test_root/root-webroot.log" 2>&1; then
-    fail "fresh-install preparation accepted the filesystem root"
-  fi
-)
-grep -Fq "Invalid BirdNET-Pi webroot" "$test_root/root-webroot.log" \
-  || fail "invalid fresh-install webroot returned the wrong error"
+security_line=$(grep -n '^  /usr/local/sbin/avian-security-refresh$' \
+  /source/scripts/install_services.sh | tail -n 1 | cut -d: -f1)
+caddy_line=$(grep -n '^  install_Caddyfile$' \
+  /source/scripts/install_services.sh | tail -n 1 | cut -d: -f1)
+[ -n "$security_line" ] && [ -n "$caddy_line" ] \
+  && [ "$security_line" -lt "$caddy_line" ] \
+  || fail 'fresh install can expose bundle export before its FPM hard deadline'
+grep -Fq 'request_terminate_timeout = 3700s' \
+  /source/scripts/security_refresh.sh \
+  || fail 'fresh install security path is missing the bundle FPM deadline'
+grep -Fq 'AVIAN_BUNDLE_EXPORT_POOL 1' /source/scripts/update_caddyfile.sh \
+  || fail 'fresh install Caddy route is missing the dedicated-pool marker'
 
 assert_avian_runtime_links
 assert_stock_runtime_links
@@ -327,6 +331,17 @@ assert_stock_runtime_links
   || fail "Caddy helper ownership"
 [ "$(stat -c '%U:%G:%a' /usr/local/sbin/avian-educators)" = root:root:755 ] \
   || fail "Educators helper ownership"
+[ "$(stat -c '%U:%G:%a' /usr/local/sbin/avian-bundle-control)" = root:root:755 ] \
+  || fail "bundle helper ownership"
+[ "$(stat -c '%U:%G:%a' /usr/local/bin/avian-bundle)" = root:root:755 ] \
+  || fail "bundle command ownership"
+[ ! -L /usr/local/bin/avian-bundle ] || fail "bundle command is a mutable checkout link"
+[ "$(stat -c '%U:%G:%a:%h' /usr/share/avian-visitors/bundles/catalog-v1.json)" = root:root:644:1 ] \
+  || fail "bundle catalog ownership"
+[ "$(stat -c '%U:%G:%a:%h' /var/lib/avian-visitors/bundles/active.json)" = root:root:644:1 ] \
+  || fail "active bundle state ownership"
+[ "$(stat -c '%U:%G:%a:%h' /var/lib/avian-visitors/bundles-v1.enabled)" = root:root:644:1 ] \
+  || fail "bundle provisioning marker ownership"
 [ "$(stat -c '%U:%G:%a:%h' /var/lib/avian-visitors/educators.lock)" = \
   root:caddy:660:1 ] \
   || fail "default install did not provision the Educators coordination lock"

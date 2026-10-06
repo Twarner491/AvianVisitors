@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+
+fail() {
+  printf '%s\n' 'avian-bundle: installed launcher could not resolve the frame checkout' >&2
+  exit 1
+}
+
+if [ "$(/usr/bin/id -u)" = 0 ]; then
+  printf '%s\n' 'avian-bundle: refusing to run the checkout launcher as root; use the installed command' >&2
+  exit 1
+fi
+
+# This checkout-local launcher is only for unprivileged use. Resolve any links
+# in its invocation path before locating the release-pinned control wrapper.
+# Use only shell builtins plus Debian/macOS /usr/bin/readlink, cap the traversal,
+# and fail closed on broken links or cycles.
+script=$0
+case "$script" in
+  */*) ;;
+  *) script=$(command -v "$script") || fail ;;
+esac
+case "$script" in
+  /*) ;;
+  *)
+    working_dir=$(CDPATH='' cd -P -- . && pwd -P) || fail
+    script=$working_dir/$script
+    ;;
+esac
+
+links=0
+while [ -L "$script" ]; do
+  links=$((links + 1))
+  [ "$links" -le 16 ] || fail
+  parent=${script%/*}
+  [ -n "$parent" ] || parent=/
+  parent=$(CDPATH='' cd -P -- "$parent" && pwd -P) || fail
+  target=$(/usr/bin/readlink "$script") || fail
+  case "$target" in
+    /*) script=$target ;;
+    *) script=$parent/$target ;;
+  esac
+done
+
+if [ ! -f "$script" ] || [ -L "$script" ]; then
+  fail
+fi
+frame_dir=${script%/*}
+[ -n "$frame_dir" ] || frame_dir=/
+frame_dir=$(CDPATH='' cd -P -- "$frame_dir" && pwd -P) || fail
+control=$frame_dir/vendor/avian-bundle-control
+if [ ! -f "$control" ] || [ -L "$control" ] || [ ! -x "$control" ]; then
+  fail
+fi
+
+PATH=/usr/bin:/bin
+export PATH
+[ -x /usr/bin/setpriv ] || fail
+exec /usr/bin/setpriv \
+  --no-new-privs \
+  --reset-env \
+  -- "$control" "$@"

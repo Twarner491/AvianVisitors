@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "account_id": "557e541291a977fc1683c53376eb56a0",
+  "team_domain": "twarner.cloudflareaccess.com",
+  "reviewer_email": "twarner491@gmail.com",
+  "application": {
+    "id": "d44da5de-5e1c-4e38-9021-d4f5eccab1f9",
+    "aud": "9f674c29c33e83ef8ca758ae10d611c944c09d3669734ed517df5b29e4d2ecc5"
+  },
+  "policy": {
+    "id": "3a50bb48-b7ae-4584-a084-81b7bfd678a2"
+  },
+  "signed_out_challenge": {
+    "status": 302,
+    "verified_destinations": [
+      "avianvisitors.com/bundles/review",
+      "avianvisitors.com/bundles/review/*",
+      "avianvisitors.com/api/bundles/review",
+      "avianvisitors.com/api/bundles/review/*"
+    ]
+  }
+}

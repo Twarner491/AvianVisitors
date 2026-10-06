@@ -32,6 +32,7 @@ import stat
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
 from fractions import Fraction
 
@@ -119,7 +120,11 @@ def _output_size(vw, vh, dsf):
     return size
 
 
-def capture_text_overlay(page, vw: int, vh: int, dsf: float) -> Image.Image:
+class _CaptureChanged(RuntimeError):
+    pass
+
+
+def capture_text_overlay(page, vw: int, vh: int, dsf: float, *, remaining_ms=None, check_snapshot=None) -> Image.Image:
     """Keep browser typography, but bound each transparent screenshot's surface."""
     size = _output_size(vw, vh, dsf)
     rows = capture_art.MAX_STRIP_PIXELS // size[0]
@@ -144,13 +149,20 @@ def capture_text_overlay(page, vw: int, vh: int, dsf: float) -> Image.Image:
                 "width": vw, "height": vh, "deviceScaleFactor": dsf, "mobile": False,
                 "viewport": {**clip, "scale": 1},
             })
-            png = page.screenshot(type="png", omit_background=True, clip=clip)
+            options = {"timeout": remaining_ms()} if remaining_ms is not None else {}
+            png = page.screenshot(type="png", omit_background=True, clip=clip, **options)
+            unchanged = page.evaluate(FRAME_UNCHANGED, layout)
+            current_layout = page.evaluate(CAPTURE_LAYOUT)
+            if check_snapshot is not None:
+                check_snapshot()
+            if any(current_layout[key] != layout[key] for key in ("token", "revision")):
+                raise _CaptureChanged("collage changed during capture")
+            if not unchanged or current_layout != layout:
+                raise RuntimeError("collage changed during capture")
             with Image.open(io.BytesIO(png)) as strip:
                 if strip.size != (size[0], height) or strip.mode != "RGBA":
                     raise RuntimeError("unexpected capture strip dimensions or transparency")
                 overlay.paste(strip, (0, top))
-            if page.evaluate(CAPTURE_LAYOUT) != layout or not page.evaluate(FRAME_UNCHANGED, layout):
-                raise RuntimeError("collage changed during capture")
         return overlay
     except Exception:
         overlay.close()
@@ -292,25 +304,84 @@ def _serve_frontend(directory):
     return httpd, httpd.server_address[1]
 
 
-def _make_cutout_handler(base, local_dir=None):
+def _make_cutout_handler(base=None, local_dir=None, resolver=None, errors=None, bundle_assets=None):
     """Resolve each cutout.php lookup to the bird's illustration. Serve a local
     file first when `local_dir` has it - that is how cutouts you generate and copy
     into the clone render before they reach GitHub - otherwise 302 to the raw
     GitHub copy. Trusts species_for_zip to pre-filter to drawable slugs, so the
     GitHub fallback only lands on a missing file if the repo is mid-update."""
+    expected_identity = None
+    if resolver is not None and bundle_assets is not None:
+        active = bundle_assets()["active"]
+        expected_identity = {"bundle": active["revision"], "content": active["content_revision"]}
+
     def handler(route):
         try:
-            params = urllib.parse.parse_qs(urllib.parse.urlparse(route.request.url).query)
+            params = urllib.parse.parse_qs(urllib.parse.urlparse(route.request.url).query, keep_blank_values=True)
             slug = re.sub(r"[^a-z0-9]+", "-", (params.get("sci") or [""])[0].lower()).strip("-")
-            if (params.get("pose") or ["1"])[0] == "2":
+            pose = "flight" if (params.get("pose") or ["1"])[0] == "2" else "perched"
+            if pose == "flight":
                 slug += "-2"
+            if resolver is not None:
+                if expected_identity is not None:
+                    if any(key in params and params[key] != [revision] for key, revision in expected_identity.items()):
+                        raise RuntimeError("cutout does not match the active bundle selection")
+                resolved = resolver((params.get("sci") or [""])[0], pose)
+                if resolved is not None:
+                    return route.fulfill(path=str(resolved))
+                return route.fulfill(
+                    status=404,
+                    content_type="text/plain",
+                    body="not in active bundle",
+                )
             if local_dir:
                 local = os.path.join(local_dir, slug + ".png")
                 if os.path.isfile(local):
                     return route.fulfill(path=local)
-            route.fulfill(status=302, headers={"location": base + slug + ".png"})
-        except Exception:
-            _safe_continue(route)
+            if base:
+                return route.fulfill(
+                    status=302, headers={"location": base + slug + ".png"}
+                )
+            return route.fulfill(
+                status=404, content_type="text/plain", body="cutout unavailable"
+            )
+        except Exception as error:
+            if errors is None:
+                _safe_continue(route)
+                return
+            errors.append(str(error))
+            try:
+                route.fulfill(
+                    status=500,
+                    content_type="text/plain",
+                    body="bundle validation failed",
+                )
+            except Exception:
+                pass
+    return handler
+
+
+def _make_bundle_assets_handler(provider, errors=None):
+    """Serve metadata from the same verified revision as the frame cutouts."""
+    def handler(route):
+        try:
+            payload = provider()
+            route.fulfill(
+                status=200,
+                content_type="application/json; charset=utf-8",
+                body=json.dumps(payload, sort_keys=True, separators=(",", ":")),
+            )
+        except Exception as error:
+            if errors is not None:
+                errors.append(str(error))
+            try:
+                route.fulfill(
+                    status=500,
+                    content_type="application/json; charset=utf-8",
+                    body='{"ok":false,"error":"bundle validation failed"}',
+                )
+            except Exception:
+                pass
     return handler
 
 
@@ -340,7 +411,8 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
           mat=0.04, collage_vh=52, cluster_xbias=1.0, cluster_ybias=1.2,
           count_exp=0.4, cluster_pad=1, label_min_px=11, small_floor=0.04, window_hours=None,
           timeout_ms=45000, user=None, password=None, species=None, cutout_base=None,
-          cutout_local=None, empty_text="listening for birds…", bird_names=False, capture=None):
+          cutout_local=None, cutout_resolver=None, dims_path=None, masks_path=None,
+          bundle_assets=None, empty_text="listening for birds…", bird_names=False, capture=None):
     size = _output_size(vw, vh, dsf)
     pad_side, pad_top, pad_bottom = int(vw * mat), int(vh * mat * 0.92), int(vh * mat)
     auth = "Basic " + base64.b64encode(f"{user}:{password or ''}".encode()).decode() if user else None
@@ -368,6 +440,7 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
 
                 page.on("response", remember_image)
                 misses = []
+                bundle_errors = []
                 observed = {}
                 page.route("**/birdnet-api.php**", _make_api_handler(small_floor, window_hours, auth, species, observed))
                 page.route("**/apt.js*", _make_js_handler(
@@ -380,8 +453,30 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
                         raise RuntimeError("collage label font is missing")
                     page.route("**/avian/frontend/fonts/Caveat.ttf*",
                                lambda route: route.fulfill(path=hand_font))
-                if cutout_base:
-                    page.route("**/cutout.php*", _make_cutout_handler(cutout_base, cutout_local))
+                if cutout_base or cutout_resolver is not None:
+                    page.route(
+                        "**/cutout.php*",
+                        _make_cutout_handler(
+                            cutout_base,
+                            cutout_local,
+                            resolver=cutout_resolver,
+                            errors=bundle_errors,
+                            bundle_assets=bundle_assets,
+                        ),
+                    )
+                if dims_path is not None:
+                    page.route(
+                        "**/dims.json*", lambda route: route.fulfill(path=str(dims_path))
+                    )
+                if masks_path is not None:
+                    page.route(
+                        "**/masks.json*", lambda route: route.fulfill(path=str(masks_path))
+                    )
+                if bundle_assets is not None:
+                    page.route(
+                        "**/avian/api/bundle-assets.php*",
+                        _make_bundle_assets_handler(bundle_assets, bundle_errors),
+                    )
 
                 css = HIDE_CSS + _frame_css(headline_px, eyebrow_px, lowercase, pad_top, pad_side, pad_bottom, collage_vh)
                 page.add_init_script(
@@ -390,71 +485,119 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
                     "var s=document.createElement('style');s.textContent=" + json.dumps(css) +
                     ";document.head.appendChild(s);});")
 
-                resp = page.goto(_frame_url(url, bird_names), wait_until="domcontentloaded", timeout=timeout_ms)
+                deadline = time.monotonic() + timeout_ms / 1000
+
+                def remaining_ms():
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise RuntimeError("collage capture deadline exceeded")
+                    return max(1, int(remaining * 1000))
+
+                resp = page.goto(_frame_url(url, bird_names), wait_until="domcontentloaded", timeout=remaining_ms())
                 if resp is None or not resp.ok:
                     raise RuntimeError(f"site returned {resp.status if resp else 'no response'}")
-                if bird_names:
-                    page.wait_for_function(
-                        "async () => { const f = await document.fonts.load('600 16px Hand');"
-                        " await document.fonts.ready;"
-                        " return f.length > 0 && document.fonts.check('600 16px Hand'); }",
-                        timeout=timeout_ms)
-                try:
-                    ready = page.wait_for_function(FRAME_READY, timeout=timeout_ms).json_value()
-                except PWTimeout as error:
-                    reason = observed.get("error") or "collage not ready; update both the mic and frame if their versions differ"
-                    raise RuntimeError(reason) from error
-                if bird_names:
-                    missing_labels = page.evaluate(
-                        "() => [...document.querySelectorAll('#collage .gtile')]"
-                        ".filter(t => !t.querySelector('.gtile-label text'))"
-                        ".map(t => t.getAttribute('data-sci') || '?')")
-                    if missing_labels:
-                        raise RuntimeError("frame labels missing for: " + ", ".join(missing_labels))
-                if misses:
-                    raise RuntimeError(f"apt.js tunables not found ({len(misses)}); refusing to ship a half-tuned frame")
+                color = None
+                # Startup completion, font/layout retries, or a poll can redraw
+                # after readiness. Retry only invalidated snapshots, never asset
+                # or API failures, and never extend the shared capture deadline.
+                for _attempt in range(3):
+                    if observed.get("error"):
+                        raise RuntimeError(observed["error"])
+                    if bundle_errors:
+                        raise RuntimeError("active bundle failed integrity validation")
+                    if bird_names:
+                        page.wait_for_function(
+                            "async () => { const f = await document.fonts.load('600 16px Hand');"
+                            " await document.fonts.ready;"
+                            " return f.length > 0 && document.fonts.check('600 16px Hand'); }",
+                            timeout=remaining_ms())
+                    try:
+                        ready = page.wait_for_function(FRAME_READY, timeout=remaining_ms()).json_value()
+                    except PWTimeout as error:
+                        reason = observed.get("error") or "collage not ready; update both the mic and frame if their versions differ"
+                        raise RuntimeError(reason) from error
+                    if bird_names:
+                        missing_labels = page.evaluate(
+                            "() => [...document.querySelectorAll('#collage .gtile')]"
+                            ".filter(t => !t.querySelector('.gtile-label text'))"
+                            ".map(t => t.getAttribute('data-sci') || '?')")
+                        if missing_labels:
+                            raise RuntimeError("frame labels missing for: " + ", ".join(missing_labels))
+                    if misses:
+                        raise RuntimeError(f"apt.js tunables not found ({len(misses)}); refusing to ship a half-tuned frame")
+                    if bundle_errors:
+                        raise RuntimeError("active bundle failed integrity validation")
 
-                if title is not None:
-                    page.evaluate("t=>{const e=document.querySelector('.static-head .pre'); if(e)e.textContent=t;}", title)
-                if subtitle is not None:
-                    page.evaluate("s=>{const e=document.querySelector('.static-head h1'); if(e)e.textContent=s;}", subtitle)
-                # Set the empty-state line for a birdless frame (the mic hasn't heard
-                # anything yet, or BirdWeather has no recent detections) and
-                # darken it so it survives the e-ink dither and the matting step's ink
-                # detection (a no-op once there are birds). empty_text=None hides the
-                # line entirely: the gen 3 frame shows the bare nest, no words.
-                if empty_text is None:
-                    page.evaluate("() => { const e = document.querySelector('.empty'); if (e) e.style.display = 'none'; }")
+                    # A redraw can replace the empty-state DOM and these titles;
+                    # reapply the frame overrides to each candidate snapshot.
+                    if title is not None:
+                        page.evaluate("t=>{const e=document.querySelector('.static-head .pre'); if(e)e.textContent=t;}", title)
+                    if subtitle is not None:
+                        page.evaluate("s=>{const e=document.querySelector('.static-head h1'); if(e)e.textContent=s;}", subtitle)
+                    # empty_text=None hides the line: gen 3 shows the bare nest.
+                    if empty_text is None:
+                        page.evaluate("() => { const e = document.querySelector('.empty'); if (e) e.style.display = 'none'; }")
+                    else:
+                        page.evaluate("(t) => { const e = document.querySelector('.empty'); if (e) e.textContent = t; }", empty_text)
+                    page.wait_for_function("""async () => {
+                      await Promise.all([...document.querySelectorAll('#collage img')].map(i => i.decode()));
+                      await document.fonts.ready;
+                      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                      return true;
+                    }""", timeout=remaining_ms())
+                    ready = page.wait_for_function(FRAME_STABLE, timeout=remaining_ms()).json_value()
+                    changed = "collage changed before capture"
+                    unchanged = page.evaluate(FRAME_UNCHANGED, ready)
+                    # Browser calls pump route callbacks. Check Python's response
+                    # token and sticky failures after the JS check returns too.
+                    if observed.get("error") or bundle_errors:
+                        raise RuntimeError(changed)
+                    if (str(observed.get("token")) != ready["token"]
+                            or not unchanged):
+                        continue
+                    layout = page.evaluate(CAPTURE_LAYOUT)
+                    expected_responses = {item["src"]: responses.get(item["src"]) for item in layout["images"]}
+                    images = _composition_images(layout, responses, dsf)
+                    if color is None:
+                        paper = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
+                        color = re.fullmatch(r"rgb\((\d+), (\d+), (\d+)\)", paper)
+                        if not color:
+                            raise RuntimeError("unsupported frame paper color")
+                    changed = "collage changed during capture"
+
+                    def check_snapshot():
+                        # A browser call can deliver an API or integrity failure
+                        # after its JavaScript identity result was computed.
+                        if observed.get("error") or bundle_errors:
+                            raise RuntimeError(changed)
+                        if str(observed.get("token")) != ready["token"]:
+                            raise _CaptureChanged(changed)
+
+                    overlay = None
+                    try:
+                        overlay = capture_text_overlay(
+                            page, vw, vh, dsf, remaining_ms=remaining_ms, check_snapshot=check_snapshot)
+                        buffers.enter_context(overlay)
+                        unchanged = page.evaluate(FRAME_UNCHANGED, ready)
+                        current_layout = page.evaluate(CAPTURE_LAYOUT)
+                        check_snapshot()
+                        if any(current_layout[key] != layout[key] for key in ("token", "revision")):
+                            raise _CaptureChanged(changed)
+                        if (not unchanged or current_layout != layout
+                                or any(responses.get(src) is not response for src, response in expected_responses.items())):
+                            raise RuntimeError(changed)
+                    except _CaptureChanged:
+                        if overlay is not None:
+                            overlay.close()
+                        continue
+                    remaining_ms()
+                    captured_species = [dict(row) for row in observed["species"]]
+                    break
                 else:
-                    page.evaluate("(t) => { const e = document.querySelector('.empty'); if (e) e.textContent = t; }", empty_text)
-                page.wait_for_function("""async () => {
-                  await Promise.all([...document.querySelectorAll('#collage img')].map(i => i.decode()));
-                  await document.fonts.ready;
-                  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-                  return true;
-                }""", timeout=timeout_ms)
-                ready = page.wait_for_function(FRAME_STABLE, timeout=timeout_ms).json_value()
-                if (observed.get("error") or str(observed.get("token")) != ready["token"]
-                        or not page.evaluate(FRAME_UNCHANGED, ready)):
-                    raise RuntimeError("collage changed before capture")
-                layout = page.evaluate(CAPTURE_LAYOUT)
-                expected_responses = {item["src"]: responses.get(item["src"]) for item in layout["images"]}
-                images = _composition_images(layout, responses, dsf)
-                paper = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
-                color = re.fullmatch(r"rgb\((\d+), (\d+), (\d+)\)", paper)
-                if not color:
-                    raise RuntimeError("unsupported frame paper color")
-                overlay = buffers.enter_context(capture_text_overlay(page, vw, vh, dsf))
-                if (observed.get("error") or str(observed.get("token")) != ready["token"]
-                        or not page.evaluate(FRAME_UNCHANGED, ready)
-                        or page.evaluate(CAPTURE_LAYOUT) != layout
-                        or any(responses.get(src) is not response for src, response in expected_responses.items())):
-                    raise RuntimeError("collage changed during capture")
-                captured_species = [dict(item) for item in observed["species"]]
+                    raise RuntimeError(changed)
             finally:
                 browser.close()
-        # All browser identity checks precede shutdown. The immutable bodies and
-        # geometry now compose without overlapping Chromium or driver memory.
+        # Compose only after Chromium and its driver release their memory.
         png = capture_art.compose_capture(overlay, images, size, tuple(map(int, color.groups())))
         try:
             previous = os.stat(out, follow_symlinks=False)
@@ -474,10 +617,13 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
             os.replace(pending, out)
         if capture is not None:
             capture["species"] = captured_species
+
         return out
 
 
-def shoot_birdweather(out, species, *, title=None, subtitle=None, timeout_ms=45000, **look):
+def shoot_birdweather(out, species, *, title=None, subtitle=None, timeout_ms=45000,
+                      cutout_resolver=None, dims_path=None, masks_path=None,
+                      bundle_assets=None, **look):
     """Render `species` ([{sci,com,n}]) as the BirdWeather collage into `out`.
 
     The mic path screenshots a live site; this builds the same page from a
@@ -490,7 +636,11 @@ def shoot_birdweather(out, species, *, title=None, subtitle=None, timeout_ms=450
         raise RuntimeError("shoot_birdweather needs a species list")
     here = os.path.dirname(os.path.abspath(__file__))
     _httpd, port = _serve_frontend(os.path.join(here, "..", "avian", "frontend"))
-    cutout_local = os.path.join(here, "..", "avian", "assets", "illustrations")
+    cutout_local = (
+        None
+        if cutout_resolver is not None
+        else os.path.join(here, "..", "avian", "assets", "illustrations")
+    )
     # BirdWeather's flat 7-day counts need a steeper exponent for the same hero
     # hierarchy; the slightly smaller titles match the mic frame's optical weight.
     # A birdless BirdWeather frame says "no recent detections", not "listening".
@@ -501,6 +651,8 @@ def shoot_birdweather(out, species, *, title=None, subtitle=None, timeout_ms=450
                  title="Avian Visitors" if title is None else title,
                  subtitle="Heard Today" if subtitle is None else subtitle,
                  species=species, cutout_base=RAW_ILLUSTRATIONS, cutout_local=cutout_local,
+                 cutout_resolver=cutout_resolver, dims_path=dims_path, masks_path=masks_path,
+                 bundle_assets=bundle_assets,
                  timeout_ms=timeout_ms, **look)
 
 

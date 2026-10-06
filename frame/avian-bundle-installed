@@ -1,0 +1,106 @@
+#!/bin/sh
+set -eu
+
+fail() {
+  printf '%s\n' 'avian-bundle: installed launcher is missing or unsafe' >&2
+  exit 1
+}
+
+fail_identity() {
+  printf '%s\n' 'avian-bundle: invalid invoking user identity' >&2
+  exit 1
+}
+
+script=$0
+case "$script" in
+  */*) ;;
+  *) script=$(command -v "$script") || fail ;;
+esac
+case "$script" in
+  /*) ;;
+  *)
+    working_dir=$(CDPATH='' cd -P -- . && pwd -P) || fail
+    script=$working_dir/$script
+    ;;
+esac
+
+links=0
+while [ -L "$script" ]; do
+  links=$((links + 1))
+  [ "$links" -le 16 ] || fail
+  parent=${script%/*}
+  [ -n "$parent" ] || parent=/
+  parent=$(CDPATH='' cd -P -- "$parent" && pwd -P) || fail
+  target=$(/usr/bin/readlink "$script") || fail
+  case "$target" in
+    /*) script=$target ;;
+    *) script=$parent/$target ;;
+  esac
+done
+
+if [ ! -f "$script" ] || [ -L "$script" ]; then
+  fail
+fi
+launcher_dir=${script%/*}
+[ -n "$launcher_dir" ] || launcher_dir=/
+launcher_dir=$(CDPATH='' cd -P -- "$launcher_dir" && pwd -P) || fail
+[ "$(/usr/bin/stat -c '%u:%g:%a' -- "$launcher_dir")" = 0:0:755 ] || fail
+[ "$(/usr/bin/stat -c '%u:%g:%a' -- "$script")" = 0:0:755 ] || fail
+
+owner_file=$launcher_dir/owner-uid
+if [ ! -f "$owner_file" ] || [ -L "$owner_file" ]; then
+  fail
+fi
+[ "$(/usr/bin/stat -c '%u:%g:%a' -- "$owner_file")" = 0:0:644 ] || fail
+owner_uid=
+IFS= read -r owner_uid < "$owner_file" || fail
+case "$owner_uid" in
+  ''|0*|*[!0-9]*) fail ;;
+esac
+
+control_link=$launcher_dir/control
+[ -L "$control_link" ] || fail
+control=$(/usr/bin/readlink "$control_link") || fail
+case "$control" in
+  /*) ;;
+  *) control=$launcher_dir/$control ;;
+esac
+if [ ! -f "$control" ] || [ -L "$control" ] || [ ! -x "$control" ]; then
+  fail
+fi
+control_metadata=$(/usr/bin/stat -c '%u:%a' -- "$control") || fail
+control_owner=${control_metadata%%:*}
+control_mode=${control_metadata#*:}
+[ "$control_owner" = "$owner_uid" ] || fail
+case "$control_mode" in
+  [57][0145][0145]) ;;
+  *) fail ;;
+esac
+
+current_uid=$(/usr/bin/id -u) || fail_identity
+if [ "$current_uid" = 0 ]; then
+  case ${SUDO_UID-} in
+    ''|0*|*[!0-9]*) fail_identity ;;
+  esac
+  [ "$SUDO_UID" = "$owner_uid" ] || fail
+  owner_gid=$(/usr/bin/id -g "+$owner_uid") || fail
+  case "$owner_gid" in
+    ''|*[!0-9]*) fail ;;
+  esac
+  [ -x /usr/bin/setpriv ] || fail
+  exec /usr/bin/setpriv \
+    --reuid "+$owner_uid" \
+    --regid "+$owner_gid" \
+    --init-groups \
+    --no-new-privs \
+    --reset-env \
+    -- "$control" "$@"
+fi
+
+[ "$current_uid" = "$owner_uid" ] || fail_identity
+
+[ -x /usr/bin/setpriv ] || fail
+exec /usr/bin/setpriv \
+  --no-new-privs \
+  --reset-env \
+  -- "$control" "$@"

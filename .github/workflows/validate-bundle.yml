@@ -1,0 +1,250 @@
+name: Validate community bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      submission_id:
+        description: Private bundle submission identifier
+        required: true
+        type: string
+      validation_attempt:
+        description: Server-issued validation attempt token
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bundle-validation-${{ inputs.submission_id }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    environment: bundle-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: .github/workflows/bundle-validation-requirements.txt
+
+      - name: Install pinned image validator
+        run: python -m pip install --require-hashes -r .github/workflows/bundle-validation-requirements.txt
+
+      - name: Check server-issued identifiers
+        env:
+          SUBMISSION_ID: ${{ inputs.submission_id }}
+          VALIDATION_ATTEMPT: ${{ inputs.validation_attempt }}
+        run: |
+          [[ "$SUBMISSION_ID" =~ ^[a-z0-9_-]{20,40}$ ]]
+          [[ "$VALIDATION_ATTEMPT" =~ ^[A-Za-z0-9_-]{32}$ ]]
+
+      # The quarantine credential exists only in these curl processes. No
+      # repository code or decoder is executed with it in the environment.
+      - name: Fetch opaque private quarantine inputs
+        env:
+          SUBMISSION_ID: ${{ inputs.submission_id }}
+          VALIDATION_KEY: ${{ secrets.BUNDLE_VALIDATION_KEY }}
+          VALIDATION_ATTEMPT: ${{ inputs.validation_attempt }}
+        run: |
+          install -d -m 0700 quarantine-input
+          curl --fail --silent --show-error \
+            --header "X-Bundle-Validation-Key: $VALIDATION_KEY" \
+            --header "X-Bundle-Validation-Attempt: $VALIDATION_ATTEMPT" \
+            --output quarantine-input/bundle-submission.zip \
+            "https://avianvisitors.com/api/bundles/validation/$SUBMISSION_ID/archive"
+          curl --fail --silent --show-error \
+            --header "X-Bundle-Validation-Key: $VALIDATION_KEY" \
+            --header "X-Bundle-Validation-Attempt: $VALIDATION_ATTEMPT" \
+            --output quarantine-input/submission-context.json \
+            "https://avianvisitors.com/api/bundles/validation/$SUBMISSION_ID/context"
+          chmod 0444 quarantine-input/bundle-submission.zip quarantine-input/submission-context.json
+
+      # This is a process boundary inside one ephemeral runner: no secret is
+      # exported, networking is absent, the uid/gid has no supplementary
+      # groups or new privileges, TMPDIR is private, and checkout is read-only
+      # to the decoder. Only bounded strict PNGs and metadata-free JPEG/JSON
+      # output survive for byte-only checks in later processes.
+      - name: Validate and canonicalize without credentials or network
+        id: sanitize
+        run: |
+          PYTHON_BIN="$(command -v python)"
+          [[ -d quarantine-input && ! -L quarantine-input ]]
+          [[ -f quarantine-input/bundle-submission.zip && ! -L quarantine-input/bundle-submission.zip ]]
+          [[ -f quarantine-input/submission-context.json && ! -L quarantine-input/submission-context.json ]]
+          [[ ! -e decoder-source ]]
+          [[ ! -e sanitized-output ]]
+          sudo chgrp -R nogroup quarantine-input
+          chmod 0750 quarantine-input
+          chmod 0440 quarantine-input/bundle-submission.zip quarantine-input/submission-context.json
+          sudo install -d -o root -g nogroup -m 0550 decoder-source
+          sudo install -o root -g nogroup -m 0440 \
+            avian/scripts/bundle_review_package.py \
+            avian/scripts/bundle_ai_review.py \
+            avian/scripts/bundle_canonical.py \
+            avian/scripts/bundle_http.py \
+            avian/scripts/bundle_inventory_commitment.py \
+            avian/scripts/bundle_validation_contract.py \
+            avian/scripts/bundle_preview_geometry.py \
+            avian/scripts/bundle_submission_check.py \
+            avian/scripts/bundle_validate.py \
+            decoder-source/
+          sudo install -d -o nobody -g nogroup -m 0700 sanitized-output
+          sudo install -d -o nobody -g nogroup -m 0700 sanitized-output/decoder-tmp
+          sudo setpriv \
+            --reuid=nobody --regid=nogroup --clear-groups --no-new-privs \
+            /usr/bin/test -r "$PWD/decoder-source/bundle_review_package.py"
+          sudo setpriv \
+            --reuid=nobody --regid=nogroup --clear-groups --no-new-privs \
+            /usr/bin/test -r "$PWD/quarantine-input/bundle-submission.zip"
+          sudo setpriv \
+            --reuid=nobody --regid=nogroup --clear-groups --no-new-privs \
+            /usr/bin/test -w "$PWD/sanitized-output"
+          set +e
+          timeout 20m sudo unshare \
+            --net --pid --fork --kill-child --mount-proc -- setpriv \
+            --reuid=nobody --regid=nogroup --clear-groups --no-new-privs \
+            env -i PATH="$(dirname "$PYTHON_BIN"):/usr/bin:/bin" \
+            TMPDIR="$PWD/sanitized-output/decoder-tmp" \
+            "$PYTHON_BIN" "$PWD/decoder-source/bundle_review_package.py" \
+            --archive quarantine-input/bundle-submission.zip \
+            --context quarantine-input/submission-context.json \
+            --output sanitized-output/canonical-review > validation.json
+          STATUS=$?
+          if [[ "$STATUS" -eq 0 ]]; then
+            VALIDATION_OK=$(jq -r '
+              if .ok == true then "true"
+              elif .ok == false then "false"
+              else empty
+              end
+            ' validation.json)
+            if [[ "$VALIDATION_OK" != "true" && "$VALIDATION_OK" != "false" ]]; then
+              STATUS=1
+            fi
+          fi
+          chmod 0600 \
+            quarantine-input/bundle-submission.zip \
+            quarantine-input/submission-context.json || STATUS=1
+          shred --remove --zero \
+            quarantine-input/bundle-submission.zip \
+            quarantine-input/submission-context.json || {
+              rm -f \
+                quarantine-input/bundle-submission.zip \
+                quarantine-input/submission-context.json || STATUS=1
+            }
+          sudo rm -rf -- "$PWD/sanitized-output/decoder-tmp" || STATUS=1
+          sudo rm -rf -- "$PWD/decoder-source" || STATUS=1
+          if [[ "$STATUS" -eq 0 ]]; then
+            sudo chown -R "$(id -u):$(id -g)" sanitized-output || STATUS=1
+          fi
+          if [[ "$STATUS" -eq 0 ]]; then
+            printf 'valid=%s\n' "$VALIDATION_OK" >> "$GITHUB_OUTPUT" || STATUS=1
+          fi
+          exit "$STATUS"
+
+      # The decoder process has exited before this step receives OPENAI_API_KEY.
+      # These code paths read exact validated PNG/canonical JPEG bytes directly
+      # and never import an image decoder. Moderation covers public metadata
+      # plus every exact PNG that publication would serve.
+      - name: Run safety gate and advisory review
+        if: steps.sanitize.outputs.valid == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          BUNDLE_AI_REVIEW_WORKERS: "4"
+        run: |
+          python avian/scripts/bundle_moderate.py \
+            --review-package sanitized-output/canonical-review > moderation.json || true
+          python avian/scripts/bundle_ai_review.py \
+            --review-package sanitized-output/canonical-review \
+            --moderation moderation.json \
+            --preview-dir review-assets > ai-review.json
+
+      - name: Upload private review imagery
+        if: steps.sanitize.outputs.valid == 'true'
+        env:
+          SUBMISSION_ID: ${{ inputs.submission_id }}
+          BUNDLE_VALIDATION_KEY: ${{ secrets.BUNDLE_VALIDATION_KEY }}
+          VALIDATION_ATTEMPT: ${{ inputs.validation_attempt }}
+        run: |
+          python avian/scripts/bundle_review_assets.py \
+            --review ai-review.json \
+            --preview-dir review-assets \
+            --submission="$SUBMISSION_ID" \
+            --attempt="$VALIDATION_ATTEMPT" > review-assets-upload.json
+
+      # Persist the exact clean, moderated publish manifest and every canonical
+      # RGBA PNG. This process performs only bounded byte/hash/PNG-chunk checks;
+      # it never invokes an image decoder. Publication later reuses these exact
+      # private bytes instead of attempting to reproduce an encoding.
+      - name: Persist exact moderated canonical package
+        if: steps.sanitize.outputs.valid == 'true'
+        env:
+          SUBMISSION_ID: ${{ inputs.submission_id }}
+          BUNDLE_VALIDATION_KEY: ${{ secrets.BUNDLE_VALIDATION_KEY }}
+          VALIDATION_ATTEMPT: ${{ inputs.validation_attempt }}
+        run: |
+          python avian/scripts/bundle_canonical_upload.py \
+            --review-package sanitized-output/canonical-review \
+            --moderation moderation.json \
+            --submission="$SUBMISSION_ID" \
+            --attempt="$VALIDATION_ATTEMPT" > canonical-upload.json
+
+      - name: Build bounded validation report
+        run: |
+          if jq -e '.ok == true' validation.json > /dev/null; then
+            python avian/scripts/bundle_validation_report.py \
+              --validation validation.json \
+              --moderation moderation.json \
+              --ai-review ai-review.json > report.json
+          else
+            python avian/scripts/bundle_validation_report.py \
+              --validation validation.json > report.json
+          fi
+
+      - name: Report bounded result
+        env:
+          SUBMISSION_ID: ${{ inputs.submission_id }}
+          VALIDATION_KEY: ${{ secrets.BUNDLE_VALIDATION_KEY }}
+          VALIDATION_ATTEMPT: ${{ inputs.validation_attempt }}
+        run: |
+          curl --fail --silent --show-error \
+            --request POST \
+            --header "X-Bundle-Validation-Key: $VALIDATION_KEY" \
+            --header "X-Bundle-Validation-Attempt: $VALIDATION_ATTEMPT" \
+            --header "Content-Type: application/json" \
+            --data-binary @report.json \
+            "https://avianvisitors.com/api/bundles/validation/$SUBMISSION_ID/result"
+
+  report_failure:
+    needs: validate
+    if: ${{ always() && needs.validate.result != 'success' }}
+    environment: bundle-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # This callback has no checkout and receives no archive/image artifact.
+      # A 409 means a successful report or newer attempt safely won the race.
+      - name: Prevent a stranded validation state
+        env:
+          SUBMISSION_ID: ${{ inputs.submission_id }}
+          VALIDATION_KEY: ${{ secrets.BUNDLE_VALIDATION_KEY }}
+          VALIDATION_ATTEMPT: ${{ inputs.validation_attempt }}
+        run: |
+          printf '%s' '{"ok":false,"summary":{},"findings":["Validation workflow failed before a complete report was produced."]}' > failure-report.json
+          STATUS=$(curl --silent --show-error \
+            --request POST \
+            --header "X-Bundle-Validation-Key: $VALIDATION_KEY" \
+            --header "X-Bundle-Validation-Attempt: $VALIDATION_ATTEMPT" \
+            --header "Content-Type: application/json" \
+            --data-binary @failure-report.json \
+            --output failure-response.json \
+            --write-out '%{http_code}' \
+            "https://avianvisitors.com/api/bundles/validation/$SUBMISSION_ID/result")
+          [[ "$STATUS" == "200" || "$STATUS" == "409" ]]

@@ -26,6 +26,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import build_masks
+
 
 def main() -> int:
     here = Path(__file__).resolve().parents[1]
@@ -72,6 +74,7 @@ def main() -> int:
     session = new_session(args.model)
     done = skipped = 0
     for p in paths:
+        original_identity = build_masks.regular_file_identity(p)
         with open_source_image(p.read_bytes()) as im:
             if not args.force and im.mode == "RGBA" and im.getchannel("A").getextrema()[0] == 0:
                 skipped += 1
@@ -83,7 +86,15 @@ def main() -> int:
             x0, y0 = max(0, bbox[0] - pad), max(0, bbox[1] - pad)
             x1, y1 = min(cut.width, bbox[2] + pad), min(cut.height, bbox[3] + pad)
             cut = cut.crop((x0, y0, x1, y1))
-        save_png_atomic(cut, p)
+        try:
+            with build_masks.included_art_write_transaction(
+                args.dir, {p: original_identity}
+            ):
+                save_png_atomic(cut, p)
+                build_masks.fsync_directory(p.parent)
+        except RuntimeError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         done += 1
         print(f"  [cut]  {p.name}  -> {cut.width}x{cut.height}")
 

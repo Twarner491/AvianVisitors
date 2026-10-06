@@ -1,0 +1,325 @@
+.bundle-setting-row {
+  position: relative;
+  padding-block: 5px;
+}
+
+.bundle-setting-row [data-bundle-live] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.bundle-setting-row .bundle-setting-note.err {
+  color: var(--danger);
+}
+
+.bundle-setting-trigger {
+  min-width: 0;
+  max-width: min(52vw, 360px);
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 4px 7px 4px 11px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ink-2);
+  background: transparent;
+  font: 12px/1.25 ui-serif, "Iowan Old Style", Georgia, serif;
+  cursor: pointer;
+  box-shadow: none;
+  transition: color 160ms ease, background-color 160ms ease, transform 160ms cubic-bezier(.23,1,.32,1);
+}
+
+.bundle-setting-trigger > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bundle-setting-trigger svg {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  color: var(--ink-soft);
+  transition: transform 180ms cubic-bezier(.23,1,.32,1), color 160ms ease;
+}
+
+.bundle-setting-trigger[data-busy]::before {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--ink-soft) 35%, transparent);
+  border-top-color: var(--ink-2);
+  border-radius: 50%;
+  content: "";
+  animation: bundle-setting-spin 760ms linear infinite;
+}
+
+@keyframes bundle-setting-spin { to { transform: rotate(1turn); } }
+
+@media (hover: hover) and (pointer: fine) {
+  .bundle-setting-trigger:hover {
+    color: var(--ink);
+    background: color-mix(in srgb, var(--paper-2) 64%, transparent);
+  }
+  .bundle-setting-trigger:hover svg {
+    color: var(--ink);
+    transform: translateX(2px);
+  }
+}
+
+.bundle-setting-trigger:active { transform: scale(.985); }
+.bundle-setting-trigger:focus-visible {
+  outline: 2px solid var(--ink-soft);
+  outline-offset: 2px;
+}
+
+.bundle-browser-dialog {
+  width: min(928px, calc(100vw - 48px));
+  height: min(790px, calc(100dvh - 48px));
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  overflow: visible;
+  color: var(--ink);
+  background: transparent;
+  opacity: 0;
+  transform: translateY(8px) scale(.992);
+  transition: opacity 190ms ease, transform 220ms cubic-bezier(.23,1,.32,1);
+}
+
+.bundle-browser-dialog::backdrop {
+  background: color-mix(in srgb, var(--paper) 58%, transparent);
+  -webkit-backdrop-filter: blur(8px) saturate(.84);
+  backdrop-filter: blur(8px) saturate(.84);
+  opacity: 0;
+  transition: opacity 190ms ease;
+}
+
+:root[data-theme="dark"] .bundle-browser-dialog::backdrop {
+  background: rgba(6, 7, 9, .62);
+}
+
+.bundle-browser-dialog.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.bundle-browser-dialog.is-open::backdrop { opacity: 1; }
+.bundle-browser-dialog.is-closing { pointer-events: none; }
+
+.bundle-browser-sheet {
+  --bundle-drawer-y: 0px;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  background: var(--paper);
+  box-shadow: var(--edge-lg), 0 24px 72px rgba(26,22,18,.12);
+}
+
+:root[data-theme="dark"] .bundle-browser-sheet {
+  box-shadow: var(--edge-lg), 0 24px 72px rgba(0,0,0,.42);
+}
+
+.bundle-browser-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
+  color-scheme: light dark;
+  background: var(--paper);
+}
+
+.bundle-browser-open-full {
+  position: absolute;
+  z-index: 3;
+  top: 29px;
+  right: max(16px, calc((100% - 880px) / 2));
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease, transform 120ms cubic-bezier(.23,1,.32,1);
+}
+
+.bundle-browser-open-full svg {
+  width: 15px;
+  height: 15px;
+}
+
+.bundle-browser-open-full:active { transform: scale(.97); }
+.bundle-browser-open-full:focus-visible {
+  outline: 1px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.bundle-browser-open-full-tip {
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + 7px);
+  right: 0;
+  width: max-content;
+  padding: 5px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink-2);
+  box-shadow: var(--raised);
+  font: 8px/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: .03em;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 140ms cubic-bezier(.23,1,.32,1), transform 140ms cubic-bezier(.23,1,.32,1), visibility 0s linear 140ms;
+}
+
+.bundle-browser-open-full:focus-visible .bundle-browser-open-full-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .bundle-browser-open-full:hover {
+    border-color: var(--ink-soft);
+    color: var(--ink);
+  }
+  .bundle-browser-open-full:hover .bundle-browser-open-full-tip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition-delay: 0s;
+  }
+}
+
+.bundle-browser-handle {
+  display: none;
+}
+
+body.bundle-browser-open {
+  overflow: hidden;
+}
+
+@media (max-width: 860px) {
+  .bundle-browser-dialog {
+    width: calc(100vw - 12px);
+    height: calc(100dvh - 8px);
+    margin: auto 6px 0;
+    border-radius: 14px 14px 0 0;
+    transform: translateY(22px);
+    transition: opacity 190ms ease, transform 260ms cubic-bezier(.32,.72,0,1);
+  }
+
+  .bundle-browser-dialog.is-open { transform: translateY(0); }
+
+  .bundle-browser-sheet {
+    padding-top: 25px;
+    border-radius: inherit;
+    transform: translateY(var(--bundle-drawer-y));
+    transform-origin: 50% 100%;
+    transition: transform 280ms cubic-bezier(.32,.72,0,1);
+  }
+
+  .bundle-browser-sheet.is-drawer-dragging { transition: none; }
+  .bundle-browser-sheet.is-drawer-closing {
+    transform: translateY(calc(100dvh + var(--bundle-drawer-y)));
+    transition: transform 280ms cubic-bezier(.32,.72,0,1);
+  }
+
+  .bundle-browser-frame {
+    height: calc(100% - 25px);
+    border-radius: 0;
+  }
+
+  .bundle-browser-open-full {
+    top: 54px;
+    right: 16px;
+  }
+
+  .bundle-browser-handle {
+    position: absolute;
+    z-index: 2;
+    inset: 0 0 auto;
+    width: 100%;
+    height: 44px;
+    display: grid;
+    place-items: start center;
+    padding: 10px 0 0;
+    border: 0;
+    border-radius: 0;
+    appearance: none;
+    color: var(--ink);
+    background: transparent;
+    cursor: grab;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .bundle-browser-handle > span {
+    width: 38px;
+    height: 3px;
+    border-radius: 999px;
+    background: color-mix(in srgb, currentColor 24%, transparent);
+    transition: background-color 140ms ease, transform 140ms cubic-bezier(.23,1,.32,1);
+  }
+
+  .bundle-browser-handle:focus { outline: 0; }
+  .bundle-browser-handle:focus-visible {
+    outline: 1px solid color-mix(in srgb, currentColor 32%, transparent);
+    outline-offset: -5px;
+  }
+  .bundle-browser-handle:active { cursor: grabbing; }
+  .bundle-browser-handle:active > span { transform: scaleX(.92); }
+}
+
+@media (max-width: 720px) {
+  .bundle-browser-open-full { top: 103px; }
+}
+
+@media (max-width: 430px) {
+  .bundle-browser-open-full { top: 102px; }
+}
+
+@media (max-width: 520px) {
+  .bundle-setting-trigger {
+    max-width: 58vw;
+    font-size: 11.5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bundle-setting-trigger,
+  .bundle-setting-trigger svg,
+  .bundle-browser-dialog,
+  .bundle-browser-dialog::backdrop,
+  .bundle-browser-sheet,
+  .bundle-browser-open-full,
+  .bundle-browser-open-full-tip,
+  .bundle-browser-handle > span {
+    transition: none;
+  }
+  .bundle-setting-trigger[data-busy]::before { animation-duration: 1.4s; }
+}

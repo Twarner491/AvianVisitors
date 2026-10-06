@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local preview | Avian Visitors v1.3</title>
+  <style type="text/css">
+    :root {
+      color-scheme: light;
+      --page: #f6f7f8;
+      --paper: #ffffff;
+      --ink: #1f2328;
+      --muted: #656d76;
+      --line: #d0d7de;
+      --soft: #f6f8fa;
+      --link: #0969da;
+      --notice: #fff8c5;
+      --notice-border: #d4a72c;
+      --shadow: 0 18px 55px rgba(31, 35, 40, .09);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--page);
+      font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+    .preview-bar {
+      position: sticky;
+      z-index: 10;
+      top: 0;
+      padding: 10px 18px;
+      color: #3b2f05;
+      background: var(--notice);
+      border-bottom: 1px solid var(--notice-border);
+      text-align: center;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .release-page {
+      width: min(1040px, calc(100% - 32px));
+      margin: 36px auto 72px;
+      padding: clamp(28px, 5vw, 68px);
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+    }
+    h1, h2 { line-height: 1.25; }
+    h1 { margin: 0 0 16px; font-size: clamp(2rem, 5vw, 3rem); }
+    h2 {
+      margin: 42px 0 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--line);
+      font-size: 1.55rem;
+    }
+    p { margin: 0 0 16px; }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .media { margin: 28px 0 32px; }
+    .media > img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--soft);
+    }
+    .caption {
+      margin-top: 9px;
+      color: var(--muted);
+      font-style: italic;
+      text-align: center;
+    }
+    code {
+      padding: .15em .35em;
+      border-radius: 5px;
+      background: var(--soft);
+    }
+    .preview-footer {
+      margin-top: 48px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+    }
+    @media (max-width: 680px) {
+      .release-page {
+        width: 100%;
+        margin: 0;
+        border: 0;
+        border-radius: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="preview-bar">Local release preview</div>
+  <div class="release-page">
+    <h1>Avian Visitors v1.3.0</h1>
+    <p>Avian Visitors v1.3 makes illustration bundles work across the station, BirdFrame, and <a href="https://avianvisitors.com/bundles">avianvisitors.com/bundles</a>. Browse a set, install it, or export and share your own without rebuilding Avian Visitors.</p>
+
+    <div class="media">
+      <img src="images/evolutionary-impressionist-station.jpg" alt="The Avian Visitors Collage using the Evolutionary Impressionist bird bundle">
+      <div class="caption">The Collage using Evolutionary Impressionist, an optional 333-bird set for Western North America.</div>
+    </div>
+
+    <h2>Choose artwork in Settings</h2>
+    <p><strong>Bird bundle</strong> now lives directly below Theme in Settings. Open it to browse the same bundle list found at <a href="https://avianvisitors.com/bundles">avianvisitors.com/bundles</a>, search by place or bundle, and narrow the list by region.</p>
+    <p>Downloaded bundles stay at the top and carry a small download badge. <strong>Refresh local birds</strong> reapplies a changed location to the active downloaded set. The full catalog link opens in a new tab, leaving the station in place.</p>
+    <p>On phones, the catalog opens as a tall bottom sheet with a drag handle. On larger screens, it opens over Settings and keeps the station theme.</p>
+
+    <div class="media">
+      <img src="images/station-impressionist-active.jpg" alt="Evolutionary Impressionist selected as the active Bird bundle in station Settings">
+      <div class="caption">Settings shows the active Bird bundle.</div>
+    </div>
+
+    <h2>Browse and share bundles</h2>
+    <p>Bundle rows stay compact until opened. Each expanded row keeps the same collage and details layout, including sets with one illustration. The catalog shows the creator, coverage, style, version, license, download size, and source.</p>
+    <p>To share a set made on your station, open <strong>Tools &gt; Your data &gt; Export bundle</strong>. Review the local illustrations and download one upload-ready ZIP. Sign in with GitHub at <a href="https://avianvisitors.com/bundles">avianvisitors.com/bundles</a>, upload the ZIP, and follow its review status under <strong>Your bundles</strong>. Changes-requested and published bundles remain available there.</p>
+    <p>Uploads support archives up to 768 MiB and 1,500 PNG objects, with limits of 4 MiB per image, 640 MiB of expanded content, and 1,000 species.</p>
+    <p>Uploads stay private while file, image, and manifest checks run. Bird and style quality findings are advisory; technical checks, supported licensing, complete clean safety moderation, and explicit maintainer approval remain required. The station never uploads a bundle automatically.</p>
+
+    <h2>One command for a station or BirdFrame</h2>
+    <p>After SSHing into either device, run the same command with the bundle ID copied from the catalog:</p>
+    <pre><code>sudo avian-bundle use '&lt;BUNDLE_ID&gt;'</code></pre>
+    <p>Each installable row keeps <strong>Use on my local station</strong> as its main action. The adjacent command button opens this line and copies it immediately.</p>
+    <p>With a saved location, the device downloads only the bundle's birds expected there throughout the year. Without a location, it downloads the full set. Add <code>--all-species</code> for an explicit full download.</p>
+    <p>The installer verifies the full manifest and each selected image, then switches artwork atomically. A failed install leaves the current bundle in place. Frame captures wait for complete images before updating the panel. Repeating the command is safe.</p>
+
+    <div class="media">
+      <img src="images/evolutionary-impressionist-frame.jpg" alt="A wall-mounted wooden BirdFrame displaying Evolutionary Impressionist birds on its e-ink screen">
+      <div class="caption">Evolutionary Impressionist on BirdFrame. Photo by Teddy Warner.</div>
+    </div>
+
+    <h2>Two official sets</h2>
+    <p>Japanese Woodblock remains the included default. Evolutionary Impressionist adds bright, loose gestures while covering the same 333 Western North American species. Both carry the Official badge.</p>
+    <p>Evolutionary Impressionist is built on Matt DesLauriers's work, <em>Synthetic Gestures: An Evolutionary Sketching Machine</em>. SIREN paths evolved with sNES while CLIP compared each bird with its Japanese Woodblock cutout before human review.</p>
+    <p>The twelve cutouts used by the two official catalog collages total 3.44 MB, down from 5.60 MB. Their visible pixels, dimensions, masks, and handwritten labels are unchanged. A collage loads only when its row opens.</p>
+
+    <h2>Bundles contain pictures, not apps</h2>
+    <p>The station sends only its broad region to the catalog, never its latitude or longitude. Bundle files live in the managed Avian Visitors data library and stay in place during updates and reinstalls. Contributor repositories, scripts, and executables are never installed or run.</p>
+    <p>If the community catalog is unavailable, the included Japanese Woodblock set, checked official listings, and downloaded bundles remain available locally.</p>
+
+    <h2>Updating an existing station</h2>
+    <p>Use <strong>Tools &gt; Pull latest</strong> or the <a href="../../../README.md#updating-an-existing-station">documented updater</a>. The station keeps its current illustration choice during the update.</p>
+    <p>After updating, open <strong>Settings &gt; Bird bundle</strong> to see the current set or choose another one.</p>
+
+    <h2>Built with the people using it</h2>
+    <p>The regional collection exists because community members made artwork for places the original set did not cover: <a href="https://github.com/SupraBitKid">@SupraBitKid</a>, <a href="https://github.com/theskyisthelimit">@theskyisthelimit</a>, <a href="https://github.com/bassrelic">@bassrelic</a>, <a href="https://github.com/RoqueAlonso">@RoqueAlonso</a>, <a href="https://github.com/jonnywright">@jonnywright</a>, <a href="https://github.com/lloydalexporter">@lloydalexporter</a>, <a href="https://github.com/peterdeboer-nl">@peterdeboer-nl</a>, <a href="https://github.com/TheWillni">@TheWillni</a>, and <a href="https://github.com/opurtell">@opurtell</a>. <a href="https://github.com/cdkl">@cdkl</a> contributed original Eastern North American artwork later refined into the included set.</p>
+    <p>Nothing moves into the reviewed catalog automatically. Each maintainer keeps control of the files, coverage, attribution, license, style, and source link for their work. Thank you to everyone who made, shared, and tested artwork for a different part of the world.</p>
+
+    <div class="preview-footer">This local page shows the proposed GitHub release body.</div>
+  </div>
+</body>
+</html>

@@ -199,13 +199,14 @@ def main() -> int:
     if subprocess.run(["scp", "-q", *files, f"{pi}:{stage}/"]).returncode != 0:
         print("error: scp failed", file=sys.stderr)
         return 1
-    # Braces, not parentheses: a subshell would drop the P assignment.
+    # The station-side helper owns the complete live mutation transaction: it
+    # locks generation, invalidates the durable content journal, fsyncs each
+    # replacement, rebuilds masks through the inherited lock, and only then
+    # publishes cuts.json. Keep this workstation process limited to staging.
     remote = (f"cd -- {shlex.quote(repo)}"
               f" && {{ test -x birdnet/bin/python3 && P=birdnet/bin/python3 || P=python3; }}"
-              f" && mv -f avian/assets/illustrations/.upgrade-stage/*.png avian/assets/illustrations/"
-              f" && $P avian/scripts/build_masks.py --add {' '.join(shlex.quote(s) for s in done)}"
-              f" && mv -f avian/assets/illustrations/.upgrade-stage/cuts.json avian/assets/illustrations/"
-              f" && rmdir avian/assets/illustrations/.upgrade-stage")
+              f" && $P avian/scripts/install_upgraded_cutouts.py "
+              f"{' '.join(shlex.quote(s) for s in done)}")
     if subprocess.run(["ssh", pi, remote]).returncode != 0:
         print("error: remote install failed (staged files remain in .upgrade-stage; rerun after fixing)",
               file=sys.stderr)

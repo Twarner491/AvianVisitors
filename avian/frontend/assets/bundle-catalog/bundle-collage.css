@@ -1,0 +1,79 @@
+@font-face {
+  font-family: "Hand";
+  src: url("./fonts/Caveat.ttf") format("truetype");
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+.avbc-collage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.avbc-bird {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* The station collage uses the same centre-out bloom. Images are requested
+   eagerly, held invisible until decoded, then staggered by distance from the
+   collage centre so a cold cache never reveals in network or DOM order. */
+@keyframes avbc-bird-in {
+  from { opacity: 0; transform: scale(.82); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.avbc-collage[data-reveal-pending] .avbc-bird { opacity: 0; }
+.avbc-collage[data-revealing] .avbc-bird {
+  animation: avbc-bird-in 420ms cubic-bezier(.2, .7, .3, 1) backwards;
+}
+
+.avbc-bird > img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  filter: drop-shadow(var(--bundle-bird-shadow, 0 2px 6px rgba(26, 22, 18, .1)));
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.avbc-label {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.avbc-label text {
+  fill: var(--ink-soft, var(--bundle-muted, #71706b));
+  filter: url(#avbc-ink-m);
+}
+
+.avbc-label text[data-ink="s"] { filter: url(#avbc-ink-s); }
+.avbc-label text[data-ink="l"] { filter: url(#avbc-ink-l); }
+
+.avbc-label-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+@media (forced-colors: active) {
+  .avbc-label text {
+    fill: CanvasText;
+    filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avbc-collage[data-reveal-pending] .avbc-bird { opacity: 1; }
+  .avbc-collage[data-revealing] .avbc-bird { animation: none; }
+}
+
+html.embed .catalog-open-full-placeholder { visibility: hidden; pointer-events: none; }

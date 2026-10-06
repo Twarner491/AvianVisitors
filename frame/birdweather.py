@@ -14,6 +14,7 @@ import json
 import math
 import os
 import re
+import stat
 import urllib.parse
 import urllib.request
 
@@ -79,6 +80,29 @@ def _bounded_int(value, name, low, high):
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
         raise ValueError(f"{name} must be from {low} through {high}")
     return value
+
+
+def station_location(value, timeout=20):
+    """Coordinates for the exact public station selected by this frame."""
+    sid = station_id(value)
+    payload = _graphql(
+        "query FrameStationLocation($stationId: ID!) { station(id: $stationId) { id coords { lat lon } } }",
+        timeout,
+        variables={"stationId": sid},
+        strict=True,
+    )
+    station = payload["data"].get("station")
+    try:
+        if not isinstance(station, dict) or station_id(station.get("id")) != sid:
+            raise ValueError("station identity mismatch")
+        coords = station["coords"]
+        latitude, longitude = coords["lat"], coords["lon"]
+        if any(isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item)
+               for item in (latitude, longitude)) or not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+            raise ValueError("station coordinates invalid")
+        return float(latitude), float(longitude)
+    except (KeyError, TypeError, ValueError) as error:
+        raise BirdWeatherError("BirdWeather did not return this station's location") from error
 
 
 def geocode(zip_code, country="us", timeout=20):
@@ -249,11 +273,44 @@ def triangulate(lat, lon, n=3, days=7, timeout=20):
     return out
 
 
+def _private_ebird_key():
+    """Read the setup account's key after the bundle launcher resets its environment."""
+    directory = os.path.expanduser("~/.birdframe")
+    parent = descriptor = None
+    try:
+        parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        descriptor = os.open(
+            "ebird-api-key", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+            dir_fd=parent,
+        )
+        info = os.fstat(parent)
+        if info.st_uid != os.geteuid() or info.st_mode & 0o022:
+            raise BirdWeatherError("the private eBird credential directory is unsafe")
+        info = os.fstat(descriptor)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1
+                or not 1 <= info.st_size <= 4096):
+            raise BirdWeatherError("the private eBird credential is unsafe")
+        raw = os.read(descriptor, 4097)
+        if len(raw) != info.st_size or re.fullmatch(rb"[A-Za-z0-9]{1,4095}\n?", raw) is None:
+            raise BirdWeatherError("the private eBird credential is invalid")
+        return raw.removesuffix(b"\n").decode("ascii")
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise BirdWeatherError("the private eBird credential is unavailable or unsafe") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if parent is not None:
+            os.close(parent)
+
+
 def ebird_nearby(lat, lon, days=14, key=None, timeout=20):
     """Recent eBird observations near the point, as [{sci,com,n}]. The deepest
     fallback, for spots with no station in range. Needs a free eBird API key in
-    EBIRD_API_KEY and returns [] without one, so keyless installs just skip it."""
-    key = key or os.environ.get("EBIRD_API_KEY")
+    EBIRD_API_KEY or the setup account's private key file. Keyless installs skip it."""
+    key = key or os.environ.get("EBIRD_API_KEY") or _private_ebird_key()
     if not key:
         return []
     url = f"{EBIRD}?lat={lat:.4f}&lng={lon:.4f}&dist=50&back={min(days, 30)}"
@@ -306,14 +363,14 @@ def drawable_slugs(apt_js=APT_JS):
 
 
 def species_for_zip(zip_code, country="us", target=10, days=7, radii=(15, 30, 50),
-                    apt_js=APT_JS, timeout=20):
+                    apt_js=APT_JS, timeout=20, drawable=None):
     """Geocode the ZIP, pull BirdWeather top species, and grow the search radius
     only until `target` drawable species are found, so it stays as local as the
     data allows. Returns the top `target` by detection count, or fewer where
     birds or stations are sparse.
     """
     lat, lon = geocode(zip_code, country, timeout)
-    have = drawable_slugs(apt_js)
+    have = drawable_slugs(apt_js) if drawable is None else frozenset(drawable)
     found = []
     for miles in radii:
         found = [s for s in top_species(lat, lon, miles, days, 60, timeout)
@@ -334,10 +391,11 @@ def species_for_zip(zip_code, country="us", target=10, days=7, radii=(15, 30, 50
     return found[:target]
 
 
-def species_for_station(value, target=10, days=7, apt_js=APT_JS, timeout=20):
+def species_for_station(value, target=10, days=7, apt_js=APT_JS, timeout=20,
+                        drawable=None):
     """Top drawable birds heard by exactly one public BirdWeather station."""
     target = _bounded_int(target, "target", 1, 60)
-    drawable = drawable_slugs(apt_js)
+    drawable = drawable_slugs(apt_js) if drawable is None else frozenset(drawable)
     found = [s for s in top_species_for_station(value, days, max(60, target), timeout)
              if slugify(s["sci"]) in drawable]
     return found[:target]

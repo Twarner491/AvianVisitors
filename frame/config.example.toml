@@ -55,6 +55,7 @@ heal_hours = 24        # force a refresh at least this often
 # --- Paths ------------------------------------------------------------------
 state = "~/.birdframe/state.json"
 cache = "~/.birdframe"
+bundle_root = "~/.birdframe/bundles"  # verified bundles selected by `avian-bundle use`
 # 180s: a Zero 2 W takes ~70-120s to render the collage in headless
 # chromium; the old 45s default made the frame silently never draw on
 # that board (every shoot timed out waiting for tiles).

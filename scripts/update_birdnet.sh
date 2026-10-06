@@ -13,6 +13,7 @@ readonly CONFIG_FILE='/etc/birdnet/birdnet.conf'
 readonly UPDATE_HELPER='/usr/local/sbin/avian-update-control'
 readonly REFRESH_HELPER='/usr/local/sbin/avian-service-refresh'
 readonly GENERATION_LOCK='/run/lock/avian-generation.lock'
+readonly ART_REVISION_STATE='/var/lib/avian-visitors/included-art.revision'
 readonly GENERATION_STALE_SECONDS=900
 
 automatic=false
@@ -170,6 +171,132 @@ if [ ! -f "$GENERATION_LOCK" ] || [ -L "$GENERATION_LOCK" ] \
 fi
 exec 8<>"$GENERATION_LOCK"
 flock -n 8 || die 'bird illustration generation is running'
+
+# The lock inode is ephemeral synchronization only. Cache validity lives on
+# persistent storage so a reboot during mutation cannot turn a partial library
+# into a legacy-valid one when /run is recreated.
+generation_revision_invalid=false
+generation_revision_needs_rebuild=false
+generation_revision_missing=false
+generation_revision_was_missing=false
+INVALID_ART_REVISION=$(printf 'invalid%057d' 0 | tr 0 '!')
+readonly INVALID_ART_REVISION
+
+write_generation_revision() {
+  local revision=$1
+  [ "${#revision}" -eq 64 ] && [[ "$revision" != *$'\n'* ]] || return 1
+  printf '%s\n' "$revision" \
+    | dd of="$ART_REVISION_STATE" bs=65 count=1 iflag=fullblock \
+      conv=notrunc,fsync status=none || return 1
+  # Truncate only after a complete fixed-size record has reached disk. A kill
+  # during the preceding overwrite leaves a non-hex record and fails closed.
+  truncate -s 65 "$ART_REVISION_STATE" || return 1
+  sync -f "$ART_REVISION_STATE" || return 1
+}
+
+invalidate_generation_revision() {
+  generation_revision_invalid=true
+  write_generation_revision "$INVALID_ART_REVISION"
+}
+
+commit_generation_revision() {
+  local revision
+  revision=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n') || return 1
+  [[ "$revision" =~ ^[0-9a-f]{64}$ ]] || return 1
+  # Finish every prior checkout write before the persistent valid record.
+  sync -f "$repo_dir" || return 1
+  write_generation_revision "$revision" || return 1
+  generation_revision_invalid=false
+}
+
+art_revision_parent=${ART_REVISION_STATE%/*}
+if [ -e "$art_revision_parent" ] || [ -L "$art_revision_parent" ]; then
+  [ -d "$art_revision_parent" ] && [ ! -L "$art_revision_parent" ] \
+    && [ "$(stat -c '%u:%g:%a' "$art_revision_parent")" = 0:0:755 ] \
+    || die 'illustration revision state directory is unsafe'
+else
+  install -d -o root -g root -m 0755 "$art_revision_parent"
+fi
+
+provision_generation_revision_state() {
+  if [ "$generation_revision_missing" = false ]; then
+    return 0
+  fi
+  install -o root -g "$station_gid" -m 0660 /dev/null "$ART_REVISION_STATE" \
+    || return 1
+  generation_revision_missing=false
+  generation_revision_invalid=true
+  generation_revision_needs_rebuild=true
+  write_generation_revision "$INVALID_ART_REVISION"
+}
+
+if [ ! -e "$ART_REVISION_STATE" ] && [ ! -L "$ART_REVISION_STATE" ]; then
+  # A pre-v1 checkout may not have the trusted inventory builder yet. Keep its
+  # historical absence until content mutation actually begins; the held /run
+  # lock still makes the branch transition fail closed to a newly installed
+  # runtime. This also lets a failed fetch leave the old station untouched.
+  generation_revision_missing=true
+  generation_revision_was_missing=true
+  generation_revision_invalid=true
+  generation_revision_needs_rebuild=true
+else
+  if [ ! -f "$ART_REVISION_STATE" ] || [ -L "$ART_REVISION_STATE" ] \
+    || [ "$(stat -c '%u:%g:%a:%h' "$ART_REVISION_STATE")" != "0:$station_gid:660:1" ]; then
+    die "illustration revision state is unsafe: $ART_REVISION_STATE"
+  fi
+  if [ "$(stat -c '%s' "$ART_REVISION_STATE")" -eq 65 ] \
+    && grep -Eq '^[0-9a-f]{64}$' "$ART_REVISION_STATE"; then
+    :
+  else
+    # A prior killed writer intentionally leaves `invalid`; any other malformed
+    # marker also fails closed. Never turn either into a valid cache key until
+    # current PNGs have been rescanned and both tables rebuilt under this lock.
+    generation_revision_invalid=true
+    generation_revision_needs_rebuild=true
+  fi
+fi
+
+rebuild_generation_inventory() {
+  local python=$repo_dir/birdnet/bin/python3
+  local builder=$repo_dir/avian/scripts/build_masks.py
+  if [ ! -x "$python" ]; then
+    python=python3
+  fi
+  [ -f "$builder" ] && [ ! -L "$builder" ] || return 1
+  provision_generation_revision_state || return 1
+  run_as_station env \
+    AVIAN_GENERATION_LOCK="$GENERATION_LOCK" \
+    AVIAN_GENERATION_LOCK_FD=8 \
+    AVIAN_ART_REVISION_STATE="$ART_REVISION_STATE" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    "$python" "$builder" || return 1
+  [ "$(stat -c '%s' "$ART_REVISION_STATE")" -eq 65 ] \
+    && grep -Eq '^[0-9a-f]{64}$' "$ART_REVISION_STATE" || return 1
+  generation_revision_invalid=false
+  generation_revision_needs_rebuild=false
+}
+
+begin_generation_content_transaction() {
+  transaction_started=true
+  provision_generation_revision_state \
+    || die 'could not initialize the illustration revision state'
+  if [ "$generation_revision_invalid" = false ]; then
+    invalidate_generation_revision \
+      || die 'could not invalidate the illustration cache revision'
+  fi
+}
+
+# Recover an interrupted prior writer before any network or Git preflight can
+# fail. If this checkout predates the inventory builder, the verified release
+# transition below will install it and perform the same rebuild before commit.
+if [ "$generation_revision_needs_rebuild" = true ] \
+  && [ -f "$repo_dir/avian/scripts/build_masks.py" ] \
+  && [ ! -L "$repo_dir/avian/scripts/build_masks.py" ] \
+  && grep -Fq 'AVIAN_ART_REVISION_STATE' \
+    "$repo_dir/avian/scripts/build_masks.py"; then
+  rebuild_generation_inventory \
+    || die 'could not recover the illustration inventory from an interrupted writer'
+fi
 
 # generate.php marks the job running before it releases the start lock and the
 # worker takes that lock for its lifetime. If this process wins that handoff,
@@ -438,6 +565,32 @@ rollback() {
         rollback_failed=true
       fi
     fi
+    if [ "$generation_revision_invalid" = true ]; then
+      if [ "$rollback_failed" = false ] && [ "$worktree_ready" = true ]; then
+        if [ "$generation_revision_was_missing" = true ] \
+          && [ ! -f "$repo_dir/avian/scripts/build_masks.py" ]; then
+          # A complete rollback to a pre-journal checkout restores the exact
+          # historical state. Removing only the inode this run provisioned is
+          # safe because no journal-aware runtime remains in that checkout.
+          if [ ! -L "$ART_REVISION_STATE" ] \
+            && [ "$(stat -c '%u:%g:%a:%h' "$ART_REVISION_STATE" 2>/dev/null)" \
+              = "0:$station_gid:660:1" ]; then
+            rm -f -- "$ART_REVISION_STATE" || rollback_failed=true
+            sync -f "$art_revision_parent" || rollback_failed=true
+            generation_revision_missing=true
+            generation_revision_invalid=false
+          else
+            rollback_failed=true
+          fi
+        elif [ "$generation_revision_needs_rebuild" = true ]; then
+          rebuild_generation_inventory || rollback_failed=true
+        else
+          commit_generation_revision || rollback_failed=true
+        fi
+      fi
+      # If rollback did not establish one coherent worktree, retain the
+      # invalid marker so public readers cannot cache a partial generation.
+    fi
     if [ "$rollback_failed" = true ]; then
       echo "Rollback was incomplete. Backups remain at $backup_dir" >&2
     fi
@@ -566,7 +719,7 @@ AVIAN_UPDATE_LOCK_FD=9 "$REFRESH_HELPER" --prepare-update "$target_commit"
 if [ "${#generated_paths[@]}" -gt 0 ]; then
   archive_paths generated "${generated_paths[@]}"
   generated_archive=$last_archive
-  transaction_started=true
+  begin_generation_content_transaction
   if [ "${#tracked_generated_paths[@]}" -gt 0 ]; then
     git_station restore --worktree -- "${tracked_generated_paths[@]}"
   fi
@@ -579,7 +732,7 @@ preserved_art_paths=("${tracked_art_paths[@]}" "${untracked_art_collision_paths[
 if [ "${#preserved_art_paths[@]}" -gt 0 ]; then
   archive_paths custom-bird-art "${preserved_art_paths[@]}"
   art_archive=$last_archive
-  transaction_started=true
+  begin_generation_content_transaction
   if [ "${#tracked_art_paths[@]}" -gt 0 ]; then
     git_station restore --worktree -- "${tracked_art_paths[@]}"
   fi
@@ -601,7 +754,7 @@ if [ "$original_branch" = "$RELEASE_BRANCH" ]; then
   git_station merge-base --is-ancestor "$original_head" "$target_commit" \
     || die "local $RELEASE_BRANCH has commits not present on origin"
   if [ "$original_head" != "$target_commit" ]; then
-    transaction_started=true
+    begin_generation_content_transaction
     git_station merge --ff-only "$target_commit"
   fi
 else
@@ -616,10 +769,10 @@ else
   fi
 
   if git_station show-ref --verify --quiet "refs/heads/$RELEASE_BRANCH"; then
-    transaction_started=true
+    begin_generation_content_transaction
     git_station switch "$RELEASE_BRANCH"
   else
-    transaction_started=true
+    begin_generation_content_transaction
     git_station switch --create "$RELEASE_BRANCH"
     legacy_branch_created=true
   fi
@@ -640,6 +793,20 @@ if [ -n "$generated_archive" ]; then
 fi
 if [ -n "$art_archive" ]; then
   restore_archive "$art_archive"
+fi
+# Preserved geometry is a snapshot of the pre-update complete library. Even
+# when local overrides are unchanged, the release may have changed another
+# official PNG. Re-scan the final mixed library before publishing a nonce so
+# new official pixels can never inherit stale restored dimensions or masks.
+if [ -n "$generated_archive" ] || [ -n "$art_archive" ]; then
+  generation_revision_needs_rebuild=true
+fi
+if [ "$generation_revision_needs_rebuild" = true ]; then
+  rebuild_generation_inventory \
+    || die 'could not rebuild the illustration inventory after an interrupted writer'
+elif [ "$generation_revision_invalid" = true ]; then
+  commit_generation_revision \
+    || die 'could not publish the illustration cache revision'
 fi
 transaction_complete=true
 

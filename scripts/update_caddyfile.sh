@@ -277,8 +277,23 @@ if [ "$AVIAN_REQUIRE_LAN_AUTH" = 1 ] && [ -z "$hashword" ]; then
   echo "LAN admin auth is locked until the credential is repaired from SSH" >&2
 fi
 
-fpm_sock=$(find /run/php -maxdepth 1 -type s -name 'php*-fpm.sock' -print 2>/dev/null | sort | head -n 1 || true)
-fpm_sock=${fpm_sock:-/run/php/php-fpm.sock}
+fpm_sock=
+bundle_fpm_sock=
+while IFS= read -r candidate; do
+  if [[ "$candidate" =~ ^/run/php/php([0-9]+\.[0-9]+)-fpm[.]sock$ ]]; then
+    fpm_version=${BASH_REMATCH[1]}
+    candidate_bundle=/run/php/avian-bundle-export-${fpm_version}.sock
+    systemctl is-active --quiet "php${fpm_version}-fpm.service" || continue
+    [ -S "$candidate_bundle" ] && [ ! -L "$candidate_bundle" ] || continue
+    [ "$(stat -c '%U:%G:%a:%h' -- "$candidate_bundle")" = caddy:caddy:600:1 ] \
+      || continue
+    fpm_sock=$candidate
+    bundle_fpm_sock=$candidate_bundle
+    break
+  fi
+done < <(find /run/php -maxdepth 1 -type s -name 'php*-fpm.sock' -print 2>/dev/null | sort)
+[ -n "$fpm_sock" ] && [ -n "$bundle_fpm_sock" ] \
+  || { echo "Active PHP-FPM bundle export pool was not found" >&2; exit 1; }
 
 case "${AVIAN_CLOSE_STREAMS:-0}" in
   0|1) ;;
@@ -786,6 +801,17 @@ $legacy_handles
   handle @publicFrontendStamp {
     file_server
   }
+  # The embedded catalog runs in an opaque-origin sandbox. Expose CORS only
+  # for its reviewed, data-only static subtree; station APIs never inherit it.
+  @publicBundleCatalogCollage path_regexp publicBundleCatalogCollage ^/assets/bundle-catalog/bundle-previews/collage/[a-z0-9][a-z0-9_-]*[.][0-9a-f]{64}[.]png$
+  header @publicBundleCatalogCollage Cache-Control "public, max-age=31536000, immutable"
+  @publicBundleCatalog path_regexp publicBundleCatalog ^/assets/bundle-catalog/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9][A-Za-z0-9._-]*[.](?:css|html|js|json|png|ttf)$
+  handle @publicBundleCatalog {
+    header Access-Control-Allow-Origin "*"
+    header Content-Security-Policy "default-src 'none'; base-uri 'none'; connect-src 'self' https://avianvisitors.com; font-src 'self'; form-action 'none'; frame-ancestors 'self'; img-src 'self' data: https://avianvisitors.com; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+    header X-Content-Type-Options "nosniff"
+    file_server
+  }
   handle /assets/* {
     respond 404
   }
@@ -795,7 +821,7 @@ $legacy_handles
   # existing checkout during an update, including their source text.
   @unknownAvianApi {
     path /avian/api/*
-    not path /avian/api/archive.php /avian/api/birdnet-api.php /avian/api/birdnet-status.php /avian/api/birdweather.php /avian/api/config.php /avian/api/cutout.php /avian/api/educator-audio-check.php /avian/api/educator-audio.php /avian/api/educators.php /avian/api/export.php /avian/api/generate.php /avian/api/maintenance.php /avian/api/menu.php /avian/api/recording.php /avian/api/spectrogram.php /avian/api/wiki.php
+    not path /avian/api/archive.php /avian/api/birdnet-api.php /avian/api/birdnet-status.php /avian/api/birdweather.php /avian/api/bundle-assets.php /avian/api/bundle-preview.php /avian/api/bundle-species.php /avian/api/bundles.php /avian/api/config.php /avian/api/cutout.php /avian/api/educator-audio-check.php /avian/api/educator-audio.php /avian/api/educators.php /avian/api/export.php /avian/api/generate.php /avian/api/maintenance.php /avian/api/menu.php /avian/api/recording.php /avian/api/spectrogram.php /avian/api/wiki.php
   }
   handle @unknownAvianApi {
     respond 404
@@ -867,6 +893,51 @@ $stream_guard
   # Caddy adds X-Forwarded-* fields when it talks to PHP-FPM, even for a
   # direct browser on the LAN. Preserve a decision made from the raw request
   # in a FastCGI variable that the browser cannot forge.
+  @directBundleExport {
+    method GET
+    path /avian/api/export.php
+    vars {http.request.orig_uri.query} what=bundle
+    remote_ip private_ranges
+    header_regexp localBundleExportHost Host (?i)^(localhost|[a-z0-9][a-z0-9.-]*[.]local|10[.][0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}|127[.][0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}|192[.]168[.][0-9]{1,3}[.][0-9]{1,3}|172[.](1[6-9]|2[0-9]|3[01])[.][0-9]{1,3}[.][0-9]{1,3}|169[.]254[.][0-9]{1,3}[.][0-9]{1,3}|[[]::1[]]|[[]f[cd][0-9a-f:]*[]]|[[]fe[89ab][0-9a-f:]*[]])(:[0-9]{1,5})?$
+    not header Forwarded *
+    not header X-Forwarded-For *
+    not header X-Forwarded-Host *
+    not header X-Forwarded-Proto *
+    not header X-Forwarded-Port *
+    not header X-Forwarded-Server *
+    not header X-Forwarded-Scheme *
+    not header X-Forwarded-Prefix *
+    not header X-Real-Ip *
+    not header Cf-Connecting-Ip *
+    not header Cf-Connecting-IPv6 *
+    not header Cf-Pseudo-IPv4 *
+    not header Cf-Ray *
+    not header Cf-Visitor *
+  }
+  @bundleExport {
+    method GET
+    path /avian/api/export.php
+    vars {http.request.orig_uri.query} what=bundle
+  }
+  @directExport {
+    path /avian/api/export.php
+    remote_ip private_ranges
+    header_regexp localExportHost Host (?i)^(localhost|[a-z0-9][a-z0-9.-]*[.]local|10[.][0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}|127[.][0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}|192[.]168[.][0-9]{1,3}[.][0-9]{1,3}|172[.](1[6-9]|2[0-9]|3[01])[.][0-9]{1,3}[.][0-9]{1,3}|169[.]254[.][0-9]{1,3}[.][0-9]{1,3}|[[]::1[]]|[[]f[cd][0-9a-f:]*[]]|[[]fe[89ab][0-9a-f:]*[]])(:[0-9]{1,5})?$
+    not header Forwarded *
+    not header X-Forwarded-For *
+    not header X-Forwarded-Host *
+    not header X-Forwarded-Proto *
+    not header X-Forwarded-Port *
+    not header X-Forwarded-Server *
+    not header X-Forwarded-Scheme *
+    not header X-Forwarded-Prefix *
+    not header X-Real-Ip *
+    not header Cf-Connecting-Ip *
+    not header Cf-Connecting-IPv6 *
+    not header Cf-Pseudo-IPv4 *
+    not header Cf-Ray *
+    not header Cf-Visitor *
+  }
   @directAdminApi {
     path /avian/api/*
     remote_ip private_ranges
@@ -885,6 +956,43 @@ $stream_guard
     not header Cf-Pseudo-IPv4 *
     not header Cf-Ray *
     not header Cf-Visitor *
+  }
+  handle /avian/api/export.php {
+    route {
+      php_fastcgi @directBundleExport unix/$bundle_fpm_sock {
+        try_files {path} {path}/index.html {path}/index.php =404
+        env AVIAN_DIRECT_LOCAL 1
+        env AVIAN_FORCE_AUTH $AVIAN_REQUIRE_LAN_AUTH
+        env AVIAN_EXTRACTED_ROOT $AVIAN_EXTRACTED_ROOT
+        env AVIAN_STATION_TIMEZONE $AVIAN_STATION_TIMEZONE
+        env AVIAN_BUNDLE_EXPORT_POOL 1
+        flush_interval -1
+      }
+      php_fastcgi @bundleExport unix/$bundle_fpm_sock {
+        try_files {path} {path}/index.html {path}/index.php =404
+        env AVIAN_DIRECT_LOCAL 0
+        env AVIAN_FORCE_AUTH 1
+        env AVIAN_EXTRACTED_ROOT $AVIAN_EXTRACTED_ROOT
+        env AVIAN_STATION_TIMEZONE $AVIAN_STATION_TIMEZONE
+        env AVIAN_BUNDLE_EXPORT_POOL 1
+        flush_interval -1
+      }
+      php_fastcgi @directExport unix/$fpm_sock {
+        try_files {path} {path}/index.html {path}/index.php =404
+        env AVIAN_DIRECT_LOCAL 1
+        env AVIAN_FORCE_AUTH $AVIAN_REQUIRE_LAN_AUTH
+        env AVIAN_EXTRACTED_ROOT $AVIAN_EXTRACTED_ROOT
+        env AVIAN_STATION_TIMEZONE $AVIAN_STATION_TIMEZONE
+        flush_interval -1
+      }
+      php_fastcgi unix/$fpm_sock {
+        try_files {path} {path}/index.html {path}/index.php =404
+        env AVIAN_DIRECT_LOCAL 0
+        env AVIAN_FORCE_AUTH 1
+        env AVIAN_EXTRACTED_ROOT $AVIAN_EXTRACTED_ROOT
+        env AVIAN_STATION_TIMEZONE $AVIAN_STATION_TIMEZONE
+      }
+    }
   }
   handle @directAdminApi {
     php_fastcgi unix/$fpm_sock {

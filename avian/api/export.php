@@ -17,6 +17,245 @@ declare(strict_types=1);
 require_once __DIR__ . '/admin-auth.php';
 require_once __DIR__ . '/educator-scope.php';
 
+function avian_bundle_export_fail(string $error, int $status): never {
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    header('Pragma: no-cache');
+    header('X-Content-Type-Options: nosniff');
+    header("Content-Security-Policy: default-src 'none'");
+    echo json_encode(['error' => $error], JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function avian_bundle_export_stop($process): ?int {
+    @proc_terminate($process, 15);
+    $deadline = microtime(true) + 2.0;
+    do {
+        $status = proc_get_status($process);
+        if (is_array($status) && empty($status['running'])) {
+            return is_int($status['exitcode']) && $status['exitcode'] >= 0
+                ? $status['exitcode'] : null;
+        }
+        usleep(20000);
+    } while (microtime(true) < $deadline);
+    @proc_terminate($process, 9);
+    $deadline = microtime(true) + 1.0;
+    do {
+        $status = proc_get_status($process);
+        if (is_array($status) && empty($status['running'])) {
+            return is_int($status['exitcode']) && $status['exitcode'] >= 0
+                ? $status['exitcode'] : null;
+        }
+        usleep(20000);
+    } while (microtime(true) < $deadline);
+    return null;
+}
+
+/** @return array{code:?int,stdout:string,stderr:string,failed:bool} */
+function avian_bundle_export_process(array $command, int $timeoutSeconds): array {
+    if (!function_exists('proc_open') || count($command) < 1 || count($command) > 32) {
+        return ['code' => null, 'stdout' => '', 'stderr' => '', 'failed' => true];
+    }
+    foreach ($command as $argument) {
+        if (!is_string($argument) || strlen($argument) > 2048 || str_contains($argument, "\0")) {
+            return ['code' => null, 'stdout' => '', 'stderr' => '', 'failed' => true];
+        }
+    }
+    $pipes = [];
+    $process = @proc_open(
+        $command,
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        null,
+        [
+            'PATH' => '/usr/local/bin:/usr/bin:/bin',
+            'LANG' => 'C',
+            'LC_ALL' => 'C',
+            'PYTHONDONTWRITEBYTECODE' => '1',
+            'PYTHONHASHSEED' => '0',
+        ],
+        ['bypass_shell' => true]
+    );
+    if (!is_resource($process)) {
+        return ['code' => null, 'stdout' => '', 'stderr' => '', 'failed' => true];
+    }
+    fclose($pipes[0]);
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+    $stdout = '';
+    $stderr = '';
+    $limit = 65536;
+    $deadline = microtime(true) + max(1, min(1800, $timeoutSeconds));
+    $exitCode = null;
+    $failed = false;
+    while (true) {
+        if (connection_aborted()) {
+            $failed = true;
+            $exitCode = avian_bundle_export_stop($process);
+            break;
+        }
+        $read = [];
+        if (!feof($pipes[1])) $read[] = $pipes[1];
+        if (!feof($pipes[2])) $read[] = $pipes[2];
+        if ($read !== []) {
+            $write = null;
+            $except = null;
+            $selected = @stream_select($read, $write, $except, 0, 50000);
+            if ($selected === false) {
+                $failed = true;
+                $exitCode = avian_bundle_export_stop($process);
+                break;
+            }
+            foreach ($read as $stream) {
+                $chunk = fread($stream, 16384);
+                if (!is_string($chunk) || $chunk === '') continue;
+                if ($stream === $pipes[1]) $stdout .= $chunk;
+                else $stderr .= $chunk;
+            }
+        }
+        if (strlen($stdout) > $limit || strlen($stderr) > $limit) {
+            $failed = true;
+            $exitCode = avian_bundle_export_stop($process);
+            break;
+        }
+        $status = proc_get_status($process);
+        if (!is_array($status)) {
+            $failed = true;
+            $exitCode = avian_bundle_export_stop($process);
+            break;
+        }
+        if (empty($status['running'])) {
+            if (is_int($status['exitcode']) && $status['exitcode'] >= 0) {
+                $exitCode = $status['exitcode'];
+            }
+            if (feof($pipes[1]) && feof($pipes[2])) break;
+        }
+        if ($read === []) usleep(20000);
+        if (microtime(true) >= $deadline) {
+            $failed = true;
+            $exitCode = avian_bundle_export_stop($process);
+            break;
+        }
+    }
+    foreach ([1, 2] as $index) {
+        $remaining = max(0, $limit + 1 - ($index === 1 ? strlen($stdout) : strlen($stderr)));
+        $tail = $remaining > 0 ? stream_get_contents($pipes[$index], $remaining) : '';
+        if (is_string($tail)) {
+            if ($index === 1) $stdout .= $tail;
+            else $stderr .= $tail;
+        }
+        fclose($pipes[$index]);
+    }
+    $closed = proc_close($process);
+    if ($exitCode === null && is_int($closed) && $closed >= 0) $exitCode = $closed;
+    if (strlen($stdout) > $limit || strlen($stderr) > $limit) $failed = true;
+    return ['code' => $exitCode, 'stdout' => $stdout, 'stderr' => $stderr, 'failed' => $failed];
+}
+
+function avian_bundle_export_python(string $root): ?string {
+    $candidates = [
+        "$root/birdnet/bin/python3",
+        '/usr/bin/python3',
+        '/usr/local/bin/python3',
+        '/opt/homebrew/bin/python3',
+    ];
+    $seen = [];
+    foreach ($candidates as $candidate) {
+        if (!is_file($candidate) || !is_executable($candidate)) continue;
+        $real = realpath($candidate);
+        $key = is_string($real) ? $real : $candidate;
+        if (isset($seen[$key])) continue;
+        $seen[$key] = true;
+        $probe = avian_bundle_export_process([
+            $candidate,
+            '-I',
+            '-c',
+            'import PIL; print("avian-bundle-python-v1")',
+        ], 5);
+        if (!$probe['failed'] && $probe['code'] === 0
+            && trim($probe['stdout']) === 'avian-bundle-python-v1') {
+            return $candidate;
+        }
+    }
+    return null;
+}
+
+function avian_bundle_export_test_path(string $environment, string $default): string {
+    if (PHP_SAPI !== 'cli' && PHP_SAPI !== 'cli-server') return $default;
+    $candidate = getenv($environment);
+    if (!is_string($candidate) || $candidate === '' || $candidate[0] !== '/'
+        || strlen($candidate) > 2048 || str_contains($candidate, "\0")) {
+        return $default;
+    }
+    return $candidate;
+}
+
+/** @return resource */
+function avian_bundle_export_request_lock(string $path) {
+    clearstatcache(true, $path);
+    $before = @lstat($path);
+    $handle = @fopen($path, 'rb');
+    $opened = is_resource($handle) ? fstat($handle) : false;
+    $permissions = is_array($opened) ? ((int)$opened['mode'] & 0777) : -1;
+    $defaultPath = $path === '/run/lock/avian-bundle-export.lock';
+    if (!is_array($before) || !is_array($opened)
+        || (($before['mode'] & 0170000) !== 0100000)
+        || (($opened['mode'] & 0170000) !== 0100000)
+        || (int)($opened['nlink'] ?? 0) !== 1
+        || $before['dev'] !== $opened['dev'] || $before['ino'] !== $opened['ino']
+        || is_link($path)
+        || ($defaultPath && ((int)($opened['uid'] ?? -1) !== 0 || $permissions !== 0660))
+        || (!$defaultPath && $permissions !== 0600)) {
+        if (is_resource($handle)) fclose($handle);
+        avian_bundle_export_fail('bundle export lock is unavailable', 409);
+    }
+    if (!flock($handle, LOCK_EX | LOCK_NB)) {
+        fclose($handle);
+        avian_bundle_export_fail('another bundle export is already in progress', 409);
+    }
+    clearstatcache(true, $path);
+    $after = @lstat($path);
+    if (!is_array($after) || is_link($path)
+        || $after['dev'] !== $opened['dev'] || $after['ino'] !== $opened['ino']) {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+        avian_bundle_export_fail('bundle export lock changed while it was opened', 409);
+    }
+    return $handle;
+}
+
+function avian_bundle_export_request_dir(): ?string {
+    $parent = sys_get_temp_dir();
+    if (!is_dir($parent) || is_link($parent)) return null;
+    for ($attempt = 0; $attempt < 4; $attempt++) {
+        try {
+            $name = $parent . '/avian-bundle-' . bin2hex(random_bytes(16));
+        } catch (Throwable $error) {
+            return null;
+        }
+        if (@mkdir($name, 0700) && @chmod($name, 0700)) return $name;
+    }
+    return null;
+}
+
+function avian_bundle_export_cleanup(string $directory, int $depth = 0): void {
+    if ($depth > 2 || !is_dir($directory) || is_link($directory)) return;
+    $items = @scandir($directory);
+    if (is_array($items) && count($items) <= 64) {
+        foreach ($items as $item) {
+            if ($item === '.' || $item === '..') continue;
+            $path = $directory . '/' . $item;
+            if (is_dir($path) && !is_link($path)) {
+                avian_bundle_export_cleanup($path, $depth + 1);
+            } else {
+                @unlink($path);
+            }
+        }
+    }
+    @rmdir($directory);
+}
+
 $what = (string)($_GET['what'] ?? '');
 $grant = (string)($_GET['grant'] ?? '');
 $maintenanceLock = null;
@@ -29,6 +268,153 @@ try {
     educator_store_unlock($maintenanceLock);
     avian_api_fail(503, $error->getMessage());
 }
+if ($what === 'bundle') {
+    avian_require_admin();
+    $bundleRoot = dirname(__DIR__, 2);
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
+        header('Allow: GET');
+        avian_bundle_export_fail('GET required', 405);
+    }
+    if (($_SERVER['QUERY_STRING'] ?? '') !== 'what=bundle') {
+        avian_bundle_export_fail('invalid bundle export request', 400);
+    }
+    if (PHP_SAPI === 'fpm-fcgi') {
+        $requestUri = (string)($_SERVER['REQUEST_URI'] ?? '');
+        $queryOffset = strpos($requestUri, '?');
+        $requestPath = $queryOffset === false
+            ? $requestUri
+            : substr($requestUri, 0, $queryOffset);
+        if ($requestPath !== '/avian/api/export.php'
+            || (string)($_SERVER['PATH_INFO'] ?? '') !== '') {
+            avian_bundle_export_fail('invalid bundle export path', 400);
+        }
+        if (($_SERVER['AVIAN_BUNDLE_EXPORT_POOL'] ?? '') !== '1') {
+            avian_bundle_export_fail('bundle export service is unavailable', 503);
+        }
+    }
+    $exportLockPath = avian_bundle_export_test_path(
+        'AVIAN_EXPORT_REQUEST_LOCK',
+        '/run/lock/avian-bundle-export.lock'
+    );
+    $exportLock = avian_bundle_export_request_lock($exportLockPath);
+    $illustrations = avian_bundle_export_test_path(
+        'AVIAN_EXPORT_ILLUSTRATIONS',
+        "$bundleRoot/avian/assets/illustrations"
+    );
+    $script = "$bundleRoot/avian/scripts/bundle_export.py";
+    $lock = avian_bundle_export_test_path(
+        'AVIAN_EXPORT_GENERATION_LOCK',
+        '/run/lock/avian-generation.lock'
+    );
+    $catalogOverride = avian_bundle_export_test_path('AVIAN_EXPORT_CATALOG', '');
+    $catalogs = $catalogOverride !== '' ? [$catalogOverride] : array_values(array_filter([
+        "$bundleRoot/avian/bundles/catalog-v1.json",
+        "$bundleRoot/assembled/site/public/catalog/bundles-v1.json",
+        "$bundleRoot/avian/scripts/bundle-taxonomy-v1.json",
+    ], static fn(string $path): bool => is_file($path) && !is_link($path)));
+    if (!is_dir($illustrations) || is_link($illustrations)
+        || !is_file($script) || is_link($script) || !is_readable($script)
+        || !is_file($lock) || is_link($lock) || !$catalogs) {
+        avian_bundle_export_fail('local illustration bundle is unavailable', 409);
+    }
+    foreach ($catalogs as $catalog) {
+        if (!is_file($catalog) || is_link($catalog) || !is_readable($catalog)) {
+            avian_bundle_export_fail('trusted illustration taxonomy is unavailable', 409);
+        }
+    }
+    $python = avian_bundle_export_python($bundleRoot);
+    if ($python === null) {
+        avian_bundle_export_fail('bundle export runtime is unavailable', 503);
+    }
+    $requestDir = avian_bundle_export_request_dir();
+    if ($requestDir === null) {
+        avian_bundle_export_fail('could not create a private export directory', 503);
+    }
+    register_shutdown_function(static function () use ($requestDir): void {
+        avian_bundle_export_cleanup($requestDir);
+    });
+    $temporary = $requestDir . '/bundle.zip';
+    $command = [
+        $python,
+        '-I',
+        $script,
+        '--illustrations', $illustrations,
+        '--generation-lock', $lock,
+        '--output', $temporary,
+    ];
+    foreach ($catalogs as $catalog) {
+        $command[] = '--catalog';
+        $command[] = $catalog;
+    }
+    ignore_user_abort(false);
+    set_time_limit(1810);
+    $result = avian_bundle_export_process($command, 1800);
+    $payload = json_decode(trim($result['stdout']), true);
+    if ($result['failed'] || $result['code'] !== 0 || !is_array($payload)
+        || ($payload['ok'] ?? false) !== true) {
+        avian_bundle_export_cleanup($requestDir);
+        $message = is_array($payload) && is_string($payload['error'] ?? null)
+            && strlen($payload['error']) <= 240
+            ? $payload['error'] : 'bundle export failed safely';
+        avian_bundle_export_fail($message, 409);
+    }
+    $id = $payload['id'] ?? null;
+    $version = $payload['version'] ?? null;
+    if (!is_string($id) || preg_match('/\A[a-z0-9][a-z0-9._-]{0,79}\z/D', $id) !== 1
+        || !is_string($version)
+        || preg_match('/\A(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\z/D', $version) !== 1) {
+        avian_bundle_export_cleanup($requestDir);
+        avian_bundle_export_fail('bundle exporter returned invalid metadata', 503);
+    }
+    clearstatcache(true, $temporary);
+    $before = @lstat($temporary);
+    $stream = @fopen($temporary, 'rb');
+    $opened = is_resource($stream) ? fstat($stream) : false;
+    $size = is_array($opened) ? (int)($opened['size'] ?? 0) : 0;
+    if (!is_array($before) || !is_array($opened)
+        || (($before['mode'] & 0170000) !== 0100000)
+        || (($opened['mode'] & 0170000) !== 0100000)
+        || (int)($opened['nlink'] ?? 0) !== 1
+        || $before['dev'] !== $opened['dev'] || $before['ino'] !== $opened['ino']
+        || is_link($temporary) || $size < 1024 || $size > 768 * 1024 * 1024) {
+        if (is_resource($stream)) fclose($stream);
+        avian_bundle_export_cleanup($requestDir);
+        avian_bundle_export_fail('bundle exporter produced an invalid archive', 503);
+    }
+    if (!@unlink($temporary) || !@rmdir($requestDir)) {
+        fclose($stream);
+        avian_bundle_export_cleanup($requestDir);
+        avian_bundle_export_fail('bundle archive could not be detached for download', 503);
+    }
+    header('Content-Type: application/zip');
+    header('Content-Disposition: attachment; filename="' . $id . '-' . $version . '.zip"');
+    header('Content-Length: ' . (string)$size);
+    header('Cache-Control: no-store');
+    header('Pragma: no-cache');
+    header('X-Content-Type-Options: nosniff');
+    header("Content-Security-Policy: default-src 'none'");
+    while (ob_get_level()) ob_end_clean();
+    $streamBudgetSeconds = 1800;
+    $streamDeadline = microtime(true) + $streamBudgetSeconds;
+    set_time_limit($streamBudgetSeconds + 10);
+    $sent = 0;
+    while ($sent < $size && !feof($stream) && !connection_aborted()
+        && microtime(true) < $streamDeadline) {
+        $chunk = fread($stream, min(256 * 1024, $size - $sent));
+        if (!is_string($chunk) || $chunk === '') break;
+        $chunkBytes = strlen($chunk);
+        if ($chunkBytes > $size - $sent) break;
+        echo $chunk;
+        $sent += $chunkBytes;
+        flush();
+    }
+    fclose($stream);
+    flock($exportLock, LOCK_UN);
+    fclose($exportLock);
+    avian_bundle_export_cleanup($requestDir);
+    exit;
+}
+
 $requestedEducatorScope = null;
 if (array_key_exists('edu', $_GET)) {
     if (!is_string($_GET['edu'])

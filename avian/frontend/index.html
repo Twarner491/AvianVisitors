@@ -15,6 +15,7 @@ function systemTheme(){try{return window.matchMedia&&window.matchMedia(q).matche
 function preference(){try{var v=localStorage.getItem('bird:theme:v2');if(v==='auto'||v==='light'||v==='dark')return v;var old=localStorage.getItem('bird:theme');return old==='light'||old==='dark'?old:'auto';}catch(e){return'auto';}}
 var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemTheme());})();</script>
   <link rel="stylesheet" href="./styles.css?v=r196">
+  <link rel="stylesheet" href="./bundles.css?v=r3">
   <link rel="stylesheet" href="./stamps.css?v=r355">
   <link rel="stylesheet" href="./stamp-batch-root.css?v=r254">
   <link rel="stylesheet" href="./stamp-batch-a.css?v=r257">
@@ -396,6 +397,7 @@ var p=preference();d.setAttribute('data-theme',p==='light'||p==='dark'?p:systemT
 <script src="./stamp-batch-a.js?v=r341"></script>
   <script src="./stamp-batch-b.js?v=r318"></script>
 <script src="./stamp-batch-c.js?v=r235"></script>
-<script src="./apt.js?v=r235"></script>
+<script src="./bundle-ui.js?v=r11"></script>
+<script src="./apt.js?v=r240"></script>
 </body>
 </html>

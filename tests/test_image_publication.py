@@ -177,6 +177,37 @@ def test_production_writer_keeps_existing_access_mode(name, tmp_path, monkeypatc
         image.load()
 
 
+@pytest.mark.parametrize("name", ["pregen", "cutout"])
+def test_included_art_writer_invalidates_revision_before_publication(
+    name, tmp_path, monkeypatch, modules
+):
+    path, publish = writer(name, tmp_path, monkeypatch, modules)
+    path.write_bytes(png_bytes(bird_image()))
+    build_masks = modules[name].build_masks
+    lock = tmp_path / "generation.lock"
+    lock.touch(mode=0o600)
+    revision = tmp_path / "content.revision"
+    revision.write_text("0" * 64 + "\n")
+    revision.chmod(0o600)
+    monkeypatch.setattr(build_masks, "GENERATION_LOCK", lock)
+    monkeypatch.setattr(build_masks, "ART_REVISION_STATE", revision)
+    monkeypatch.setattr(build_masks, "INCLUDED_ILLUSTRATIONS", tmp_path)
+    save = Image.Image.save
+    observed = []
+
+    def encode(image, target, *args, **kwargs):
+        observed.append(revision.read_text())
+        return save(image, target, *args, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "save", encode)
+    assert publish() == 0
+    assert observed == ["invalid" + "!" * 57 + "\n"]
+    assert revision.read_text() == "invalid" + "!" * 57 + "\n"
+    with Image.open(path) as image:
+        image.load()
+        assert image.format == "PNG"
+
+
 @pytest.mark.parametrize("name", ["pregen", "cutout", "generate_one"])
 def test_invalid_encoder_output_does_not_replace_old_image(name, tmp_path, monkeypatch, modules):
     path, publish = writer(name, tmp_path, monkeypatch, modules)
@@ -248,6 +279,12 @@ def test_source_validation_and_decode_use_same_buffer(name, tmp_path, monkeypatc
     source = path if name == "cutout" else tmp_path / "raw" / path.name
     validate = image_files.validate_png
     checked = False
+    decoded = []
+    if name == "cutout":
+        def remove(image, session):
+            decoded.append(image.size)
+            return image.convert("RGBA")
+        monkeypatch.setattr(sys.modules["rembg"], "remove", remove)
 
     def change_path_after_validation(data, check_dimensions):
         nonlocal checked
@@ -257,6 +294,11 @@ def test_source_validation_and_decode_use_same_buffer(name, tmp_path, monkeypatc
             source.write_bytes(b"replaced after validation")
 
     monkeypatch.setattr(image_files, "validate_png", change_path_after_validation)
+    if name == "cutout":
+        assert publish() == 1
+        assert decoded == [(160, 160)]
+        assert path.read_bytes() == b"replaced after validation"
+        return
     assert publish() in (None, 0)
     with Image.open(path) as image:
         image.load()
@@ -290,7 +332,9 @@ def test_generator_does_not_inherit_frame_pixel_limit(modules):
 def test_standalone_pregen_explains_missing_pillow(tmp_path):
     code = ("import runpy,sys,urllib.request; "
             "urllib.request.urlopen=lambda *a,**k: (_ for _ in ()).throw(RuntimeError('network disabled')); "
-            "script=sys.argv.pop(1); runpy.run_path(script,run_name='__main__')")
+            "script=sys.argv.pop(1); "
+            "sys.path.insert(0, __import__('os').path.dirname(script)); "
+            "runpy.run_path(script,run_name='__main__')")
     result = subprocess.run([sys.executable, "-S", "-c", code, str(SCRIPTS / "pregen.py"),
                              "--species", "Calypte anna|Anna", "--no-refs",
                              "--out", str(tmp_path), "--poses", "1"],
@@ -337,6 +381,11 @@ def test_on_demand_invalid_generation_keeps_public_image_and_failure_state(tmp_p
     path.write_bytes(old)
     generation_lock = tmp_path / ".lock"
     generation_lock.touch()
+    generation_lock.chmod(0o600)
+    revision_state = tmp_path / "content.revision"
+    revision_state.write_text("0" * 64 + "\n")
+    revision_state.chmod(0o600)
+    monkeypatch.setattr(module.build_masks, "ART_REVISION_STATE", revision_state)
     monkeypatch.setattr(module, "ILLUS", tmp_path)
     monkeypatch.setattr(module, "RAW", tmp_path / "raw")
     monkeypatch.setattr(module, "CUTS", tmp_path / "cuts.json")
@@ -366,7 +415,7 @@ def test_production_writer_rejects_symlink_destination(name, tmp_path, monkeypat
     path.symlink_to(target)
     try:
         result = publish()
-    except (OSError, ValueError):
+    except (OSError, ValueError, RuntimeError):
         result = 1
     assert result == 1
     assert path.is_symlink()
@@ -438,9 +487,19 @@ def php_endpoint(tmp_path, prepend="", extra_env=None):
     station = tmp_path / "station"
     api = station / "avian/api"
     api.mkdir(parents=True)
-    for name in ("cutout.php", "admin-auth.php", "admin-state.php", "educator-state.php"):
+    for name in ("cutout.php", "admin-auth.php", "admin-state.php", "educator-state.php",
+                 "bundle-runtime.php"):
         shutil.copy2(ROOT / "avian/api" / name, api / name)
     (station / "avian/assets/illustrations").mkdir(parents=True)
+    frontend = station / "avian/frontend"
+    frontend.mkdir()
+    for name in ("dims.json", "masks.json"):
+        (frontend / name).write_text("{}\n")
+    generation_lock = tmp_path / "generation.lock"
+    generation_lock.touch(mode=0o600)
+    revision = tmp_path / "content.revision"
+    revision.write_text("0" * 64 + "\n")
+    revision.chmod(0o600)
     prepend_path = tmp_path / "prepend.php"
     prepend_path.write_text(prepend)
     with socket.socket() as reserved:
@@ -449,7 +508,11 @@ def php_endpoint(tmp_path, prepend="", extra_env=None):
     with (tmp_path / "php.log").open("w+") as log:
         process = subprocess.Popen([php, "-d", f"auto_prepend_file={prepend_path}",
                                     "-S", f"127.0.0.1:{port}", "-t", str(station)],
-                                   env={**os.environ, **(extra_env or {})}, stdout=log, stderr=log)
+                                   env={**os.environ,
+                                        "AVIAN_BUNDLE_ROOT": str(tmp_path / "bundles"),
+                                        "AVIAN_GENERATION_LOCK": str(generation_lock),
+                                        "AVIAN_ART_REVISION_STATE": str(revision),
+                                        **(extra_env or {})}, stdout=log, stderr=log)
         try:
             for _ in range(100):
                 try:
@@ -472,9 +535,11 @@ SWAP_ON_OPEN = r'''<?php
 class PublicationFiles {
     public $context;
     private $handle;
+    private $isImage;
     public function stream_open($path, $mode, $options, &$opened_path) {
         stream_wrapper_restore('file');
-        if (str_ends_with($path, '/calypte-anna.png')) {
+        $this->isImage = str_ends_with($path, '/calypte-anna.png');
+        if ($this->isImage) {
             if (getenv('FAIL_IMAGE_OPEN')) {
                 stream_wrapper_unregister('file');
                 stream_wrapper_register('file', self::class);
@@ -496,8 +561,9 @@ class PublicationFiles {
         return $result;
     }
     public function stream_stat() {
-        return getenv('FAIL_IMAGE_STAT') ? false : fstat($this->handle);
+        return $this->isImage && getenv('FAIL_IMAGE_STAT') ? false : fstat($this->handle);
     }
+    public function stream_lock($operation) { return flock($this->handle, $operation); }
     public function stream_read($count) { return fread($this->handle, $count); }
     public function stream_eof() { return feof($this->handle); }
     public function stream_seek($offset, $whence) { return fseek($this->handle, $offset, $whence) === 0; }
