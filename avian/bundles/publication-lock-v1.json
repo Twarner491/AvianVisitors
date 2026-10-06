@@ -1,0 +1,84 @@
+{
+  "format": "avian-visitors-official-publication-lock",
+  "format_version": 1,
+  "origin": "https://avianvisitors.com",
+  "routes": {
+    "manifest": "/api/bundles/manifests/{sha256}.json",
+    "object": "/api/bundles/objects/{sha256}.png",
+    "manifest_r2_key": "bundles/manifests/sha256/{prefix}/{sha256}.json",
+    "object_r2_key": "bundles/objects/sha256/{prefix}/{sha256}.png"
+  },
+  "payloads": [
+    {
+      "authority": "station-install",
+      "id": "official-western-us-woodblock",
+      "version": "1.0.0",
+      "manifest_sha256": "019d21f5f54b1a68a4510b089544eb7316a3db54dfd37fc129b950eeeffa591f",
+      "manifest_bytes": 131283,
+      "object_count": 666,
+      "object_bytes": 438672342,
+      "object_inventory_sha256": "88452a163704cb3dd99152da2f4af26947d68112473318d62105b6f3e9283ffc",
+      "source": {
+        "kind": "object-tree",
+        "manifest": "manifests/019d21f5f54b1a68a4510b089544eb7316a3db54dfd37fc129b950eeeffa591f.json"
+      }
+    },
+    {
+      "authority": "station-install",
+      "id": "official-western-us-impressionist",
+      "version": "1.0.0",
+      "manifest_sha256": "e069f2ee62cef44d923e136d8eb2011b36ef45d1da46a4cc441ef1916fc3a402",
+      "manifest_bytes": 131310,
+      "object_count": 666,
+      "object_bytes": 298432679,
+      "object_inventory_sha256": "1820ffe13cc65f3ff9f916647e5e0323ecc2a41e7f878a12141f20e2a56c47b5",
+      "source": {
+        "kind": "object-tree",
+        "manifest": "manifests/e069f2ee62cef44d923e136d8eb2011b36ef45d1da46a4cc441ef1916fc3a402.json"
+      }
+    },
+    {
+      "authority": "public-discovery",
+      "id": "official-western-us-woodblock",
+      "version": "1.0.0",
+      "manifest_sha256": "31fcb450f517acb2ea26b1c559cc3aad1696f583587209bd2a43058d8e6803e1",
+      "manifest_bytes": 188807,
+      "object_count": 666,
+      "object_bytes": 437864510,
+      "object_inventory_sha256": "2f169c3ca49d545b15afb47650ec50abd27032c19232e22547d5b8a04977b2ca",
+      "source": {
+        "kind": "zip",
+        "manifest": "official-western-us-woodblock/manifest.json",
+        "archive": "official-western-us-woodblock/official-western-us-woodblock-1.0.0.zip",
+        "archive_sha256": "fb3869fb52170dc99bf1c1066429ea051e74be3675d8fa760544585faf4edbbb",
+        "archive_bytes": 438153041
+      }
+    },
+    {
+      "authority": "public-discovery",
+      "id": "official-western-us-impressionist",
+      "version": "1.0.0",
+      "manifest_sha256": "9d071dba2ef81084d483374a13c852785faa64898b9db461e7b28abb4c7d426b",
+      "manifest_bytes": 188838,
+      "object_count": 666,
+      "object_bytes": 239373540,
+      "object_inventory_sha256": "ef34b8e0e6a3f932b0ac931f93478c08b33fcd483d3d8b042ce4bebb54591498",
+      "source": {
+        "kind": "zip",
+        "manifest": "official-western-us-impressionist/manifest.json",
+        "archive": "official-western-us-impressionist/official-western-us-impressionist-1.0.0.zip",
+        "archive_sha256": "fffbffc9d36dc13fa2b480d0efe60deed9119284528d2dc5c5143665002bc8db",
+        "archive_bytes": 239662102
+      }
+    }
+  ],
+  "publication": {
+    "manifest_count": 4,
+    "manifest_bytes": 640238,
+    "object_count": 1999,
+    "object_bytes": 977099690,
+    "file_count": 2003,
+    "total_bytes": 977739928,
+    "plan_sha256": "f18737e16d969aa02c711f1e6440c40a7853c14c077224328f7aac75d495d8d1"
+  }
+}
