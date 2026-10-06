@@ -114,9 +114,21 @@ If the installed refresher itself is missing or unsafe, use the verified setup c
 
 ---
 
-## 3. (Optional) Restyle the illustrations
+## 3. Illustration bundles
 
-The repo ships with 666 bundled illustrations (333 species, perched + flight). To restyle them or generate a set for your own region:
+By default, new stations use the included Japanese Woodblock bundle, which covers Western North America. If you live elsewhere or want a different style, open **Settings → Bird bundle** or browse available bundles at [avianvisitors.com/bundles](https://avianvisitors.com/bundles). On the public site, **Use on my local station** is the main action. Its adjacent command button opens and copies one line. After SSHing into a station or BirdFrame, run:
+
+```bash
+sudo avian-bundle use '<BUNDLE_ID>'
+```
+
+With a saved location, the device downloads the bundle's birds expected there throughout the year. Coordinates are not sent to the bundle catalog. Without a location, it downloads the full set; add `--all-species` to request the full set explicitly. In Settings, **Refresh local birds** reapplies a changed location to the current downloaded bundle.
+
+To share your own set, open **Tools → Your data → Export bundle**. Review the local illustrations, download the upload-ready ZIP, then sign in at [avianvisitors.com/bundles](https://avianvisitors.com/bundles) and upload it. The station never uploads a bundle automatically.
+
+### Restyle or generate your own
+
+The repo includes 666 illustrations for 333 species, each perched and in flight. To restyle them or generate a set for your own region:
 
 ```bash
 pip install -r ~/BirdNET-Pi/avian/scripts/requirements.txt
@@ -128,11 +140,14 @@ python3 ~/BirdNET-Pi/avian/scripts/cutout.py
 python3 ~/BirdNET-Pi/avian/scripts/build_masks.py
 ```
 
+On an installed station, run all three commands in order. The first changed
+PNG temporarily marks the included artwork unavailable; the final
+`build_masks.py` call atomically republishes matching geometry and restores it.
+Do not copy individual PNGs directly into the live illustration directory.
+
 On a Pi with 4 GB of RAM or less, add `--model u2net` to the `cutout.py` command; the default model may be [OOM-killed](https://github.com/Twarner491/AvianVisitors/issues/17).
 
 Filter to your region with `--ebird-region US-CA` (needs `EBIRD_API_KEY`). The full pipeline, prompt, reference images, and per-species tuning live in [`avian/scripts/README.md`](avian/scripts/README.md). Style lives in [`prompt.template.md`](avian/scripts/prompt.template.md).
-
-See [illustration bundles](illustration-bundles.md) for pregenerated bundles shared by other folks in the community, or share your own for others to use!
 
 ---
 
@@ -158,7 +173,10 @@ avian/                  # everything we add to BirdNET-Pi
 frame/                  # optional e-ink wall display
 ```
 
-Everything outside `avian/` and `frame/` is upstream BirdNET-Pi.
+Avian Visitors also maintains the root-level installer, security, test, and
+release-documentation files used to ship those two trees. Other inherited
+application files remain upstream BirdNET-Pi unless a release note says
+otherwise.
 
 ---
 

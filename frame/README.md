@@ -68,6 +68,11 @@ Pick how the frame gets its birds:
 ./install.sh --image-url https://bird.onethreenine.net/frame.png?k=YOUR_FRAME_KEY
 ```
 
+Run `./install.sh` as your regular SSH user, without `sudo`; the installer asks
+for elevation only for the system files and services it manages.
+Reruns with an existing config require system Python 3.11 or newer, or a system
+`tomli` package; the installer does not execute the prior virtual environment.
+
 Each one enables SPI + I2C, installs the deps and a systemd timer, writes `~/.birdframe/config.toml`, and reboots once to bring SPI up. Full options live in [`config.example.toml`](config.example.toml). The station ID is the public number at the end of a BirdWeather station-page URL, not its upload token. ZIP mode summarizes nearby stations and can use fallbacks; station mode shows only that station and fails rather than substituting another source.
 
 The default layout matches the A5 opening in the frame listed above. If you use a different mat or a bare panel, set `opening` in `~/.birdframe/config.toml`; `0.7071` preserves the current A5 dimensions, while values up to about `0.98` use more of the panel. This one setting scales a fixed 1:sqrt(2) opening, not width and height independently. For a B5 opening, `0.84` is a useful starting point, but check it against your physical mat.
@@ -89,7 +94,6 @@ Update the mic through **Tools > Pull latest**. On the frame Pi, pull the update
 
 ```bash
 cd ~/AvianVisitors/frame && git pull --ff-only && \
-  .venv/bin/pip install -r requirements-shoot.txt && \
   .venv/bin/python display.py --config ~/.birdframe/config.toml --force
 ```
 
@@ -97,7 +101,19 @@ If Git reports local edits, preserve them and resolve that before updating.
 
 Slow, incomplete, or corrupt artwork and a changing collage leave the last good frame and refresh state untouched. Capture validates the exact PNG/WebP responses used by the browser, then combines their artwork with small transparent captures of the titles and labels. If artwork validation repeatedly fails, check the source illustration before retrying; preserve custom artwork and do not delete the previous frame. Desktop and container tests do not replace a capture check on the frame Pi.
 
-BirdWeather mode renders on the Pi from this repo's illustrations on GitHub, so there is no image set to copy over. In ZIP mode, postal codes with no station nearby fall back to the closest ones. If you are far from any BirdWeather station, add `--ebird-key <key>` (a free key from [ebird.org/api/keygen](https://ebird.org/api/keygen)) and the frame fills from eBird sightings instead. Exact station mode has no geographic or eBird fallback.
+### Change the illustration bundle
+
+After SSHing into the frame, copy a bundle ID from [avianvisitors.com/bundles](https://avianvisitors.com/bundles) and run:
+
+```bash
+sudo avian-bundle use '<BUNDLE_ID>'
+```
+
+The command uses the mirrored station's location or the frame's configured BirdWeather ZIP or station to download that area's birds. It verifies every PNG, activates the selection atomically, and renders when the selection changes. If the download or render fails, the prior bundle stays active. Without a location, it installs the full bundle. Add `--all-species` to request the full bundle explicitly.
+
+Bundle switching applies to local render and BirdWeather modes. An `--image-url` frame displays pixels rendered by its remote source, so select the illustration bundle on that source.
+
+Without a selected bundle, BirdWeather mode renders on the Pi from this repo's illustrations on GitHub. A selected bundle replaces that source with its downloaded, verified illustrations. In ZIP mode, postal codes with no station nearby fall back to the closest ones. If you are far from any BirdWeather station, add `--ebird-key <key>` (a free key from [ebird.org/api/keygen](https://ebird.org/api/keygen)) and the frame fills from eBird sightings instead. Exact station mode has no geographic or eBird fallback.
 
 The bundled illustrations center on the western U.S. If birds for your ZIP or station aren't in the set you cloned, the installer flags them and the frame skips them until they exist. To generate them, run [`generate_illustrations.py`](generate_illustrations.py) on a laptop or workstation (it uses the same rembg cutout as the rest of the pipeline, which the Pi can't fit in memory), passing your source and a paid Google Gemini key, then commit the new cutouts or copy them to the Pi:
 
