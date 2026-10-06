@@ -70,12 +70,18 @@ flock -n 9 || die 'another update is already running'
 
 # This is the same protected snapshot consumed by the fixed refresher. Never
 # discard pending application state just because the official branch advanced.
-sources=(
+helper_sources=(
   scripts/update_birdnet.sh scripts/reinstall_services.sh
   scripts/maintenance_control.sh scripts/archive_control.sh
-  scripts/security_refresh.sh scripts/admin_control.sh scripts/link_webroot.sh
-  scripts/update_caddyfile.sh scripts/educators_control.sh
+  scripts/security_refresh.sh scripts/generation_runtime_control.sh
+  scripts/admin_control.sh scripts/link_webroot.sh
+  scripts/update_caddyfile.sh scripts/educators_control.sh scripts/avian-bundle
 )
+bundle_sources=(
+  avian/scripts/bundle_manager.py avian/bundles/catalog-v1.json
+  avian/scripts/bundle_species.py
+)
+sources=("${helper_sources[@]}" "${bundle_sources[@]}")
 work_dir=$(mktemp -d /var/tmp/avian-v1-bootstrap.XXXXXX)
 trusted_repo=$work_dir/official.git
 snapshot_temp=''
@@ -105,7 +111,6 @@ if [ ! -e "$PREPARED_DIR" ] && [ ! -L "$PREPARED_DIR" ]; then
   for source in "${sources[@]}"; do
     staged=$stage_dir/${source##*/}
     trusted_git show "$verified_head:$source" >"$staged"
-    bash -n "$staged" || die "invalid release helper: $source"
     chmod 0600 "$staged"
   done
   (cd "$stage_dir" && sha256sum release "${sources[@]##*/}") >"$stage_dir/manifest"
@@ -126,6 +131,13 @@ verified_head=$(cat "$PREPARED_DIR/release")
 case "$(cat "$PREPARED_DIR/phase")" in prepared|applying) ;; *) die 'prepared release phase is invalid' ;; esac
 expected_manifest=$(cd "$PREPARED_DIR" && sha256sum release "${sources[@]##*/}")
 [ "$(cat "$PREPARED_DIR/manifest")" = "$expected_manifest" ] || die 'prepared release manifest does not match'
+for source in "${helper_sources[@]}"; do
+  bash -n "$PREPARED_DIR/${source##*/}" || die "invalid release helper: $source"
+done
+PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -c \
+  'import pathlib, sys; [compile(pathlib.Path(p).read_bytes(), p, "exec") for p in sys.argv[1:]]' \
+  "$PREPARED_DIR/bundle_manager.py" "$PREPARED_DIR/bundle_species.py" \
+  || die 'invalid prepared bundle runtime'
 
 targets=("$UPDATE_HELPER" "$REFRESH_HELPER")
 for index in 0 1; do

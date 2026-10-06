@@ -1,7 +1,9 @@
 <?php
 // AvianVisitors - bird image resolver.
 //
-// Lookup chain for /avian/api/cutout.php?sci=Calypte+anna:
+// With an external bundle revision, resolution is exact: that bundle's named
+// species and requested pose, or 404. The included Japanese Woodblock revision
+// keeps the legacy chain:
 //   1. ../assets/illustrations/<slug>.png   (333 bundled species, two poses each)
 //   2. ../assets/cutouts/<slug>.png         (background-removed photo)
 //   3. cached rembg of a Wikipedia photo at $HOME/BirdSongs/Extracted/cutouts/
@@ -24,7 +26,7 @@ if ($sci === '') {
 }
 // Binomial / trinomial pattern. Rejects path-traversal payloads and
 // junk before any filesystem or upstream lookup.
-if (!preg_match('/^[A-Za-z]{2,40}(?:[ ][a-z]{2,40}){1,3}$/', $sci)) {
+if (!preg_match('/\A[A-Z][A-Za-z-]{1,39}(?: [a-z][A-Za-z-]{1,39}){1,3}\z/D', $sci)) {
     http_response_code(400);
     echo 'invalid sci';
     exit;
@@ -39,6 +41,69 @@ $slug = trim((string)$slug, '-');
 $pose = (int)($_GET['pose'] ?? 1);
 if ($pose !== 2) $pose = 1;
 $poseSuffix = $pose === 1 ? '' : "-$pose";
+
+require_once __DIR__ . '/bundle-runtime.php';
+$activeBundle = avian_bundle_active_state();
+if ($activeBundle['status'] !== 'ok') {
+    http_response_code(404);
+    echo 'active bundle unavailable';
+    exit;
+}
+$requestedRevision = $_GET['bundle'] ?? null;
+if ($requestedRevision !== null) {
+    if (!is_string($requestedRevision) || strlen($requestedRevision) > 80) {
+        http_response_code(404);
+        echo 'bundle revision is invalid';
+        exit;
+    }
+    $requestedContent = $_GET['content'] ?? null;
+    if ($requestedContent !== null && !is_string($requestedContent)) {
+        http_response_code(404);
+        exit('bundle content is invalid');
+    }
+    $artBundle = avian_bundle_state_for_revision($requestedRevision, $requestedContent);
+    if ($artBundle['status'] !== 'ok') {
+        http_response_code(404);
+        echo 'bundle revision is unavailable';
+        exit;
+    }
+} else {
+    $artBundle = $activeBundle;
+}
+
+$includedTableLock = null;
+if ($artBundle['included']) {
+    $includedTableLock = avian_bundle_open_included_table_read_lock();
+    if ($includedTableLock === false) {
+        header('Cache-Control: no-store');
+        http_response_code(503);
+        echo 'active bundle inventory is changing';
+        exit;
+    }
+    $contentRevision = avian_bundle_content_revision($artBundle, $includedTableLock);
+    if ($contentRevision === null) {
+        avian_bundle_close_included_table_read_lock($includedTableLock);
+        header('Cache-Control: no-store');
+        http_response_code(503);
+        echo 'active bundle inventory is unavailable';
+        exit;
+    }
+    // Revision-bound callers loaded a particular geometry snapshot. Never put
+    // newer mutable PNG bytes in that older URL's cache if generation or a
+    // local library update completed between the table and image requests.
+    if ($requestedRevision !== null) {
+        $requestedContent = $_GET['content'] ?? null;
+        if (!is_string($requestedContent)
+            || !avian_bundle_revision_valid($requestedContent)
+            || !hash_equals($contentRevision, $requestedContent)) {
+            avian_bundle_close_included_table_read_lock($includedTableLock);
+            header('Cache-Control: no-store');
+            http_response_code(409);
+            echo 'included bundle content changed';
+            exit;
+        }
+    }
+}
 
 function serve_png(string $path): void {
     $stream = @fopen($path, 'rb');
@@ -57,6 +122,47 @@ function serve_png(string $path): void {
     fpassthru($stream);
     fclose($stream);
     exit;
+}
+
+function serve_bundle_png($handle, array $stat, string $revision, string $digest): void {
+    header('Content-Type: image/png');
+    header('Cache-Control: public, max-age=31536000, immutable');
+    header('X-Content-Type-Options: nosniff');
+    header('ETag: "avian-bundle-' . $revision . '-' . $digest . '"');
+    header('Content-Length: ' . (string)$stat['size']);
+    fpassthru($handle);
+    fclose($handle);
+    exit;
+}
+
+// A selected external bundle is a complete visual boundary. Missing species
+// and missing poses intentionally return 404 so the collage omits them and the
+// Atlas keeps its existing no-art nest. Never mix in the included woodblock,
+// photos, cached cutouts, or Wikipedia artwork. The revision query binds this
+// image to the exact geometry inventory already loaded by the browser.
+if (!$artBundle['included']) {
+    if (!is_string($requestedRevision)
+        || !hash_equals($artBundle['revision'], $requestedRevision)) {
+        http_response_code(404);
+        echo 'bundle revision required';
+        exit;
+    }
+    $bundleIndex = avian_bundle_index_for_state($artBundle);
+    $bundleObject = $bundleIndex === null
+        ? null
+        : avian_bundle_resolve_object($bundleIndex, $slug, $pose);
+    $openedObject = $bundleObject === null ? null : avian_bundle_open_object($bundleObject);
+    if ($openedObject === null) {
+        http_response_code(404);
+        echo 'no artwork in active bundle for ' . htmlspecialchars($sci);
+        exit;
+    }
+    serve_bundle_png(
+        $openedObject[0],
+        $openedObject[1],
+        $artBundle['selection_revision'] ?? $artBundle['revision'],
+        $bundleObject['sha256']
+    );
 }
 
 // 1. Bundled illustration with pose suffix (the kachō-e PNG the repo
@@ -79,6 +185,8 @@ $cutout = dirname(__DIR__) . "/assets/cutouts/$slug.png";
 if (is_file($cutout) && filesize($cutout) > 1024) {
     serve_png($cutout);
 }
+
+avian_bundle_close_included_table_read_lock($includedTableLock);
 
 // 3. Dynamic cache from a previous Wikipedia + rembg run.
 $cacheDir = dirname(__DIR__, 3) . '/BirdSongs/Extracted/cutouts';

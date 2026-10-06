@@ -24,6 +24,7 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
 require_once __DIR__ . '/admin-auth.php';
+require_once __DIR__ . '/bundle-runtime.php';
 avian_require_admin();
 
 $BIRDNETPI_DIR = dirname(__DIR__, 2);
@@ -154,6 +155,17 @@ if ($action === 'status') {
 
 if ($action === 'start') {
     avian_require_json_action();
+    $activeBundle = avian_bundle_active_state();
+    if ($activeBundle['status'] !== 'ok') {
+        http_response_code(503);
+        echo json_encode(['error' => 'active bundle state is unavailable']);
+        exit;
+    }
+    if (!$activeBundle['included']) {
+        http_response_code(409);
+        echo json_encode(['error' => 'switch to Japanese Woodblock before generating station artwork']);
+        exit;
+    }
     try {
         $body = json_decode((string)file_get_contents('php://input'), false, 16, JSON_THROW_ON_ERROR);
     } catch (JsonException $e) {

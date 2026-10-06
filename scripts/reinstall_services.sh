@@ -15,6 +15,15 @@ readonly FIXED_HELPER='/usr/local/sbin/avian-service-refresh'
 readonly SECURITY_HELPER='/usr/local/sbin/avian-security-refresh'
 readonly CADDY_HELPER='/usr/local/sbin/avian-caddy-refresh'
 readonly WEBROOT_HELPER='/usr/local/sbin/avian-link-webroot'
+readonly BUNDLE_HELPER='/usr/local/sbin/avian-bundle-control'
+readonly BUNDLE_CLI='/usr/local/bin/avian-bundle'
+readonly BUNDLE_CATALOG='/usr/share/avian-visitors/bundles/catalog-v1.json'
+readonly BUNDLE_SPECIES_HELPER='/usr/share/avian-visitors/bundles/bundle_species.py'
+readonly BUNDLE_STATE_PARENT='/var/lib/avian-visitors'
+readonly BUNDLE_MARKER='/var/lib/avian-visitors/bundles-v1.enabled'
+readonly BUNDLE_EXPORT_LOCK='/run/lock/avian-bundle-export.lock'
+readonly GENERATION_LOCK='/run/lock/avian-generation.lock'
+readonly BUNDLE_LOCK_POLICY='/etc/tmpfiles.d/avian-bundle-locks.conf'
 readonly PREPARED_DIR='/var/lib/avian-update-prepared'
 
 refresh_mode=full
@@ -26,7 +35,8 @@ case "$#" in
       --legacy-migration) ;;
       --audio-policy) refresh_mode=audio-policy ;;
       --helper-bootstrap) refresh_mode='helper-bootstrap' ;;
-      *) echo 'Usage: avian-service-refresh [--legacy-migration|--audio-policy|--helper-bootstrap]' >&2; exit 64 ;;
+      --bundle-bootstrap) refresh_mode='bundle-bootstrap' ;;
+      *) echo 'Usage: avian-service-refresh [--legacy-migration|--audio-policy|--helper-bootstrap|--bundle-bootstrap]' >&2; exit 64 ;;
     esac
     ;;
   2)
@@ -38,7 +48,7 @@ case "$#" in
     selected_head=$2
     [[ "$selected_head" =~ ^[0-9a-f]{40}$ ]] || exit 64
     ;;
-  *) echo 'Usage: avian-service-refresh [--prepare-update SHA|--apply-prepared SHA]' >&2; exit 64 ;;
+  *) echo 'Usage: avian-service-refresh [--legacy-migration|--audio-policy|--helper-bootstrap|--bundle-bootstrap|--prepare-update SHA|--apply-prepared SHA]' >&2; exit 64 ;;
 esac
 
 die() {
@@ -52,6 +62,40 @@ safe_root_helper() {
   owner=$(stat -c '%u:%g' "$helper")
   mode=$(stat -c '%a' "$helper")
   [ "$owner" = 0:0 ] && [ "$mode" = 755 ]
+}
+
+ensure_bundle_sandbox_user() {
+  local row uid gid home shell groups group_row group_gid group_members
+  if ! getent passwd avian-bundle >/dev/null; then
+    /usr/sbin/useradd --system --user-group --home-dir /nonexistent \
+      --shell /usr/sbin/nologin avian-bundle
+  fi
+  row=$(getent passwd avian-bundle) || die 'bundle image sandbox account is unavailable'
+  IFS=: read -r _ _ uid gid _ home shell <<<"$row"
+  group_row=$(getent group avian-bundle) || die 'bundle image sandbox group is unavailable'
+  IFS=: read -r _ _ group_gid group_members <<<"$group_row"
+  groups=$(id -G avian-bundle)
+  [ "$uid" != 0 ] && [ "$gid" != 0 ] \
+    && [ "$home" = /nonexistent ] \
+    && [ "$shell" = /usr/sbin/nologin ] \
+    && [ "$group_gid" = "$gid" ] && [ -z "$group_members" ] \
+    && [ "$groups" = "$gid" ] \
+    || die 'bundle image sandbox account is unsafe'
+}
+
+ensure_bundle_sandbox_root() {
+  local path mode
+  for path in /var/empty /var/empty/avian-bundle; do
+    mode=0755
+    [ "$path" != /var/empty/avian-bundle ] || mode=0555
+    if [ -e "$path" ] || [ -L "$path" ]; then
+      [ -d "$path" ] && [ ! -L "$path" ] \
+        && [ "$(stat -c '%u:%g:%a' -- "$path")" = "0:0:${mode#0}" ] \
+        || die 'bundle image sandbox root is unsafe'
+    else
+      install -d -o root -g root -m "$mode" "$path"
+    fi
+  done
 }
 
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then
@@ -174,6 +218,8 @@ station_user=$(conf_value "$CONFIG_FILE" BIRDNET_USER)
   || die 'BirdNET-Pi user is invalid'
 passwd_row=$(getent passwd "$station_user")
 [ -n "$passwd_row" ] || die 'BirdNET-Pi user does not exist'
+station_gid=$(id -g "$station_user")
+[ -n "$station_gid" ] || die 'BirdNET-Pi group does not exist'
 station_home=$(printf '%s\n' "$passwd_row" | cut -d: -f6)
 if [[ ! "$station_home" =~ ^/[A-Za-z0-9._/+@-]+$ ]] \
   || [[ "$station_home" = *'..'* ]]; then
@@ -181,6 +227,50 @@ if [[ ! "$station_home" =~ ^/[A-Za-z0-9._/+@-]+$ ]] \
 fi
 repo_dir=$station_home/BirdNET-Pi
 [ -d "$repo_dir/.git" ] || die 'BirdNET-Pi checkout was not found'
+
+for coordination_lock in "$GENERATION_LOCK" "$BUNDLE_EXPORT_LOCK"; do
+  if [ -e "$coordination_lock" ] || [ -L "$coordination_lock" ]; then
+    [ -f "$coordination_lock" ] && [ ! -L "$coordination_lock" ] \
+      && [ "$(stat -c '%u:%h' -- "$coordination_lock")" = '0:1' ] \
+      || die 'Avian Visitors coordination lock is unsafe'
+    # Explicit account migration may update a verified live inode; boot may not.
+    chgrp "$station_gid" "$coordination_lock"
+    chmod 0660 "$coordination_lock"
+  fi
+done
+tmpfiles_dir=/etc/tmpfiles.d
+if [ ! -e "$tmpfiles_dir" ] && [ ! -L "$tmpfiles_dir" ]; then
+  install -d -o root -g root -m 0755 "$tmpfiles_dir"
+fi
+[ -d "$tmpfiles_dir" ] && [ ! -L "$tmpfiles_dir" ] \
+  && [ "$(stat -c '%u:%g:%a' -- "$tmpfiles_dir")" = '0:0:755' ] \
+  || die 'Unsafe tmpfiles directory'
+if [ -e "$BUNDLE_LOCK_POLICY" ] || [ -L "$BUNDLE_LOCK_POLICY" ]; then
+  [ -f "$BUNDLE_LOCK_POLICY" ] && [ ! -L "$BUNDLE_LOCK_POLICY" ] \
+    && [ "$(stat -c '%u:%g:%a:%h' -- "$BUNDLE_LOCK_POLICY")" = '0:0:644:1' ] \
+    || die 'Avian Visitors tmpfiles policy is unsafe'
+fi
+lock_policy_temp=$(mktemp "$tmpfiles_dir/.avian-bundle-locks.XXXXXX")
+if ! {
+  printf 'f %s :0660 :root :%s -\n' "$GENERATION_LOCK" "$station_gid"
+  printf 'f %s :0660 :root :%s -\n' "$BUNDLE_EXPORT_LOCK" "$station_gid"
+} >"$lock_policy_temp"; then
+  rm -f "$lock_policy_temp"
+  die 'could not render Avian Visitors tmpfiles policy'
+fi
+if ! chown root:root "$lock_policy_temp" \
+  || ! chmod 0644 "$lock_policy_temp" \
+  || ! mv -fT -- "$lock_policy_temp" "$BUNDLE_LOCK_POLICY"; then
+  rm -f "$lock_policy_temp"
+  die 'could not install Avian Visitors tmpfiles policy'
+fi
+/usr/bin/systemd-tmpfiles --create "$BUNDLE_LOCK_POLICY" \
+  || die 'could not apply Avian Visitors tmpfiles policy'
+for coordination_lock in "$GENERATION_LOCK" "$BUNDLE_EXPORT_LOCK"; do
+  [ "$(stat -c '%u:%g:%a:%h' -- "$coordination_lock")" = \
+    "0:$station_gid:660:1" ] \
+    || die 'Avian Visitors coordination lock policy failed'
+done
 
 run_as_station() {
   /usr/sbin/runuser -u "$station_user" -- \
@@ -228,10 +318,12 @@ helper_sources=(
   scripts/maintenance_control.sh
   scripts/archive_control.sh
   scripts/security_refresh.sh
+  scripts/generation_runtime_control.sh
   scripts/admin_control.sh
   scripts/link_webroot.sh
   scripts/update_caddyfile.sh
   scripts/educators_control.sh
+  scripts/avian-bundle
 )
 helper_targets=(
   /usr/local/sbin/avian-update-control
@@ -239,18 +331,26 @@ helper_targets=(
   /usr/local/sbin/avian-maintenance-control
   /usr/local/sbin/avian-archive-control
   /usr/local/sbin/avian-security-refresh
+  /usr/local/sbin/avian-generation-runtime
   /usr/local/sbin/avian-admin-control
   /usr/local/sbin/avian-link-webroot
   /usr/local/sbin/avian-caddy-refresh
   /usr/local/sbin/avian-educators
+  /usr/local/bin/avian-bundle
 )
+bundle_sources=(
+  avian/scripts/bundle_manager.py
+  avian/bundles/catalog-v1.json
+  avian/scripts/bundle_species.py
+)
+prepared_sources=("${helper_sources[@]}" "${bundle_sources[@]}")
 
 validate_prepared() {
   local file helper_source expected_manifest
   [ -d "$PREPARED_DIR" ] && [ ! -L "$PREPARED_DIR" ] \
     && [ "$(stat -c '%u:%g:%a' "$PREPARED_DIR")" = 0:0:700 ] \
     || die 'prepared release directory is unsafe'
-  for file in release manifest phase "${helper_sources[@]##*/}"; do
+  for file in release manifest phase "${prepared_sources[@]##*/}"; do
     [ -f "$PREPARED_DIR/$file" ] && [ ! -L "$PREPARED_DIR/$file" ] \
       && [ "$(stat -c '%u:%g:%a:%h' "$PREPARED_DIR/$file")" = 0:0:600:1 ] \
       || die "prepared release file is unsafe: $file"
@@ -261,12 +361,16 @@ validate_prepared() {
     || die 'another release is pending; run sudo /usr/local/sbin/avian-update-control to resume'
   case "$(cat "$PREPARED_DIR/phase")" in prepared|applying) ;; *) die 'prepared release phase is invalid' ;; esac
   # Recompute the complete manifest, rather than accepting paths supplied by it.
-  expected_manifest=$(cd "$PREPARED_DIR" && sha256sum release "${helper_sources[@]##*/}")
+  expected_manifest=$(cd "$PREPARED_DIR" && sha256sum release "${prepared_sources[@]##*/}")
   [ "$(cat "$PREPARED_DIR/manifest")" = "$expected_manifest" ] \
     || die 'prepared release manifest does not match'
   for helper_source in "${helper_sources[@]}"; do
     bash -n "$PREPARED_DIR/${helper_source##*/}" || die 'prepared helper syntax is invalid'
   done
+  PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -c \
+    'import pathlib, sys; [compile(pathlib.Path(p).read_bytes(), p, "exec") for p in sys.argv[1:]]' \
+    "$PREPARED_DIR/bundle_manager.py" "$PREPARED_DIR/bundle_species.py" \
+    || die 'prepared bundle helper syntax is invalid'
 }
 
 created_preparation=false
@@ -295,13 +399,12 @@ else
   stage_dir=$snapshot_temp
   printf '%s\n' "$verified_head" >"$stage_dir/release"
   printf 'prepared\n' >"$stage_dir/phase"
-  for helper_source in "${helper_sources[@]}"; do
+  for helper_source in "${prepared_sources[@]}"; do
     staged_helper=$stage_dir/${helper_source##*/}
     git_trusted show "$verified_head:$helper_source" >"$staged_helper"
-    bash -n "$staged_helper" || die "privileged helper has invalid shell syntax: $helper_source"
     chmod 0600 "$staged_helper"
   done
-  (cd "$stage_dir" && sha256sum release "${helper_sources[@]##*/}") >"$stage_dir/manifest"
+  (cd "$stage_dir" && sha256sum release "${prepared_sources[@]##*/}") >"$stage_dir/manifest"
   mv "$stage_dir" "$PREPARED_DIR"
   snapshot_temp=''
   validate_prepared
@@ -340,6 +443,61 @@ for index in "${!helper_sources[@]}"; do
     "${helper_targets[$index]}"
 done
 
+for release_source in "${bundle_sources[@]}"; do
+  git_station ls-files --error-unmatch -- "$release_source" >/dev/null \
+    || die "bundle release file is not tracked: $release_source"
+  git_station diff --quiet --no-ext-diff "$current_head" -- "$release_source" \
+    || die "bundle release file has local changes: $release_source"
+done
+staged_bundle_manager=$stage_dir/bundle_manager.py
+staged_bundle_catalog=$stage_dir/catalog-v1.json
+staged_bundle_species=$stage_dir/bundle_species.py
+if [ -e "$BUNDLE_STATE_PARENT" ] || [ -L "$BUNDLE_STATE_PARENT" ]; then
+  [ -d "$BUNDLE_STATE_PARENT" ] && [ ! -L "$BUNDLE_STATE_PARENT" ] \
+    && [ "$(stat -c '%u:%g:%a' -- "$BUNDLE_STATE_PARENT")" = '0:0:755' ] \
+    || die 'bundle state parent is unsafe'
+else
+  install -d -o root -g root -m 0755 "$BUNDLE_STATE_PARENT"
+fi
+if ! /usr/bin/python3 -c 'from PIL import Image' >/dev/null 2>&1; then
+  /usr/bin/apt-get -qq update \
+    || die 'could not refresh packages for bundle image validation'
+  /usr/bin/apt-get install --no-install-recommends -qqy python3-pil \
+    || die 'could not install bundle image validation support'
+fi
+ensure_bundle_sandbox_user
+ensure_bundle_sandbox_root
+install_root_helper "$staged_bundle_manager" "$BUNDLE_HELPER"
+install -d -o root -g root -m 0755 "$(dirname "$BUNDLE_CATALOG")"
+bundle_catalog_temp=$(mktemp "$(dirname "$BUNDLE_CATALOG")/.catalog-v1.XXXXXX")
+install -o root -g root -m 0644 "$staged_bundle_catalog" "$bundle_catalog_temp"
+mv -f "$bundle_catalog_temp" "$BUNDLE_CATALOG"
+bundle_species_temp=$(mktemp "$(dirname "$BUNDLE_CATALOG")/.bundle-species.XXXXXX")
+install -o root -g root -m 0644 "$staged_bundle_species" "$bundle_species_temp"
+mv -f "$bundle_species_temp" "$BUNDLE_SPECIES_HELPER"
+env -i LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  "$BUNDLE_HELPER" configure-station --user "$station_user" --root "$repo_dir" --json \
+  || die 'could not configure local bundle species lookup'
+bundle_init_output=$(env -i HOME=/root LC_ALL=C \
+  PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  "$BUNDLE_HELPER" initialize --json) \
+  || die "could not initialize bundle storage: $bundle_init_output"
+if [ -e "$BUNDLE_MARKER" ] || [ -L "$BUNDLE_MARKER" ]; then
+  [ -f "$BUNDLE_MARKER" ] && [ ! -L "$BUNDLE_MARKER" ] \
+    && [ "$(stat -c '%u:%g:%a:%h' -- "$BUNDLE_MARKER")" = '0:0:644:1' ] \
+    || die 'bundle provisioning marker is unsafe'
+else
+  install -o root -g root -m 0644 /dev/null "$BUNDLE_MARKER"
+fi
+
+if [ "$refresh_mode" = bundle-bootstrap ]; then
+  if [ "$created_preparation" = true ]; then
+    rm -rf "$PREPARED_DIR"
+  fi
+  echo 'AvianVisitors bundle storage initialized.'
+  exit 0
+fi
+
 # A pre-Educators refresher installs this release's security helper before it
 # knows about the newly added helper target. The security helper may re-enter
 # this verified installer under the inherited update lock for this one narrow
@@ -372,6 +530,7 @@ for tracked_script in "${tracked_scripts[@]}"; do
     scripts/*/*) continue ;;
     scripts/*)
       script_name=${tracked_script#scripts/}
+      [ "$script_name" != avian-bundle ] || continue
       [[ "$script_name" =~ ^[A-Za-z0-9._-]+$ ]] || continue
       [ -f "$repo_dir/$tracked_script" ] || continue
       ln -sfn "$repo_dir/$tracked_script" "/usr/local/bin/$script_name"
