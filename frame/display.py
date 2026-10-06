@@ -63,6 +63,7 @@ DEFAULTS = {
     "heal_hours": 24,
     "state": "~/.birdframe/state.json",
     "cache": "~/.birdframe",
+    "bundle_root": "~/.birdframe/bundles",
     "timeout": 180,      # seconds; a Zero 2 W needs ~70-120s to shoot the collage
     "basic_user": None, "basic_pass": None,
 }
@@ -128,16 +129,24 @@ def birdweather_signature_scope(cfg):
     return f"birdweather:zip:{cfg['bw_country']}:{value}:days:{cfg['bw_days']}"
 
 
-def fetch_species(cfg, auth=None):
+def fetch_species(cfg, auth=None, drawable=None):
     """The species list the signature is built from: the BirdNET-Pi recent API
     by default, or BirdWeather detections from one station or near a ZIP when
     species_source = "birdweather"."""
     if cfg.get("species_source") == "birdweather":
         import birdweather
         kind, value = birdweather_locator(cfg)
+        inventory = {} if drawable is None else {"drawable": drawable}
         if kind == "station":
-            return birdweather.species_for_station(value, days=cfg["bw_days"])
-        return birdweather.species_for_zip(value, country=cfg["bw_country"], days=cfg["bw_days"])
+            return birdweather.species_for_station(
+                value, days=cfg["bw_days"], **inventory
+            )
+        return birdweather.species_for_zip(
+            value,
+            country=cfg["bw_country"],
+            days=cfg["bw_days"],
+            **inventory,
+        )
     return fetch_recent(cfg["base_url"], cfg["hours"], cfg["timeout"], auth)
 
 
@@ -354,15 +363,30 @@ def frame_url(url, bird_names):
 
 
 # --- run --------------------------------------------------------------------
-def obtain_image(cfg, species=None, *, capture=None):
+def obtain_image(cfg, species=None, bundle=None, *, capture=None):
+    bundle_options = (
+        {}
+        if bundle is None
+        else {
+            "cutout_resolver": bundle.resolve,
+            "dims_path": bundle.dims_path,
+            "masks_path": bundle.masks_path,
+            "bundle_assets": bundle.assets_response,
+        }
+    )
     if cfg.get("species_source") == "birdweather":
         from shoot import shoot_birdweather
         if species is None:  # gate skipped (--no-signature): fetch the list to render
-            species = fetch_species(cfg, _auth(cfg))
+            species = fetch_species(
+                cfg,
+                _auth(cfg),
+                drawable=None if bundle is None else bundle.drawable_slugs,
+            )
         out = os.path.join(os.path.expanduser(cfg["cache"]), "frame.png")
         os.makedirs(os.path.dirname(out), exist_ok=True)
         shoot_birdweather(out, species, title=cfg["shoot_title"], subtitle=cfg["shoot_subtitle"],
-                          timeout_ms=cfg["timeout"] * 1000, bird_names=cfg["bird_names"], capture=capture)
+                          timeout_ms=cfg["timeout"] * 1000, bird_names=cfg["bird_names"],
+                          capture=capture, **bundle_options)
         return Image.open(out).convert("RGB")
     if cfg["shoot"]:
         from shoot import shoot
@@ -373,8 +397,12 @@ def obtain_image(cfg, species=None, *, capture=None):
               lowercase=cfg["shoot_lowercase"], mat=cfg["shoot_mat"],
               small_floor=cfg["shoot_small_floor"], count_exp=cfg["shoot_count_exp"], timeout_ms=cfg["timeout"] * 1000,
               user=cfg["basic_user"], password=cfg["basic_pass"], window_hours=cfg["hours"],
-              bird_names=cfg["bird_names"], capture=capture)
+              bird_names=cfg["bird_names"], capture=capture, **bundle_options)
         return Image.open(out).convert("RGB")
+    if bundle is not None:
+        raise ValueError(
+            "an active illustration bundle requires local or BirdWeather render mode"
+        )
     src = cfg["image_url"] or cfg["image"]
     if not src:
         raise ValueError("set image, image_url, or shoot in config")
@@ -392,11 +420,25 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
     state = load_state(cfg["state"])
     sig = None
     species = None
+    try:
+        from bundle_runtime import active_bundle
+        bundle = active_bundle(cfg.get("bundle_root"))
+    except Exception as error:
+        print(f"active bundle validation failed: {error}", file=sys.stderr)
+        return False
     if use_signature:
         try:
-            species = fetch_species(cfg, _auth(cfg))
+            species = fetch_species(
+                cfg,
+                _auth(cfg),
+                drawable=None if bundle is None else bundle.drawable_slugs,
+            )
             scope = birdweather_signature_scope(cfg) if cfg.get("species_source") == "birdweather" else ""
             sig = signature(species, scope)
+            if bundle is not None:
+                sig = hashlib.sha256(
+                    (sig + ":" + bundle.reference.get("selection_revision", bundle.reference["revision"])).encode()
+                ).hexdigest()[:16]
         except Exception as e:
             print(f"signature fetch failed: {e}", file=sys.stderr)  # treat as no change
     heal_due = now - state.get("last_refresh", 0) >= cfg["heal_hours"] * 3600
@@ -404,21 +446,25 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
     if not force and not preview:
         if in_quiet_hours(cfg, datetime.now().hour):
             print("quiet hours; skip")
-            return
+            return True
         if not changed and not heal_due:
             print("no change; skip")
-            return
+            return True
         print("refresh:", "changed" if changed else "heal")
 
     try:
         capture = {}
-        img = fit_panel(obtain_image(cfg, species, capture=capture))
+        img = fit_panel(obtain_image(cfg, species, bundle, capture=capture))
         if "species" in capture:
             scope = birdweather_signature_scope(cfg) if cfg.get("species_source") == "birdweather" else ""
             sig = signature(capture["species"], scope)
+            if bundle is not None:
+                sig = hashlib.sha256(
+                    (sig + ":" + bundle.reference.get("selection_revision", bundle.reference["revision"])).encode()
+                ).hexdigest()[:16]
     except Exception as e:
         print(f"could not get image: {e}", file=sys.stderr)  # keep last panel image
-        return
+        return False
     img = mat_and_center(img, cfg["mat"], cfg["opening"])
     if preview:
         out = quantize_spectra6(img)
@@ -426,14 +472,15 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
             _draw_mat_box(out, cfg["opening"])
         out.save(preview)
         print(f"wrote preview {preview}")
-        return
+        return True
     try:
         push_panel(img, cfg["rotate"], cfg["saturation"], cfg.get("panel", ""))
     except Exception as e:
         print(f"panel push failed: {e}", file=sys.stderr)
-        return
+        return False
     save_state(cfg["state"], sig if sig is not None else state.get("signature"), now)
     print("panel updated")
+    return True
 
 
 def load_config(path):
@@ -455,6 +502,7 @@ def main():
     ap.add_argument("--force", action="store_true", help="refresh even if unchanged")
     ap.add_argument("--no-signature", action="store_true", help="skip change detection")
     ap.add_argument("--mat-box", action="store_true", help="dev: outline the mat window on the preview")
+    ap.add_argument("--wait-lock", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -473,12 +521,20 @@ def main():
     os.makedirs(os.path.dirname(lock_path), exist_ok=True)
     lock = open(lock_path, "w")
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        flags = fcntl.LOCK_EX if args.wait_lock else fcntl.LOCK_EX | fcntl.LOCK_NB
+        fcntl.flock(lock, flags)
     except OSError:
         print("another render is in progress; skipping")
-        return
-    run(cfg, preview=args.preview, force=args.force, use_signature=not args.no_signature, mat_box=args.mat_box)
+        return 0
+    succeeded = run(
+        cfg,
+        preview=args.preview,
+        force=args.force,
+        use_signature=not args.no_signature,
+        mat_box=args.mat_box,
+    )
+    return 0 if succeeded else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
