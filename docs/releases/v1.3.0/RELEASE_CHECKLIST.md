@@ -8,13 +8,15 @@ Teddy authorized staging, branch pushes, squash merging into `avian-visitors`, a
 - [x] Record Teddy's October 6 iPhone Safari acceptance. No mobile code fix is claimed; the earlier Chrome/Firefox report was not independently reproduced.
 - [x] Switch the existing physical frame to Impressionist for filming on October 6 and verify installed artwork, unchanged config, and the enabled `birdframe.timer`. This was a software-confirmed panel update, not a software upgrade or fresh human visual acceptance; see [physical acceptance](PHYSICAL_FRAME_ACCEPTANCE.md).
 - [x] Record fresh post-integration test results and independently review the explicit 195-file source inventory. Thirteen excluded local media drafts remain untouched; only three approved photos are included.
-- [ ] Recheck both [station](PULL_REQUEST.md) and [Worker](WORKER_PULL_REQUEST.md) PR drafts against their final owning-repository diffs.
+- [x] Recheck both [station](PULL_REQUEST.md) and [Worker](WORKER_PULL_REQUEST.md) PR drafts against their final owning-repository diffs. Station PR #96 contains the reviewed 195 paths. Worker PR #1 was squash merged with identical source trees and no deployment.
 
 October 6 Worker checks passed 229 JavaScript tests, four uploader tests, 12 preview checks, and 52 HTTP checks with zero failures. A read-only public-discovery check found Germany and Iberia installable at `1.0.0`, with no QA listing.
 
 Fresh integrated local checks: 667 Python passes and 65 environment/privilege skips; 57 isolated publication/revision tests; 65 installer security checks plus ShellCheck and dependency simulation; all 38 real-browser capture tests; 11 frontend smokes; six taxonomy tests; 56 PHP runtime checks; pre-v1 migration, tampered prepared payloads, offline upgrade recovery, normal reinstall, fresh install, and update smokes passed. Independent review approved the capture, publication, prepared-update, and sanitized dispatch-diagnostic changes. Audio-model and exact-candidate CI remain required before merge.
 
 Generation/cache security, lock coordination, generated Caddy routes, and the isolated image decoder also passed in disposable Linux containers. The final source scan found no credential signatures or private payloads. All three approved media hashes match.
+
+Candidate CI passed installer security, all 38 capture tests, lint, and all seven real audio-model tests. The first full Python run exposed two export-test fixture defects: Linux inherited the parent's RSS high-water mark, and hosted Python was absent from the simulated station layout. Tests now measure Linux current-exec peak RSS and provision the fixture's station runtime. Production limits and runtime selection are unchanged. The exact final candidate still requires green CI before merge.
 
 ## Historical completed acceptance: 2026-10-03
 

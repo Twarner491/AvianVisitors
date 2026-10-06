@@ -259,12 +259,18 @@ class BundleExportTests(unittest.TestCase):
         image.save(large, format="PNG", compress_level=9)
         image.close()
         code = (
-            "import json,resource,sys; from pathlib import Path; "
+            "import json,re,resource,sys; from pathlib import Path; "
             f"sys.path.insert(0,{str(Path(exporter.__file__).resolve().parent)!r}); "
             "import bundle_export as e; "
             "encoded,w,h=e.canonical_png(Path(sys.argv[1]).read_bytes(),'large.png'); "
-            "print(json.dumps({'rss':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,"
-            "'platform':sys.platform,'bytes':len(encoded),'width':w,'height':h}))"
+            "rss=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss; "
+            "peak=rss if sys.platform=='darwin' else rss*1024; "
+            # Linux getrusage can retain the parent's pre-exec high-water mark.
+            "\nif sys.platform.startswith('linux'):\n"
+            " match=re.search(r'^VmHWM:\\s+(\\d+) kB$',Path('/proc/self/status').read_text(),re.M)\n"
+            " assert match, 'missing Linux peak RSS'\n"
+            " peak=int(match.group(1))*1024\n"
+            "print(json.dumps({'peak_bytes':peak,'bytes':len(encoded),'width':w,'height':h}))"
         )
         process = subprocess.run(
             [sys.executable, "-c", code, str(large)],
@@ -272,9 +278,8 @@ class BundleExportTests(unittest.TestCase):
         )
         self.assertEqual(process.returncode, 0, process.stderr)
         result = json.loads(process.stdout)
-        peak_bytes = result["rss"] if result["platform"] == "darwin" else result["rss"] * 1024
         self.assertEqual((result["width"], result["height"]), (2000, 2000))
-        self.assertLess(peak_bytes, 192 * 1024 * 1024)
+        self.assertLess(result["peak_bytes"], 192 * 1024 * 1024)
 
     def test_preflight_rejects_animation_bad_crc_and_polyglot_tail(self) -> None:
         original = (self.illustrations / "turdus-migratorius.png").read_bytes()
@@ -676,6 +681,19 @@ class BundleExportTests(unittest.TestCase):
         endpoint = project / "avian/api/export.php"
         if "educator-scope.php" not in endpoint.read_text(encoding="utf-8"):
             self.skipTest("main endpoint is covered by its HTTP integration test")
+
+        site = self.root / "site"
+        for relative in (
+            "avian/api/export.php", "avian/api/admin-auth.php", "avian/api/admin-state.php",
+            "avian/api/educator-scope.php", "avian/api/educator-state.php", "avian/api/educator-store.php",
+            "avian/scripts/bundle_export.py", "avian/scripts/bundle-taxonomy-v1.json",
+        ):
+            destination = site / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(project / relative, destination)
+        # Match the installed station layout, retaining this interpreter's Pillow.
+        (site / "birdnet").symlink_to(sys.prefix, target_is_directory=True)
+        endpoint = site / "avian/api/export.php"
 
         educator_lock = self.root / "educators.lock"
         educator_lock.touch(mode=0o600)

@@ -94,6 +94,11 @@ The hosted work belongs in `/Users/twarn/Repositories/avianvisitors-bundle-worke
     - Paths under `docs/releases/v1.3.0/`: `COMMIT_PLAN.md`, `CONTRIBUTOR_OUTREACH.md`, `LAUNCH_MEDIA.md`, `PHYSICAL_FRAME_ACCEPTANCE.md`, `PULL_REQUEST.md`, `WORKER_PULL_REQUEST.md`, `RELEASE_CHECKLIST.md`, `RELEASE_NOTES.md`, `RELEASE_PREVIEW.html`, `SOURCE_EVIDENCE.md`, `MEDIA_SHA256SUMS.txt`, `images/evolutionary-impressionist-station.jpg`, `images/station-impressionist-active.jpg`, and `images/evolutionary-impressionist-frame.jpg`.
     - Do not stage this directory recursively. Every other image, video, GIF, and rendered preview in it is an excluded local-only draft. Review screenshots have unconfirmed synthetic provenance; other captures contain stale UI. Do not commit or upload them.
 
+18. `test(export): isolate peak memory and station runtime fixtures`
+    - Measure current-exec Linux peak RSS without inherited TensorFlow history; retain the 192 MiB limit.
+    - Provision the production-shaped PHP test site with the test interpreter. Keep the production runtime allowlist unchanged.
+    - Paths: `avian/scripts/test_bundle_export.py`, `docs/releases/v1.3.0/{COMMIT_PLAN.md,RELEASE_CHECKLIST.md,SOURCE_EVIDENCE.md}`.
+
 ## Gates before any commit or release
 
 - Verify the integrated station baseline still contains current upstream without rewriting contributor commits.

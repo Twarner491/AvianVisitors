@@ -14,6 +14,8 @@ The candidate integrated upstream `543c4473` on October 6, preserving capture an
 
 The earlier scratch rehearsal found nineteen overlapping paths, including fourteen conflicts, and no untracked collisions. Those conflicts are now resolved in the release worktree. Integration checks also corrected the pre-v1 snapshot producer, test import isolation, the security harness's shared validator mount, and retry classification for same-revision image-source changes.
 
+Initial candidate CI confirmed the audio models and exposed two export-test fixture issues. Independent Linux reproduction showed parent-process RSS history contaminating `getrusage`; `/proc/self/status` `VmHWM` measured the current execution and still rejected a genuine child peak above the unchanged 192 MiB bound. The PHP fixture now supplies the test interpreter at the installed station runtime path in a disposable site. Neither correction changes production code or its security checks.
+
 [Upstream Python CI at `543c4473`](https://github.com/Twarner491/AvianVisitors/actions/runs/37149897338) passed. Exact-candidate CI must pass before merge. Pre-staging October 6 inspection confirmed `v1.3.0` was unused and `v1.2.0` was the latest published release; recheck before tagging.
 
 ## Prior release structure
