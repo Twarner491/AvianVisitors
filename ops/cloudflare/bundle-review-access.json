@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "reviewer_email": "twarner491@gmail.com",
+  "identity_provider": {
+    "name": "Avian Visitors reviewer one-time PIN",
+    "type": "onetimepin"
+  },
+  "application": {
+    "name": "Avian Visitors bundle review",
+    "type": "self_hosted",
+    "domain": "avianvisitors.com/bundles/review",
+    "destinations": [
+      "avianvisitors.com/bundles/review",
+      "avianvisitors.com/bundles/review/*",
+      "avianvisitors.com/api/bundles/review",
+      "avianvisitors.com/api/bundles/review/*"
+    ],
+    "session_duration": "24h",
+    "app_launcher_visible": false,
+    "auto_redirect_to_identity": true,
+    "allow_authenticate_via_warp": false,
+    "allow_iframe": false,
+    "options_preflight_bypass": false
+  },
+  "policy": {
+    "name": "Allow exact bundle reviewer",
+    "decision": "allow",
+    "precedence": 1
+  }
+}
