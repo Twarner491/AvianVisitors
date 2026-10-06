@@ -1,0 +1,590 @@
+/* avianvisitors.com register page.
+   White ground, one ink, one narrow column. Monochrome except the error red.
+   Type is the frame's voice (serif + JetBrains Mono); corners are continuous
+   squircles drawn by corners.js from the border-radius set here, the same
+   system as theodore.net. No dashes, no shadows, no green. */
+
+:root {
+  --bg: #ffffff;
+  --ink: #1a1a1c;
+  --ink-2: #45454b;
+  --muted: #71706b;
+  --faint: #b3b1ab;
+  --line: #e2e1dc;
+  --red: #a53c38;
+  --serif: ui-serif, "Iowan Old Style", "Apple Garamond", Georgia, serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --r: 14px;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./fonts/JetBrainsMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+::selection { background: rgba(26, 26, 28, 0.10); }
+
+/* Links are ink, never browser blue: a hairline underline that darkens on
+   hover. Louder contexts (the colophon, nav buttons) override below. */
+a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--faint);
+    text-decoration-thickness: 1px; text-underline-offset: 3px;
+    transition: text-decoration-color 140ms ease; }
+a:hover { text-decoration-color: var(--ink); }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--serif);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: max(9svh, 56px) 24px 32px;
+}
+
+main {
+  width: 100%; max-width: 400px;
+  flex: 1 1 auto;
+  display: flex; flex-direction: column;
+}
+main > section, main > header { width: 100%; }
+
+/* ---- header: the family voice ---- */
+.head { text-align: center; margin-bottom: 44px; }
+.head .pre {
+  margin: 0 0 10px;
+  font-style: italic;
+  font-size: 16px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.head h1 {
+  margin: 0;
+  font-weight: 400;
+  font-size: clamp(42px, 12vw, 54px);
+  line-height: 0.95;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* ---- the one field, with its inline arrow ---- */
+.fieldrow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--bg);
+  border: 1.2px solid var(--line);
+  border-radius: var(--r);
+  /* No border-color transition: corners.js repaints the border as a squircle
+     ring per state change, and a transition poisons its color read. */
+}
+/* Focus lifts the border toward ink without going fully dark. */
+.fieldrow:focus-within { border-color: var(--muted); }
+.fieldrow.bad { border-color: var(--red); }
+.fieldrow.bad input { color: var(--red); }
+/* A murmur, not a rattle: 2px peak, damped fast. */
+.fieldrow.shake { animation: shake 300ms cubic-bezier(.36,.07,.19,.97); }
+@keyframes shake {
+  20%, 60% { transform: translateX(-2px); }
+  40%, 80% { transform: translateX(2px); }
+  90% { transform: translateX(-1px); }
+}
+
+.fieldrow input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  color: var(--ink);
+  padding: 15px 6px 15px 18px;
+  font-family: var(--serif);
+  font-size: 17px;
+}
+.fieldrow input::placeholder { color: var(--faint); }
+
+/* the code field speaks mono, at ticket weight */
+#rail { padding-left: 18px; }
+#rail .hash {
+  font-family: var(--mono);
+  font-size: 24px;
+  color: var(--faint);
+  transition: color 160ms ease;
+}
+#rail:focus-within .hash { color: var(--muted); }
+#rail.bad .hash { color: var(--red); }
+#rail input {
+  font-family: var(--mono);
+  font-size: 22px;
+  letter-spacing: 0.18em;
+  padding: 16px 6px 16px 12px;
+}
+
+@media (max-width: 360px) {
+  body { padding-inline: 18px; }
+  #rail { padding-left: 14px; }
+  #rail .hash { font-size: 21px; }
+  #rail input {
+    font-size: 20px;
+    letter-spacing: 0.10em;
+    padding-left: 9px;
+  }
+}
+
+/* inline arrow: the field's own way forward */
+.gobtn {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  margin: 6px 8px 6px 0;
+  border: 0;
+  border-radius: 11px;
+  background: none;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 160ms ease, transform 120ms ease, background-color 160ms ease;
+}
+.gobtn:disabled { opacity: 0.22; cursor: default; }
+.gobtn:not(:disabled):hover { background: #f4f3f0; }
+.gobtn:not(:disabled):active { transform: scale(0.9); }
+.gobtn svg { width: 22px; height: 22px; display: block; }
+.gobtn .spin { display: none; }
+.gobtn.busy .arrow { display: none; }
+.gobtn.busy .spin { display: block; animation: spin 800ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.hint {
+  margin: 18px 4px 0;
+  text-align: center;
+  font-style: italic;
+  font-size: 14px;
+  color: var(--faint);
+}
+.note {
+  margin: 10px 4px 0;
+  text-align: center;
+  font-style: italic;
+  font-size: 14.5px;
+  color: var(--muted);
+}
+.note:empty { display: none; }
+/* Registration errors must already exist in the accessibility tree before
+   text is inserted, or some screen readers miss the live-region update. */
+#pin-note:empty, #config-err:empty { display: block; margin-top: 0; }
+
+/* ---- step two: the hello card's numbered steps, on white ---- */
+.chip {
+  display: block;
+  width: fit-content;
+  margin: 0 auto 34px;
+  padding: 7px 16px;
+  border: 1.2px solid var(--line);
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+/* ---- Manage page ---- */
+/* Account chip doubles as the sign-out menu trigger. */
+.whorow { position: relative; width: fit-content; margin: 0 auto 26px; }
+.who { margin: 0; cursor: pointer; background: var(--bg); }
+.who[aria-expanded="true"] { color: var(--ink); border-color: var(--muted); }
+.whomenu {
+  position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 2px; white-space: nowrap;
+  padding: 8px 14px; border: 1.2px solid var(--line); border-radius: 12px;
+  background: var(--bg); z-index: 20;
+}
+.whomenu a { font-family: var(--mono); font-size: 13px; letter-spacing: 0.04em;
+  text-decoration: none; color: var(--muted); padding: 3px 0; }
+.whomenu a:hover { color: var(--ink); }
+
+/* "Use a different email" back link under the sign-in field. */
+#login-back { margin-top: 14px; }
+
+/* Settings row: label on the left, control on the right (the website's
+   settings language, in this page's flat monochrome palette). */
+.setrow { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 3px 0; }
+.setlabel { font-size: 16px; }
+.setsub { display: block; font-size: 13px; font-style: italic; color: var(--muted); margin-top: 1px; }
+
+/* Toggle switch: a pill that fills ink and slides its knob when on. */
+.switch {
+  position: relative; flex: 0 0 auto; width: 42px; height: 24px;
+  appearance: none; -webkit-appearance: none;
+  border: 1.2px solid var(--line); border-radius: 999px; background: var(--bg);
+  cursor: pointer; padding: 0;
+  transition: background 180ms ease, border-color 180ms ease;
+}
+.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+  background: var(--faint); border-radius: 999px;
+  transition: transform 220ms cubic-bezier(.7, .05, .2, 1), background 180ms ease;
+}
+.switch[aria-checked="true"] { background: var(--ink-2); border-color: var(--ink-2); }
+.switch[aria-checked="true"]::after { transform: translateX(18px); background: var(--bg); }
+.switch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* Frame cards: full-width settings, no number badge. */
+.fcard { padding: 6px 0; border-top: 1.2px solid var(--line); }
+.fcard:first-child { border-top: 0; }
+.fcard .stephead {
+  display: flex; align-items: baseline; gap: 12px; width: 100%;
+  padding: 16px 0; background: none; border: 0; cursor: pointer; text-align: left;
+}
+.fcard .steptitle { flex: 1 1 auto; min-width: 0; }
+.fcard .chev {
+  flex: 0 0 auto; width: 9px; height: 9px; align-self: center;
+  border-right: 1.4px solid var(--faint); border-bottom: 1.4px solid var(--faint);
+  transform: rotate(45deg); transition: transform 200ms ease, border-color 140ms ease;
+}
+.fcard.open .chev { transform: rotate(225deg); border-color: var(--ink); }
+/* The accordion open-state is otherwise scoped to .step.open; give cards
+   the same slide + fade when they open. */
+.fcard.open .stepwrap { grid-template-rows: 1fr; }
+.fcard.open .stepbody { opacity: 1; }
+/* Cards carry no number badge, so their body isn't indented for one: the
+   fields and Save button span the full card width. */
+.fcard .stepbody { margin-left: 0; padding-top: 4px; }
+
+/* Settings groups inside a card. */
+.mgroup { margin: 4px 0 20px; }
+.mglabel {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--faint); margin-bottom: 8px;
+}
+.mgroup .fwrap { margin: 8px 0 0; }
+.mgroup .opt { padding: 2px 0; }
+.mgroup.gen { margin-top: 20px; padding-top: 16px; border-top: 1.2px solid var(--line); margin-bottom: 8px; }
+
+/* Advanced: collapsed by default. Everything here is rare or destructive, so
+   it stays out of the way until asked for. Its own chevron class, NOT .chev -
+   this block sits inside a .fcard, and .fcard.open .chev would rotate it
+   whenever the CARD opened, which is not what it reports on. */
+.adv .advhead {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 2px 0 0; background: none; border: 0; cursor: pointer; text-align: left;
+}
+.adv .advhead .mglabel { margin-bottom: 0; flex: 1 1 auto; }
+/* The chevron sits immediately after the label, small enough to read as part
+   of the same line rather than as a control of its own. Nudged up because the
+   label is uppercase mono: its optical centre is above the box centre, so a
+   glyph aligned to the box looks low against it. */
+.adv .advchev {
+  flex: 0 0 auto; width: 5px; height: 5px; margin-top: -3px;
+  border-right: 1.3px solid var(--faint); border-bottom: 1.3px solid var(--faint);
+  transform: rotate(45deg);
+  transition: transform 200ms ease, border-color 140ms ease;
+}
+.adv.open .advchev { transform: rotate(225deg); border-color: var(--ink); }
+/* The two advanced actions sit on one line: they are peers, and stacking two
+   short buttons full-width made a small section look like a form. */
+.adv .advbody { display: none; }
+/* One row, no wrapping: the two actions share the width evenly, and the type is
+   tightened just enough that both labels fit the 400px column. */
+.adv.open .advbody { display: flex; flex-wrap: nowrap; gap: 8px; align-items: stretch; padding-top: 14px; }
+.adv .advbody > button { flex: 1 1 0; min-width: 0; white-space: nowrap; }
+/* Ordinary advanced action: same shape as the destructive one so the two read
+   as a set, but in ink rather than red - only one of them is irreversible. */
+.quietbtn {
+  display: block;
+  width: auto; padding: 9px 10px;
+  border: 1.2px solid var(--line); border-radius: 11px;
+  background: var(--bg); color: var(--ink);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.07em;
+  text-transform: uppercase; cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, transform 120ms ease;
+}
+.quietbtn:hover { border-color: var(--ink); }
+.quietbtn:active { transform: scale(0.985); }
+.quietbtn:disabled { opacity: 0.4; cursor: default; }
+.quietbtn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* Destructive action: reads as red and as a button, so it can't be mistaken
+   for ordinary navigation. Still two-tap armed in manage.js. */
+.dangerbtn {
+  width: auto; padding: 9px 10px;
+  border: 1.2px solid var(--line); border-radius: 11px;
+  background: var(--bg); color: var(--red);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.07em;
+  text-transform: uppercase; cursor: pointer;
+  transition: border-color 160ms ease, transform 120ms ease;
+}
+/* The outline darkens rather than the button filling in. A block of red for a
+   thing you have not committed to yet shouts; the red lettering already says
+   which of the two actions is the irreversible one. */
+.dangerbtn:hover { border-color: var(--red); }
+.dangerbtn:active { transform: scale(0.985); }
+.dangerbtn.armed { border-color: var(--red); }
+.dangerbtn:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+.faintnote { color: var(--faint); font-size: 12.5px; margin-top: 8px; }
+
+/* The data-source dropdown, dressed like a field row. */
+.selrow { padding: 0; }
+.selrow select {
+  width: 100%; appearance: none; -webkit-appearance: none;
+  padding: 13px 40px 13px 15px; border: 0; background: transparent;
+  font-family: var(--serif); font-size: 17px; color: var(--ink); cursor: pointer;
+  border-radius: var(--r);
+}
+.selrow { position: relative; }
+.selrow::after {
+  content: ""; position: absolute; right: 16px; top: 50%; width: 8px; height: 8px;
+  border-right: 1.4px solid var(--muted); border-bottom: 1.4px solid var(--muted);
+  transform: translateY(-70%) rotate(45deg); pointer-events: none;
+}
+.mgroup .bigbtn, #view-frames .bigbtn { margin-top: 8px; }
+
+/* Accordion steps: every section always visible, one open at a time.
+   Height rides the 0fr/1fr grid trick so the browser owns the math and the
+   slide stays honest whatever the section contains. */
+fieldset { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
+.step { padding: 22px 0; }
+.step + .step { border-top: 1.2px solid var(--line); }
+
+.stepheading { margin: 0; font: inherit; }
+
+.stephead {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  align-items: start;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.stepnum {
+  font-family: var(--mono);
+  font-size: 42px;
+  line-height: 0.9;
+  margin-top: 2px;
+  color: var(--faint);
+  transition: color 240ms ease;
+}
+.step.open .stepnum { color: var(--ink); }
+.steptitle { min-width: 0; }
+.steptitle .stepname {
+  display: block;
+  margin: 4px 0 0;
+  font-weight: 400;
+  font-size: 20px;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  transition: color 240ms ease;
+}
+.step.open .steptitle .stepname { color: var(--ink); }
+/* the quiet summary a finished, folded section keeps */
+.stepsum {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step.open .stepsum, .stepsum:empty { display: none; }
+
+.stepwrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 300ms cubic-bezier(.2, .7, .3, 1);
+}
+.step.open .stepwrap { grid-template-rows: 1fr; }
+.stepbody {
+  overflow: hidden;
+  min-height: 0;
+  margin-left: 56px;
+  padding-top: 10px;
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+.step.open .stepbody { opacity: 1; }
+.stepbody .sub {
+  margin: 0 0 12px;
+  font-style: italic;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* radios: small ink circles, nothing louder */
+.opt { display: flex; gap: 12px; align-items: baseline; padding: 7px 0; cursor: pointer; position: relative; }
+.opt input { position: absolute; opacity: 0; pointer-events: none; }
+.opt .dot {
+  flex: 0 0 auto;
+  width: 17px; height: 17px;
+  border: 1.2px solid var(--faint);
+  border-radius: 50%;
+  position: relative;
+  top: 2px;
+  transition: border-color 140ms ease;
+}
+.opt input:checked + .dot { border-color: var(--ink); }
+.opt input:checked + .dot::after {
+  content: "";
+  position: absolute; inset: 3.5px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+.opt input:focus-visible + .dot { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* checkboxes: a rounded square, not a circle; the fill squares off too */
+.opt input[type="checkbox"] + .dot { border-radius: 5px; }
+.opt input[type="checkbox"]:checked + .dot::after { border-radius: 2px; }
+.opt .opt-name { font-size: 17px; }
+.opt .opt-sub { display: block; font-style: italic; font-size: 13.5px; color: var(--muted); margin-top: 1px; }
+
+.fwrap { margin: 10px 0 4px; }
+.fwrap input { font-family: var(--mono); font-size: 16px; letter-spacing: 0.04em; }
+.fwrap input.serif { font-family: var(--serif); font-size: 17px; letter-spacing: 0; }
+
+/* the finish button: outlined, mono, inverts on hover */
+.bigbtn {
+  width: 100%;
+  margin-top: 34px;
+  padding: 15px 18px;
+  border: 1.2px solid var(--ink);
+  border-radius: var(--r);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease, transform 120ms ease;
+}
+.bigbtn:not(:disabled):hover { background: var(--ink); color: var(--bg); }
+.bigbtn:not(:disabled):active { transform: scale(0.985); }
+.bigbtn:disabled { opacity: 0.4; cursor: default; }
+
+/* ---- done ---- */
+#step-done { text-align: center; padding-top: 8px; }
+.donecheck {
+  width: 64px; height: 64px;
+  margin: 6px auto 30px;
+  border: 1.2px solid var(--ink);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+.donecheck svg { width: 30px; height: 30px; display: block; }
+.donecheck .tick {
+  stroke-dasharray: 34;
+  stroke-dashoffset: 34;
+  animation: draw 480ms 180ms cubic-bezier(.2,.7,.3,1) forwards;
+}
+@keyframes draw { to { stroke-dashoffset: 0; } }
+.donelead {
+  margin: 0 auto;
+  max-width: 330px;
+  font-size: 21px;
+  line-height: 1.45;
+}
+.donesub {
+  margin: 18px 0 0;
+  font-style: italic;
+  font-size: 15px;
+  color: var(--muted);
+}
+
+/* ---- footer ---- */
+.colophon {
+  margin-top: auto;
+  padding-top: 64px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.22em;
+}
+.colophon a { color: var(--faint); text-decoration: none; transition: color 140ms ease; }
+.colophon a:hover { color: var(--ink); }
+.colophon .sep { color: var(--faint); margin: 0 6px; }
+/* The eyebrow is the way back to the front of the site. */
+.head .pre .home { color: inherit; text-decoration: none; }
+.head .pre .home:hover { text-decoration: underline; text-decoration-color: var(--faint);
+  text-underline-offset: 3px; }
+
+/* ---- questions ----
+   Kept in the external stylesheet so the FAQ remains compatible with the
+   page's strict style-src 'self' policy. */
+.faq { width: 100%; }
+.q { border-top: 1.2px solid var(--line); }
+.q:first-of-type { border-top: 0; }
+.q > summary {
+  display: flex; align-items: baseline; gap: 14px;
+  padding: 20px 0; cursor: pointer; list-style: none;
+  font-size: 17px; line-height: 1.4;
+}
+.q > summary::-webkit-details-marker { display: none; }
+.q > summary::after {
+  content: ""; flex: 0 0 auto; margin-left: auto; align-self: center;
+  width: 6px; height: 6px; margin-top: -3px;
+  border-right: 1.3px solid var(--faint); border-bottom: 1.3px solid var(--faint);
+  transform: rotate(45deg); transition: transform 200ms ease, border-color 140ms ease;
+}
+.q[open] > summary::after { transform: rotate(225deg); border-color: var(--ink); }
+.q > summary:hover::after { border-color: var(--muted); }
+.a { padding: 0 0 26px; max-width: 62ch; }
+.a p { margin: 0 0 14px; font-size: 15.5px; line-height: 1.62; color: var(--ink); }
+.a p:last-child { margin-bottom: 0; }
+.a ol { margin: 0 0 14px; padding-left: 20px; }
+.a li { font-size: 15.5px; line-height: 1.62; margin-bottom: 8px; }
+.a code {
+  font-family: var(--mono); font-size: 0.88em;
+  border: 1.2px solid var(--line); border-radius: 6px; padding: 1px 6px;
+  white-space: nowrap;
+}
+.a figure { margin: 20px 0; }
+.a img {
+  display: block; width: 100%; height: auto;
+  border: 1.2px solid var(--line); border-radius: 12px; background: var(--bg);
+}
+.a figure.glass img { border-radius: 4px; }
+.a figcaption {
+  margin-top: 8px; font-size: 13px; font-style: italic; color: var(--faint);
+}
+.a .aside { color: var(--muted); font-size: 14.5px; }
+.faqhead { text-align: center; margin-bottom: 40px; }
+.faqhead .pre { margin: 0 0 10px; font-style: italic; font-size: 16px; color: var(--muted); }
+.faqhead h1 {
+  margin: 0; font-weight: 400; font-size: clamp(38px, 11vw, 50px);
+  line-height: 0.95; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.foot { margin: 48px 0 0; text-align: center; }
+.foot a { font-family: var(--mono); font-size: 13px; letter-spacing: 0.04em; text-decoration: none; color: var(--muted); }
+.foot a:hover { color: var(--ink); }
+.foot .sep { color: var(--faint); font-family: var(--mono); font-size: 13px; margin: 0 4px; }
+.pre .home { color: inherit; text-decoration: none; }
+.pre .home:hover { text-decoration: underline; text-decoration-color: var(--faint);
+  text-underline-offset: 3px; }
+.a .ast { text-decoration: none; color: var(--faint); font-size: 0.8em; vertical-align: super; }
+.a .ast:hover { color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fieldrow.shake, .gobtn.busy .spin, .donecheck .tick { animation: none; }
+  .stepwrap, .stepbody { transition: none; }
+  .donecheck .tick { stroke-dashoffset: 0; }
+}
+
+html.embed .catalog-open-full-placeholder { visibility: hidden; pointer-events: none; }
