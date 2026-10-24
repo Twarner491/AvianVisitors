@@ -17,6 +17,7 @@ SECRET_KEYS = (
     "EBIRD_API_KEY",
     "EBIRD_KEY",
     "FLICKR_API_KEY",
+    "XENO_CANTO_API_KEY",
     "HEARTBEAT_URL",
     "RTSP_STREAM",
     "DB_PWD",

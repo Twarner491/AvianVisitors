@@ -9692,20 +9692,7 @@
             + '<span class="conf"><b>' + ((+d.conf || 0) * 100).toFixed(0) + '%</b></span>'
             + '<span class="date-time"><b>' + fmtDateLine(d.d, d.t) + '</b></span>'
             + '</button>'
-            + '<div class="rec-spectro" aria-hidden="true">'
-            + '<div class="rec-spectro-loading">loading spectrogram...</div>'
-            + '<div class="rec-spectro-played"></div>'
-            + '<div class="rec-loop-region" aria-hidden="true"></div>'
-            + '<div class="rec-spectro-cursor"></div>'
-            + '<div class="rec-spectro-scrub" role="slider" aria-label="Scrub recording spectrogram" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0"></div>'
-            + '<button class="rec-loop-handle" data-edge="start" type="button" role="slider" aria-label="Repeat section start" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="-1"></button>'
-            + '<button class="rec-loop-handle" data-edge="end" type="button" role="slider" aria-label="Repeat section end" aria-valuemin="0" aria-valuemax="100" aria-valuenow="25" tabindex="-1"></button>'
-            + '<div class="rec-player-controls">'
-            + '<button class="rec-player-toggle" type="button" aria-label="Play recording">' + ICON_PLAY + '</button>'
-            + '<span class="rec-player-time" aria-hidden="true">0:00 / --:--</span>'
-            + '<button class="rec-loop-toggle" type="button" aria-label="Repeat a selected section" aria-pressed="false">' + ICON_LOOP + '<span>loop</span></button>'
-            + '</div>'
-            + '</div>'
+            + recSpectroHtml(CALL_COMPARE ? COMPARE_BUTTON : '')
             + '</li>';
         }).join('')
         : '<li class="rec-empty">No recordings yet.</li>';
@@ -13868,7 +13855,7 @@
   // Lazy-add + paint the canvas-based spectrogram for a row's strip.
   // Decoded buffers are cached per file so re-expanding is instant.
   function ensureSpectroImage(row) {
-    var file = row && row.dataset.file;
+    var file = row && (row.dataset.file || row.dataset.src);
     if (!file) return;
     var rowScope = validEducatorScopeKey(row.dataset.edu) ? row.dataset.edu : '';
     var detection = rowScope ? educatorDetectionId(row.dataset.detection) : null;
@@ -13982,7 +13969,7 @@
     // Exact stored PNGs remain useful even when WebAudio is unavailable.
     // Audio decoding checks the context only when that path is actually used.
     var ctx = getSpecCtx();
-    decodeRecording(mediaApiUrl('recording', { file: file, detection: detection }, rowScope), mediaCacheKey)
+    decodeRecording(row.dataset.src || mediaApiUrl('recording', { file: file, detection: detection }, rowScope), mediaCacheKey)
       .then(paintDecoded)
       .catch(function () {
         return paintStoredSpectrogram(mediaApiUrl('spectrogram', { file: file, detection: detection }, rowScope))
@@ -14007,6 +13994,7 @@
   }
 
   function recordingSources(row) {
+    if (row.dataset.src) return [row.dataset.src];
     var sources = [];
     var file = row.dataset.file || '';
     if (file) {
@@ -14145,9 +14133,109 @@
     else trySource(0);
   }
 
+  // Spectrogram strip + player, shared by detection rows and the xeno-canto
+  // reference row. `extra` is an optional fourth control.
+  function recSpectroHtml(extra) {
+    return '<div class="rec-spectro" aria-hidden="true">'
+      + '<div class="rec-spectro-loading">loading spectrogram...</div>'
+      + '<div class="rec-spectro-played"></div>'
+      + '<div class="rec-loop-region" aria-hidden="true"></div>'
+      + '<div class="rec-spectro-cursor"></div>'
+      + '<div class="rec-spectro-scrub" role="slider" aria-label="Scrub recording spectrogram" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0"></div>'
+      + '<button class="rec-loop-handle" data-edge="start" type="button" role="slider" aria-label="Repeat section start" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="-1"></button>'
+      + '<button class="rec-loop-handle" data-edge="end" type="button" role="slider" aria-label="Repeat section end" aria-valuemin="0" aria-valuemax="100" aria-valuenow="25" tabindex="-1"></button>'
+      + '<div class="rec-player-controls"' + (extra ? ' data-extra' : '') + '>'
+      + '<button class="rec-player-toggle" type="button" aria-label="Play recording">' + ICON_PLAY + '</button>'
+      + '<span class="rec-player-time" aria-hidden="true">0:00 / --:--</span>'
+      + '<button class="rec-loop-toggle" type="button" aria-label="Repeat a selected section" aria-pressed="false">' + ICON_LOOP + '<span>loop</span></button>'
+      + (extra || '')
+      + '</div>'
+      + '</div>';
+  }
+
+  // Compare: an optional reference row from xeno-canto under a detection,
+  // drawn and played by the same strip so both read the same way. Hidden
+  // unless the station has XENO_CANTO_API_KEY set (see xeno-canto.php).
+  var CALL_COMPARE = false;
+  var XC_CACHE = {};
+  var COMPARE_BUTTON = '<button class="rec-compare-toggle" type="button" aria-label="Compare with reference recordings" aria-pressed="false">compare</button>';
+  fetchJson('./avian/api/xeno-canto.php').then(function (j) {
+    CALL_COMPARE = !!(j && j.enabled);
+  }).catch(function () {});
+
+  function toggleReferenceRecordings(row) {
+    var button = row.querySelector('.rec-compare-toggle');
+    var open = row.nextElementSibling;
+    if (open && open.classList.contains('rec-reference')) {
+      open.remove();
+      button.setAttribute('aria-pressed', 'false');
+      return;
+    }
+    var sci = (document.getElementById('modalSci').textContent || '').trim();
+    var slot = document.createElement('li');
+    slot.className = 'rec-reference rec-empty';
+    slot.textContent = 'Loading reference recordings...';
+    row.parentNode.insertBefore(slot, row.nextSibling);
+    button.setAttribute('aria-pressed', 'true');
+    if (!XC_CACHE[sci]) {
+      XC_CACHE[sci] = fetchJson('./avian/api/xeno-canto.php?sci=' + encodeURIComponent(sci))
+        .then(function (j) { return (j && j.recordings) || []; });
+    }
+    XC_CACHE[sci].then(function (list) {
+      if (slot.parentNode) showReferenceRecording(slot, { sci: sci, list: list }, 0);
+    }).catch(function () {
+      delete XC_CACHE[sci];
+      slot.textContent = 'Reference recordings unavailable.';
+    });
+  }
+
+  function showReferenceRecording(slot, xc, index) {
+    var list = xc.list;
+    if (!list.length) {
+      slot.textContent = 'No reference recordings on xeno-canto.';
+      return;
+    }
+    index = (index + list.length) % list.length;
+    var r = list[index];
+    var credit = escHtml(r.rec || 'Unknown recordist')
+      + ' · ' + (r.license_url ? '<a href="' + escHtml(r.license_url) + '" target="_blank" rel="noopener">' + escHtml(r.license) + '</a>' : escHtml(r.license))
+      + (r.cnt ? ' · ' + escHtml(r.cnt) : '')
+      + ' · <a href="' + escHtml(r.url) + '" target="_blank" rel="noopener">XC' + escHtml(r.id) + '</a>';
+    var nav = '<span class="rec-reference-nav">'
+      + '<button class="rec-reference-step" data-step="-1" type="button" aria-label="Previous reference recording">&lsaquo;</button>'
+      + '<button class="rec-reference-step" data-step="1" type="button" aria-label="Next reference recording">&rsaquo;</button>'
+      + '</span>';
+    var holder = document.createElement('ol');
+    holder.innerHTML = '<li class="rec-row rec-reference" data-src="./avian/api/xeno-canto.php?sci='
+      + escHtml(encodeURIComponent(xc.sci)) + '&amp;id=' + escHtml(r.id) + '">'
+      + '<button class="rec-row-toggle" type="button" aria-expanded="false">'
+      + '<span class="when"><b>Reference</b></span>'
+      + '<span class="conf"><b>' + (index + 1) + ' of ' + list.length + '</b></span>'
+      + '<span class="date-time"><b>' + escHtml(r.type || 'xeno-canto') + '</b></span>'
+      + '</button>'
+      + recSpectroHtml(list.length > 1 ? nav : '')
+      + '<p class="rec-reference-credit">' + credit + '</p>'
+      + '</li>';
+    var reference = holder.firstChild;
+    reference.__xc = { sci: xc.sci, list: list, index: index };
+    slot.parentNode.replaceChild(reference, slot);
+    setRecordingExpanded(reference, true);
+  }
+
   var modalRecordings = document.getElementById('modalRecordings');
   modalRecordings.addEventListener('click', function (ev) {
     if (!ev.target.closest) return;
+    var compare = ev.target.closest('.rec-compare-toggle');
+    if (compare) {
+      toggleReferenceRecordings(compare.closest('.rec-row'));
+      return;
+    }
+    var step = ev.target.closest('.rec-reference-step');
+    if (step) {
+      var reference = step.closest('.rec-reference');
+      showReferenceRecording(reference, reference.__xc, reference.__xc.index + (+step.dataset.step));
+      return;
+    }
     var play = ev.target.closest('.rec-player-toggle');
     if (play) {
       playModalRecording(play.closest('.rec-row'));

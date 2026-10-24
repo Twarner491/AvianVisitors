@@ -2323,6 +2323,40 @@ body.postcard-open { overflow: hidden; }
   .postcard-recordings .rec-row-toggle:hover { transform: scale(.994); }
 }
 .postcard-recordings .rec-row-toggle:active { transform: scale(.988); }
+/* Compare: optional xeno-canto reference row (see xeno-canto.php). */
+.postcard-recordings .rec-player-controls[data-extra] { grid-template-columns: 24px minmax(0, 1fr) auto auto; }
+.postcard-recordings .rec-compare-toggle,
+.postcard-recordings .rec-reference-step {
+  height: 22px; padding: 0 6px;
+  border: 0; border-radius: 4px;
+  color: var(--card-muted); background: transparent;
+  cursor: pointer;
+  font: 600 7px/1 ui-monospace, Menlo, monospace;
+  letter-spacing: .08em; text-transform: uppercase;
+}
+.postcard-recordings .rec-reference-step { font-size: 12px; letter-spacing: 0; }
+.postcard-recordings .rec-compare-toggle[aria-pressed="true"] {
+  color: var(--card-ink); background: var(--card-control);
+}
+.postcard-recordings .rec-compare-toggle:focus-visible,
+.postcard-recordings .rec-reference-step:focus-visible {
+  outline: 1px solid var(--card-ink); outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .postcard-recordings .rec-compare-toggle:hover,
+  .postcard-recordings .rec-reference-step:hover { background: var(--card-control); }
+}
+.postcard-recordings .rec-row.rec-reference { border-top-style: dashed; }
+.postcard-recordings .rec-reference .when b,
+.postcard-recordings .rec-reference .conf b,
+.postcard-recordings .rec-reference .date-time b { color: var(--card-muted); }
+.postcard-recordings .rec-reference-credit {
+  margin: -6px 0 13px;
+  color: var(--card-muted);
+  font: 500 8px/1.5 ui-monospace, Menlo, monospace;
+  letter-spacing: .04em;
+}
+.postcard-recordings .rec-reference-credit a { color: inherit; }
 .postcard-generate {
   -webkit-appearance: none;
   appearance: none;
