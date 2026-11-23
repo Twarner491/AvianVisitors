@@ -102,6 +102,19 @@ class GenerateOneRevisionTest(unittest.TestCase):
         state = json.loads(generate_one.STATE.read_text(encoding="utf-8"))
         self.assertFalse(state["ok"])
 
+    def test_invalid_image_model_fails_without_mutating_art(self) -> None:
+        def render(*_args, **_kwargs):
+            self.fail("invalid configuration reached the renderer")
+
+        with mock.patch.dict(os.environ, {"GEMINI_IMAGE_MODEL": "private-value/invalid"}):
+            self.assertEqual(self.run_generator(render), 1)
+
+        state = json.loads(generate_one.STATE.read_text(encoding="utf-8"))
+        self.assertFalse(state["ok"])
+        self.assertIn("GEMINI_IMAGE_MODEL", state["error"])
+        self.assertNotIn("private-value", state["error"])
+        self.assertEqual(self.revision_state.read_text(encoding="ascii"), "0" * 64 + "\n")
+
     def test_successful_masks_child_commits_through_inherited_lock(self) -> None:
         def render(_key, _prompt, _sci, _com, pose, **_kwargs):
             return f"render-{pose}".encode("ascii")

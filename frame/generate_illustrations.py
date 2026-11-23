@@ -25,6 +25,7 @@ history) or let it prompt:
     python3 frame/generate_illustrations.py --station-id 12345
 
 --country supports non-US postcodes; --sample controls how many top species are checked.
+GEMINI_IMAGE_MODEL overrides the image model used by pregen.py.
 """
 from __future__ import annotations
 

@@ -14,10 +14,10 @@
 //                          both cost control and input control, since
 //                          sci/com reach a shell command line.
 //
-// Uses the Gemini key saved via the settings panel (GEMINI_API_KEY in
-// birdnet.conf). Direct private-address requests are available without a
-// password unless the owner enables the LAN admin gate. Forwarded and
-// public-host requests always require the station password.
+// Uses the Gemini key saved via the settings panel and an optional image
+// model override in the station config. Direct private-address requests are
+// available without a password unless the owner enables the LAN admin gate.
+// Forwarded and public-host requests always require the station password.
 
 declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
@@ -25,6 +25,7 @@ header('Cache-Control: no-store');
 
 require_once __DIR__ . '/admin-auth.php';
 require_once __DIR__ . '/bundle-runtime.php';
+require_once __DIR__ . '/station-config.php';
 avian_require_admin();
 
 $BIRDNETPI_DIR = dirname(__DIR__, 2);
@@ -66,18 +67,14 @@ function chroma_count(string $illus): int {
     return $n;
 }
 
-function conf_value(string $conf, string $key): string {
-    if (!is_readable($conf)) return '';
-    foreach (file($conf, FILE_IGNORE_NEW_LINES) as $line) {
-        if (preg_match('/^\s*' . $key . '\s*=\s*(.*)$/', $line, $m)) {
-            $v = trim($m[1]);
-            if (strlen($v) >= 2 && $v[0] === '"' && substr($v, -1) === '"') {
-                $v = substr($v, 1, -1);
-            }
-            return $v;
+function conf_value(string $conf, string $key): ?string {
+    $value = '';
+    foreach (@file($conf, FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+        if (preg_match('/^\s*(?:export\s+)?' . preg_quote($key, '/') . '\s*=\s*(.*)$/', $line, $m)) {
+            $value = avian_station_config_literal($m[1]);
         }
     }
-    return '';
+    return $value;
 }
 
 function atomic_write(string $path, string $contents): bool {
@@ -225,9 +222,16 @@ if ($action === 'start') {
     $com = (string)$row['Com_Name'];
 
     $key = conf_value($CONF, 'GEMINI_API_KEY');
-    if ($key === '') {
+    if ($key === null || $key === '') {
         http_response_code(409);
         echo json_encode(['error' => 'no gemini key', 'hint' => 'add it in settings']);
+        exit;
+    }
+    $imageModel = conf_value($CONF, 'GEMINI_IMAGE_MODEL');
+    if ($imageModel === null
+        || ($imageModel !== '' && !preg_match('/\Agemini-[a-z0-9]+(?:[.-][a-z0-9]+)*\z/', $imageModel))) {
+        http_response_code(409);
+        echo json_encode(['error' => 'invalid Gemini image model', 'hint' => 'check GEMINI_IMAGE_MODEL in birdnet.conf']);
         exit;
     }
 
@@ -355,6 +359,8 @@ if ($action === 'start') {
     $environment = getenv();
     if (!is_array($environment)) $environment = [];
     $environment['GEMINI_API_KEY'] = $key;
+    unset($environment['GEMINI_IMAGE_MODEL']);
+    if ($imageModel !== '') $environment['GEMINI_IMAGE_MODEL'] = $imageModel;
     $descriptors = [
         0 => ['file', '/dev/null', 'r'],
         1 => ['file', '/dev/null', 'a'],

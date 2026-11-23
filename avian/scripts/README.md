@@ -7,7 +7,7 @@ this directory.
 
 ## Pipeline
 
-1. `pregen.py` renders each bird with Gemini 2.5 Flash Image, on a flat cream ground.
+1. `pregen.py` renders each bird with Gemini, on a flat cream ground.
 2. `cutout.py` removes the ground with BiRefNet and crops to the bird.
 3. `build_masks.py` rebuilds the collage silhouette masks into `dims.json` + `masks.json`, which `apt.js` fetches at load.
 4. `verify.py` (optional) runs an adversarial species-ID + anatomy check.
@@ -42,6 +42,37 @@ revisions.
 directly). `--ebird-region` filters to species actually seen in your region
 (needs `EBIRD_API_KEY`). Re-render one bird with
 `--species "Calypte anna|Anna's Hummingbird" --force`.
+
+## Choosing a Gemini image model
+
+The default is `gemini-2.5-flash-image` to preserve the existing illustration
+style. Google [lists March 15, 2027 as its shutdown date](https://aistudio.google.com/docs/deprecations#nano-banana-models)
+and recommends `gemini-3.1-flash-lite-image`. Override the model with
+`GEMINI_IMAGE_MODEL` for `pregen.py` or `frame/generate_illustrations.py`.
+Use only the bare model ID, not a URL. For on-demand generation from the
+Atlas, set `GEMINI_IMAGE_MODEL="gemini-3.1-flash-lite-image"` in the station's
+`/etc/birdnet/birdnet.conf`. Remove the line to restore the default.
+
+Compare a few perched and flight pairs in a scratch directory before
+regenerating a library. Google's [image guide](https://aistudio.google.com/docs/image-generation)
+notes that Flash Lite Image isn't optimized for multiple reference images.
+
+```bash
+sample_dir=$(mktemp -d)
+GEMINI_IMAGE_MODEL=gemini-3.1-flash-lite-image python3 pregen.py \
+  --species "Aphelocoma californica|California Scrub-Jay" \
+  --species "Ardea alba|Great Egret" \
+  --refs "$sample_dir/references" --out "$sample_dir/illustrations"
+python3 cutout.py --dir "$sample_dir/illustrations"
+```
+
+Check species markings, pose consistency, and edges on the cut images.
+Repeat with `gemini-2.5-flash-image` and a separate output directory for a
+direct comparison. Each run above requests four paid images. For an Atlas
+rollout, check the on-demand chroma cutout too: pale birds can lose plumage
+there even when BiRefNet keeps it. Change the default ahead of shutdown
+once the replacement works for both cutout paths. Changing models does not
+rewrite existing illustrations.
 
 ## Why a cream ground
 
