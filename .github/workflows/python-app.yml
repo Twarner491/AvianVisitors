@@ -25,7 +25,7 @@ jobs:
         pip install pytest Pillow -r frame/requirements-shoot.txt
         python -m playwright install --with-deps chromium
     - name: Test partial image transfers
-      run: pytest tests/test_frame_capture_browser.py -v
+      run: pytest tests/test_frame_capture_browser.py tests/test_collage_refresh_browser.py -v
 
   build:
 

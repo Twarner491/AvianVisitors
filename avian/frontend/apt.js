@@ -3114,6 +3114,11 @@
   function renderCollage(items, animate) {
     collage.removeAttribute('data-frame-token');
     collage.setAttribute('data-frame-revision', ++collageRenderRevision);
+    // Reuse loaded or pending images; retry failed loads on the next render.
+    var reusableImgs = {};
+    (collage.querySelectorAll ? collage.querySelectorAll('.gtile > img') : []).forEach(function (el) {
+      if (!el.complete || el.naturalWidth > 0) reusableImgs[el.getAttribute('src')] = el;
+    });
     collage.innerHTML = '';
     // Drop the previous render's hit-test tiles up front so a click or hover on
     // the empty-nest state (or a collage that hasn't laid out yet) resolves to
@@ -3303,6 +3308,13 @@
       btn.style.width = r.fullW + 'px';
       btn.style.height = r.fullH + 'px';
       btn.innerHTML = '<img loading="lazy" decoding="async" src="' + img + '" alt="' + escHtml(s.com) + '">';
+      var freshImg = btn.firstChild;
+      var keptImg = freshImg && reusableImgs[freshImg.getAttribute('src')];
+      if (keptImg) {
+        delete reusableImgs[freshImg.getAttribute('src')];
+        keptImg.alt = freshImg.alt;
+        btn.replaceChild(keptImg, freshImg);
+      }
       if (r.labelRows) {
         addLabelInk();
         // One baseline per line of the name, each riding the line the planner
