@@ -599,7 +599,7 @@
     const tipId = id + "-tip";
     const commandTextId = id + "-text";
     const command = `sudo avian-bundle use '${selector}'`;
-    trigger.setAttribute("aria-label", "Copy install command");
+    trigger.setAttribute("aria-label", "Copy install command for " + pack.region + " (" + pack.contributor + ")");
     trigger.setAttribute("aria-describedby", tipId);
     trigger.setAttribute("aria-haspopup", "dialog");
     trigger.setAttribute("aria-expanded", "false");
@@ -1242,61 +1242,72 @@
     const action = document.createElement("div");
     action.className = "style-action";
     const canUse = (pack) => embedded ? installablePackIds.has(pack.id) : pack.installable;
-    const activeTarget = visiblePacks.find((pack) => pack.id === activePackId);
-    const target = activeTarget
-      || visiblePacks.find((pack) => installedPackIds.has(pack.id) && canUse(pack))
-      || visiblePacks.find((pack) => pack.official && canUse(pack))
-      || visiblePacks.find((pack) => canUse(pack));
-    if (target) {
-      const actionRow = document.createElement("div");
-      actionRow.className = "bundle-action-row";
-      if (embedded) {
-        const use = document.createElement("button");
-        use.type = "button";
-        use.className = "bundle-use";
-        const canRefresh = activeTarget && target.id !== "official-western-us-woodblock" && canUse(target);
-        if (activeTarget && !canRefresh) {
-          use.textContent = "Currently in use";
-          use.disabled = true;
-          use.setAttribute("data-current", "");
-        } else {
-          if (canRefresh) use.textContent = "Refresh local birds";
-          else use.innerHTML = "Use on my local station <span aria-hidden=\"true\">↗</span>";
-          use.addEventListener("click", () => {
-            if (!handoff || !parentOrigin) return;
-            window.parent.postMessage({
-              v: 1,
-              type: "avianvisitors:bundle-install",
-              id: target.id,
-              handoff,
-            }, parentOrigin);
-          });
-        }
-        actionRow.append(use);
-      } else {
-        const use = document.createElement("a");
-        use.className = "bundle-use";
-        const stationBase = loopbackHost ? "http://127.0.0.1:8137/" : "http://birdnet.local/avian/";
-        const handoffUrl = new URL(stationBase);
-        handoffUrl.searchParams.set("bundle", target.id);
-        handoffUrl.searchParams.set("style", group.id);
-        use.href = handoffUrl.toString();
-        use.innerHTML = "Use on my local station <span aria-hidden=\"true\">↗</span>";
-        actionRow.append(use);
-        const command = bundleCommandControl(target);
-        if (command) actionRow.append(command);
+    visiblePacks.forEach((target) => {
+      const activeTarget = target.id === activePackId;
+      if (!canUse(target) && !activeTarget && !embedded && target.availability !== "unavailable") return;
+      const regionAction = document.createElement("div");
+      regionAction.className = "bundle-region-action";
+      if (visiblePacks.length > 1) {
+        const label = document.createElement("p");
+        label.className = "bundle-region-label";
+        label.textContent = target.region + " (" + target.contributor + ")";
+        regionAction.append(label);
       }
-      action.append(actionRow);
-    } else if (visiblePacks.length &&
-        (embedded || visiblePacks.some((pack) => pack.availability === "unavailable"))) {
-      const unavailable = document.createElement("button");
-      unavailable.type = "button";
-      unavailable.className = "bundle-use";
-      unavailable.textContent = "Unavailable";
-      unavailable.disabled = true;
-      unavailable.setAttribute("data-unavailable", "");
-      action.append(unavailable);
-    }
+      if (canUse(target) || activeTarget) {
+        const actionRow = document.createElement("div");
+        actionRow.className = "bundle-action-row";
+        if (embedded) {
+          const use = document.createElement("button");
+          use.type = "button";
+          use.className = "bundle-use";
+          const canRefresh = activeTarget && target.id !== "official-western-us-woodblock" && canUse(target);
+          const actionLabel = activeTarget && !canRefresh ? "Currently in use"
+            : canRefresh ? "Refresh local birds" : "Use on my local station";
+          if (activeTarget && !canRefresh) {
+            use.textContent = "Currently in use";
+            use.disabled = true;
+            use.setAttribute("data-current", "");
+          } else {
+            if (canRefresh) use.textContent = "Refresh local birds";
+            else use.innerHTML = "Use on my local station <span aria-hidden=\"true\">↗</span>";
+            use.addEventListener("click", () => {
+              if (!handoff || !parentOrigin) return;
+              window.parent.postMessage({
+                v: 1,
+                type: "avianvisitors:bundle-install",
+                id: target.id,
+                handoff,
+              }, parentOrigin);
+            });
+          }
+          use.setAttribute("aria-label", actionLabel + " for " + target.region + " (" + target.contributor + ")");
+          actionRow.append(use);
+        } else {
+          const use = document.createElement("a");
+          use.className = "bundle-use";
+          const stationBase = loopbackHost ? "http://127.0.0.1:8137/" : "http://birdnet.local/avian/";
+          const handoffUrl = new URL(stationBase);
+          handoffUrl.searchParams.set("bundle", target.id);
+          handoffUrl.searchParams.set("style", group.id);
+          use.href = handoffUrl.toString();
+          use.innerHTML = "Use on my local station <span aria-hidden=\"true\">↗</span>";
+          use.setAttribute("aria-label", "Use on my local station for " + target.region + " (" + target.contributor + ")");
+          actionRow.append(use);
+          const command = bundleCommandControl(target);
+          if (command) actionRow.append(command);
+        }
+        regionAction.append(actionRow);
+      } else {
+        const unavailable = document.createElement("button");
+        unavailable.type = "button";
+        unavailable.className = "bundle-use";
+        unavailable.textContent = "Unavailable";
+        unavailable.disabled = true;
+        unavailable.setAttribute("data-unavailable", "");
+        regionAction.append(unavailable);
+      }
+      action.append(regionAction);
+    });
     info.append(action);
     layout.append(visual, info);
     body.append(layout);
