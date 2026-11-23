@@ -11,10 +11,12 @@ mkdir -p /etc/birdnet /home/bird/BirdNET-Pi/extras
 cp -R /source/extras/archive /home/bird/BirdNET-Pi/extras/archive
 cat >/etc/birdnet/birdnet.conf <<'EOF'
 BIRDNET_USER=bird
-EOF
-cat >/home/bird/BirdNET-Pi/birdnet.conf <<'EOF'
 MAX_FILES_SPECIES=99999
 FULL_DISK=keep
+EOF
+cat >/home/bird/BirdNET-Pi/birdnet.conf <<'EOF'
+MAX_FILES_SPECIES=10
+FULL_DISK=purge
 EOF
 chown -R bird:bird /home/bird/BirdNET-Pi
 
@@ -81,6 +83,8 @@ rm /home/bird/bird-archive
 
 install_json=$($control install)
 grep -q '"installed":true' <<<"$install_json" || fail "install state"
+grep -q '"retention":{"preserve":true,"full_disk":"keep","ready":true}' <<<"$install_json" \
+  || fail "retention did not use canonical settings"
 grep -q '^User=bird$' /etc/systemd/system/bird-archive.service || fail "unit user"
 grep -q '^NoNewPrivileges=true$' /etc/systemd/system/bird-archive.service || fail "unit hardening"
 systemd-analyze verify /etc/systemd/system/bird-archive.service \

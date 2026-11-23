@@ -16,7 +16,8 @@ class DiagnosticRedactionTests(unittest.TestCase):
     def redactor_result(self, mode, text, config=None):
         command = [sys.executable, str(REDACTOR), "--mode", mode]
         if config is not None:
-            command.extend(["--config", str(config)])
+            for path in config if isinstance(config, (tuple, list)) else (config,):
+                command.extend(["--config", str(path)])
         return subprocess.run(
             command,
             input=text,
@@ -145,6 +146,82 @@ class DiagnosticRedactionTests(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertNotIn("charlie-ansi-token", result.stderr)
 
+    def test_journal_combines_config_secrets_longest_first(self):
+        with tempfile.TemporaryDirectory() as directory:
+            current = pathlib.Path(directory) / "current.conf"
+            checkout = pathlib.Path(directory) / "checkout.conf"
+            current.write_text("GEMINI_API_KEY=current-secret-token\n")
+            checkout.write_text("GEMINI_API_KEY=current-secret-token-old-suffix\n")
+            for configs in ((current, checkout), (checkout, current)):
+                with self.subTest(configs=configs):
+                    output = self.run_redactor(
+                        "journal", "current-secret-token current-secret-token-old-suffix\n", configs
+                    )
+                    self.assertEqual(output, "[REDACTED] [REDACTED]\n")
+
+    def test_extra_config_errors_fail_closed_without_secret_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            current = pathlib.Path(directory) / "current.conf"
+            current.write_text("GEMINI_API_KEY=current-secret-token\n")
+            checkout = pathlib.Path(directory) / "checkout.conf"
+            checkout.write_text("GEMINI_API_KEY=$'ambiguous-old-secret'\n")
+            for extra in (checkout, current.with_name("missing.conf"), current.parent):
+                with self.subTest(extra=extra):
+                    result = self.redactor_result(
+                        "journal", "current-secret-token ambiguous-old-secret\n", (current, extra)
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, "")
+                    self.assertNotIn("ambiguous-old-secret", result.stderr)
+
+    def test_path_mode_rejects_multiple_config_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            current = pathlib.Path(directory) / "current.conf"
+            checkout = pathlib.Path(directory) / "checkout.conf"
+            current.write_text("RECS_DIR=/canonical/recordings\n")
+            checkout.write_text("RECS_DIR=/stale/recordings\n")
+            result = subprocess.run(
+                [sys.executable, str(REDACTOR), "--mode", "path", "--config", str(current),
+                 "--config", str(checkout), "--key", "RECS_DIR", "--home", directory],
+                capture_output=True, text=True, check=False, timeout=10,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+
+    def test_dump_rejects_unsafe_checkout_config_before_staging(self):
+        for kind in ("ambiguous", "directory", "dangling", "fifo"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                home = pathlib.Path(directory)
+                repo = home / "BirdNET-Pi"
+                scripts = repo / "scripts"
+                recordings = repo / "recordings"
+                scripts.mkdir(parents=True)
+                recordings.mkdir()
+                shutil.copy2(REDACTOR, scripts / REDACTOR.name)
+                (scripts / "install_services.sh").write_text("#!/bin/sh\n")
+                canonical = home / "current.conf"
+                canonical.write_text(f'RECS_DIR="{recordings}"\n')
+                checkout = repo / "birdnet.conf"
+                if kind == "ambiguous":
+                    checkout.write_text("GEMINI_API_KEY=$'ambiguous-old-secret'\n")
+                elif kind == "directory":
+                    checkout.mkdir()
+                elif kind == "dangling":
+                    checkout.symlink_to(home / "missing.conf")
+                else:
+                    os.mkfifo(checkout)
+                archive = repo / "logs.tar.gz"
+                archive.write_bytes(b"prior archive")
+                result = subprocess.run(
+                    ["bash", str(ROOT / "scripts/dump_logs.sh")],
+                    env={**os.environ, "HOME": str(home), "AVIAN_DIAGNOSTIC_CONFIG": str(canonical)},
+                    capture_output=True, text=True, check=False, timeout=10,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("ambiguous-old-secret", result.stdout + result.stderr)
+                self.assertEqual(archive.read_bytes(), b"prior archive")
+                self.assertFalse(any(repo.glob(".avian-logs.*")))
+
     def test_unit_environment_quotes_are_preserved_while_values_are_redacted(self):
         with tempfile.TemporaryDirectory() as directory:
             config = pathlib.Path(directory) / "birdnet.conf"
@@ -225,15 +302,21 @@ class DiagnosticRedactionTests(unittest.TestCase):
                 encoding="utf-8",
             )
             current_token = "archive-current-station-token"
+            checkout_token = "stale-checkout-token"
             stale_token = "stale-pre-redaction-token"
             unit_token = "service-unit-station-token"
             inherited_token = "inherited-birdweather-token"
             inherited_gemini = "inherited-gemini-token"
             inherited_refresh = "inherited-refresh-token"
-            (repo / "birdnet.conf").write_text(
+            config = pathlib.Path(directory) / "system.conf"
+            config.write_text(
                 f'export BIRDWEATHER_ID={current_token}\n'
                 'GEMINI_API_KEY="archive-gemini-secret"\n'
                 f'RECS_DIR="{recordings}"\n',
+                encoding="utf-8",
+            )
+            (repo / "birdnet.conf").write_text(
+                f'BIRDWEATHER_ID={checkout_token}\nRECS_DIR="/stale/unavailable-recordings"\n',
                 encoding="utf-8",
             )
             (stale / "old-install.log").write_text(stale_token, encoding="utf-8")
@@ -267,6 +350,8 @@ class DiagnosticRedactionTests(unittest.TestCase):
             (tools / "journalctl").write_text(
                 "#!/bin/sh\n"
                 "env\n"
+                f"echo 'unlabelled credential {current_token}'\n"
+                f"echo 'unlabelled old credential {checkout_token}'\n"
                 "echo '+ BIRDWEATHER_ID=historical-journal-token'\n",
                 encoding="utf-8",
             )
@@ -280,6 +365,7 @@ class DiagnosticRedactionTests(unittest.TestCase):
                     "HOME": str(home),
                     "PATH": f"{tools}:{os.environ['PATH']}",
                     "AVIAN_DIAGNOSTIC_SYSTEMD_WANTS_DIR": str(wants),
+                    "AVIAN_DIAGNOSTIC_CONFIG": str(config),
                     "BIRDWEATHER_ID": inherited_token,
                     "GEMINI_API_KEY": inherited_gemini,
                     "AVIAN_DISK_REFRESH_TOKEN": inherited_refresh,
@@ -304,6 +390,7 @@ class DiagnosticRedactionTests(unittest.TestCase):
             self.assertNotIn("old-install.log", "\n".join(names))
             for secret in (
                 current_token,
+                checkout_token,
                 stale_token,
                 unit_token,
                 "unit-gemini-token",
@@ -315,6 +402,7 @@ class DiagnosticRedactionTests(unittest.TestCase):
             ):
                 self.assertNotIn(secret, contents)
             self.assertIn("BIRDWEATHER_ID=[REDACTED]", contents)
+            self.assertNotIn("/stale/unavailable-recordings", contents)
             self.assertIn('Environment="BIRDWEATHER_ID=[REDACTED]"', contents)
             self.assertIn("Environment=GEMINI_API_KEY=[REDACTED]", contents)
             self.assertIn("diagnostic-fixture.service", "\n".join(names))

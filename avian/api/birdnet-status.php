@@ -41,7 +41,7 @@ $action = $_GET['action'] ?? 'diag';
 $BIRDNETPI_DIR = dirname(__DIR__, 2);
 $BIRDSONGS_DIR = dirname(__DIR__, 3) . '/BirdSongs';
 $DB_PATH       = "$BIRDNETPI_DIR/scripts/birds.db";
-$CONF_PATH     = "$BIRDNETPI_DIR/birdnet.conf";
+$CONF_PATH     = '/etc/birdnet/birdnet.conf';
 $STREAM_DIR    = "$BIRDSONGS_DIR/StreamData";
 $ADMIN_CONTROL = getenv('AV_ADMIN_CONTROL') ?: '/usr/local/sbin/avian-admin-control';
 

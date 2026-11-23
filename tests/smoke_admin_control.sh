@@ -446,6 +446,8 @@ code=$(curl -sS -o /tmp/avian-api-body -w '%{http_code}' \
 [ "$code" = 200 ] || fail "midnight reset setting was not accepted"
 grep -Fxq 'RESET_AT_MIDNIGHT=1' "$conf" \
   || fail "midnight reset setting did not reach the root config writer"
+[ -L /etc/birdnet/birdnet.conf ] && [ "$(readlink -f /etc/birdnet/birdnet.conf)" = "$conf" ] \
+  || fail "config writer replaced the canonical symlink"
 curl -fsS -b /tmp/avian-cookie http://127.0.0.1:8896/avian/api/config.php \
   >/tmp/avian-api-body
 grep -Fq '"RESET_AT_MIDNIGHT":true' /tmp/avian-api-body \

@@ -234,13 +234,13 @@ def redact_journal(text, secret_values=()):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("config", "journal", "path"), required=True)
-    parser.add_argument("--config")
+    parser.add_argument("--config", action="append", default=[])
     parser.add_argument("--key", choices=("RECS_DIR",))
     parser.add_argument("--home")
     args = parser.parse_args()
     if args.mode == "path":
-        if not args.config or args.key != "RECS_DIR" or not args.home:
-            parser.error("--config, --key RECS_DIR, and --home are required for path mode")
+        if len(args.config) != 1 or args.key != "RECS_DIR" or not args.home:
+            parser.error("one --config, --key RECS_DIR, and --home are required for path mode")
         if (
             len(args.home) > 4096
             or not args.home.startswith("/")
@@ -250,7 +250,7 @@ def main():
         ):
             parser.error("--home must be a safe absolute path")
         try:
-            with open(args.config, encoding="utf-8", errors="replace") as handle:
+            with open(args.config[0], encoding="utf-8", errors="replace") as handle:
                 path = load_config_path(handle.read(), args.key, posixpath.normpath(args.home))
         except (OSError, ValueError) as error:
             parser.error(str(error))
@@ -268,10 +268,12 @@ def main():
     if not args.config:
         parser.error("--config is required for journal mode")
     try:
-        with open(args.config, encoding="utf-8", errors="replace") as handle:
-            secrets = load_secret_values(handle.read())
-        output = redact_journal(source, secrets)
-    except ValueError as error:
+        secrets = set()
+        for config in args.config:
+            with open(config, encoding="utf-8", errors="replace") as handle:
+                secrets.update(load_secret_values(handle.read()))
+        output = redact_journal(source, sorted(secrets, key=len, reverse=True))
+    except (OSError, ValueError) as error:
         parser.error(str(error))
     sys.stdout.write(output)
 

@@ -5,6 +5,34 @@ trap 'exit 1' SIGINT SIGHUP
 
 echo "Beginning $0"
 birdnet_conf=$my_dir/birdnet.conf
+conf_link=/etc/birdnet/birdnet.conf
+if [ -e /etc/birdnet ] || [ -L /etc/birdnet ]; then
+  [ -d /etc/birdnet ] && [ ! -L /etc/birdnet ] \
+    || { echo "BirdNET-Pi config directory is unsafe" >&2; exit 1; }
+fi
+if [ -e "$birdnet_conf" ] || [ -L "$birdnet_conf" ]; then
+  [ -f "$birdnet_conf" ] && [ ! -L "$birdnet_conf" ] \
+    && [ "$(readlink -f -- "$birdnet_conf")" = "$birdnet_conf" ] \
+    && [ "$(stat -c %h -- "$birdnet_conf")" = 1 ] \
+    || { echo "BirdNET-Pi checkout config is not a safe regular file" >&2; exit 1; }
+fi
+if [ -e "$conf_link" ] || [ -L "$conf_link" ]; then
+  conf_path=$(readlink -f -- "$conf_link") \
+    || { echo "BirdNET-Pi config path is unsafe" >&2; exit 1; }
+  case "$conf_path" in
+    "$birdnet_conf"|/etc/birdnet/birdnet.conf) ;;
+    *) echo "BirdNET-Pi config path is unsafe" >&2; exit 1 ;;
+  esac
+  [ -f "$conf_path" ] && [ ! -L "$conf_path" ] \
+    && [ "$(stat -c %h -- "$conf_path")" = 1 ] \
+    || { echo "BirdNET-Pi config is not a safe regular file" >&2; exit 1; }
+  if [ "$conf_path" != "$birdnet_conf" ] && [ -f "$birdnet_conf" ] \
+    && ! cmp -s -- "$conf_path" "$birdnet_conf"; then
+    echo "BirdNET-Pi config files differ. Back up both /etc/birdnet/birdnet.conf and $birdnet_conf, then reconcile them before retrying." >&2
+    exit 1
+  fi
+  birdnet_conf=$conf_path
+fi
 
 # Retrieve latitude and longitude from web
 json=$(curl -s4 http://ip-api.com/json || true)
@@ -301,12 +329,14 @@ EOF
 }
 
 # Checks for a birdnet.conf file
-if ! [ -f ${birdnet_conf} ];then
+if ! [ -f "$birdnet_conf" ];then
   install_config
+  chmod g+w "$birdnet_conf"
 fi
-chmod g+w ${birdnet_conf}
 [ -d /etc/birdnet ] || sudo mkdir /etc/birdnet
-sudo ln -sf $birdnet_conf /etc/birdnet/birdnet.conf
+if [ ! -e "$conf_link" ]; then
+  sudo ln -s "$birdnet_conf" "$conf_link"
+fi
 
 source /etc/birdnet/birdnet.conf
 echo 'A $comname ($sciname)  was just detected with a confidence of $confidence ($reason)' | sudo -u $BIRDNET_USER tee "$HOME/BirdNET-Pi/body.txt"

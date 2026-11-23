@@ -801,9 +801,6 @@ def config_path() -> Path | None:
     override = os.environ.get("AVIAN_BUNDLE_CONFIG")
     if override:
         return configured_path("AVIAN_BUNDLE_CONFIG", override)
-    source = station_root() / "birdnet.conf"
-    if source.is_file():
-        return source
     system = Path("/etc/birdnet/birdnet.conf")
     return system if system.is_file() else None
 

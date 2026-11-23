@@ -209,6 +209,52 @@ archive_generation=$(sqlite3 "$paired_root/birds.db" \
   "SELECT status FROM captures WHERE public_id='c_22222222222222222222222222222222';")" = running ] \
   || fail 'backup modified the live listening period'
 
+# Independent copies cannot be restored safely by this legacy tar workflow.
+cp "$repo/birdnet.conf" "$test_root/current.conf"
+for layout in divergent equal canonical-only dangling outside directory; do
+  rm -rf -- /etc/birdnet/birdnet.conf
+  cp "$test_root/current.conf" "$repo/birdnet.conf"
+  case "$layout" in
+    divergent)
+      cp "$test_root/current.conf" /etc/birdnet/birdnet.conf
+      printf 'GEMINI_API_KEY=canonical-secret-fixture\n' >>/etc/birdnet/birdnet.conf
+      ;;
+    equal) cp "$test_root/current.conf" /etc/birdnet/birdnet.conf ;;
+    canonical-only)
+      cp "$test_root/current.conf" /etc/birdnet/birdnet.conf
+      rm "$repo/birdnet.conf"
+      ;;
+    dangling) ln -s "$repo/missing.conf" /etc/birdnet/birdnet.conf ;;
+    outside) ln -s "$test_root/current.conf" /etc/birdnet/birdnet.conf ;;
+    directory) mkdir /etc/birdnet/birdnet.conf ;;
+  esac
+  if [ -f "$repo/birdnet.conf" ]; then chown bird:bird "$repo/birdnet.conf"; fi
+  mkdir -p "$recordings/tmp"
+  printf 'keep staging\n' >"$recordings/tmp/sentinel"
+  chown -R bird:bird "$recordings/tmp"
+  before=$(find "$repo" "$recordings" "$extracted" /var/lib/avian-visitors/educators /etc/birdnet \
+    -type f -exec sha256sum {} + | sort)
+  order_before=$(cat /tmp/avian-educator-restore-order)
+  for action in backup restore; do
+    if runuser -u bird -- "$repo/scripts/backup_data.sh" -a "$action" -f - \
+      <"$paired_archive" >"$test_root/config-refusal.out" 2>&1; then
+      fail "$layout $action accepted an unsupported config layout"
+    fi
+    grep -qi 'config' "$test_root/config-refusal.out" || fail "$layout gave no config diagnostic"
+    ! grep -q 'canonical-secret-fixture' "$test_root/config-refusal.out" \
+      || fail "$layout disclosed a config secret"
+    after=$(find "$repo" "$recordings" "$extracted" /var/lib/avian-visitors/educators /etc/birdnet \
+      -type f -exec sha256sum {} + | sort)
+    [ "$before" = "$after" ] || fail "$layout $action changed station files"
+    [ "$order_before" = "$(cat /tmp/avian-educator-restore-order)" ] \
+      || fail "$layout $action stopped services"
+  done
+done
+rm -rf -- /etc/birdnet/birdnet.conf
+cp "$test_root/current.conf" "$repo/birdnet.conf"
+chown bird:bird "$repo/birdnet.conf"
+ln -s "$repo/birdnet.conf" /etc/birdnet/birdnet.conf
+
 sqlite3 "$repo/scripts/birds.db" \
   "DELETE FROM detections; UPDATE avian_metadata SET value=lower(hex(randomblob(16))) WHERE key='educator_generation';"
 sqlite3 "$profile_db" 'DELETE FROM captures; DELETE FROM folders;'

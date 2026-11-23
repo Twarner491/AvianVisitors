@@ -246,7 +246,8 @@ install_bundle_export_pools() {
 }
 
 conf_link=/etc/birdnet/birdnet.conf
-[ -r "$conf_link" ] || { echo "BirdNET-Pi config was not found" >&2; exit 1; }
+[ -f "$conf_link" ] && [ -r "$conf_link" ] \
+  || { echo "BirdNET-Pi config is not a readable regular file" >&2; exit 1; }
 birdnet_user=$(conf_value "$conf_link" BIRDNET_USER)
 [[ "$birdnet_user" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]] \
   || { echo "Invalid BirdNET-Pi user" >&2; exit 1; }
@@ -266,6 +267,28 @@ repo_dir=$birdnet_home/BirdNET-Pi
 [ ! -L "$repo_dir" ] \
   || { echo "BirdNET-Pi checkout cannot be a symbolic link" >&2; exit 1; }
 [ -d "$repo_dir/.git" ] || { echo "BirdNET-Pi checkout was not found" >&2; exit 1; }
+
+conf_path=$(readlink -f -- "$conf_link") \
+  || { echo "BirdNET-Pi config path is not safe" >&2; exit 1; }
+case "$conf_path" in
+  "$repo_dir/birdnet.conf"|/etc/birdnet/birdnet.conf) ;;
+  *) echo "BirdNET-Pi config path is not safe" >&2; exit 1 ;;
+esac
+if [ ! -f "$conf_path" ] || [ -L "$conf_path" ] \
+  || [ "$(stat -c %h -- "$conf_path")" != 1 ]; then
+  echo "BirdNET-Pi config is not a safe regular file" >&2
+  exit 1
+fi
+repo_conf=$repo_dir/birdnet.conf
+if [ -e "$repo_conf" ] || [ -L "$repo_conf" ]; then
+  [ -f "$repo_conf" ] && [ ! -L "$repo_conf" ] \
+    && [ "$(stat -c %h -- "$repo_conf")" = 1 ] \
+    || { echo "BirdNET-Pi checkout config is not a safe regular file" >&2; exit 1; }
+  if [ "$conf_path" != "$repo_conf" ] && ! cmp -s -- "$conf_path" "$repo_conf"; then
+    echo "BirdNET-Pi config files differ. Back up both /etc/birdnet/birdnet.conf and $repo_conf, then reconcile them before retrying." >&2
+    exit 1
+  fi
+fi
 
 run_as_birdnet() {
   /usr/sbin/runuser -u "$birdnet_user" -- \
@@ -449,17 +472,6 @@ legacy_state_file_is_safe() {
 if { [ -e "$legacy_state_file" ] || [ -L "$legacy_state_file" ]; } \
   && ! legacy_state_file_is_safe; then
   echo "Unsafe runtime file: $legacy_state_file" >&2
-  exit 1
-fi
-
-conf_path=$(readlink -f -- "$conf_link") \
-  || { echo "BirdNET-Pi config path is not safe" >&2; exit 1; }
-case "$conf_path" in
-  "$repo_dir/birdnet.conf"|/etc/birdnet/birdnet.conf) ;;
-  *) echo "BirdNET-Pi config path is not safe" >&2; exit 1 ;;
-esac
-if [ ! -f "$conf_path" ] || [ -L "$conf_path" ]; then
-  echo "BirdNET-Pi config is not a regular file" >&2
   exit 1
 fi
 

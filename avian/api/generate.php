@@ -37,7 +37,7 @@ if (!is_string($LOCK) || $LOCK === '') {
 }
 $LOG     = "$ILLUS/.generate.log";
 $DB_PATH = "$BIRDNETPI_DIR/scripts/birds.db";
-$CONF    = "$BIRDNETPI_DIR/birdnet.conf";
+$CONF    = '/etc/birdnet/birdnet.conf';
 $STALE_S = 15 * 60;   // a "running" state older than this is a dead run
 $HOUR_CAP = 20;       // max starts per rolling hour (cost brake)
 

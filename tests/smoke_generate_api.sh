@@ -9,6 +9,10 @@ fail() {
   exit 1
 }
 
+[ -f /.dockerenv ] \
+  || fail 'refusing generate API smoke outside a disposable container'
+[ "${AVIAN_GENERATE_API_TEST:-0}" = 1 ] \
+  || fail 'refusing generate API smoke without AVIAN_GENERATE_API_TEST=1'
 [ "${EUID:-$(id -u)}" -eq 0 ] || fail "run this smoke in a disposable container as root"
 command -v flock >/dev/null 2>&1 || fail "flock is required for this smoke test"
 
@@ -54,9 +58,12 @@ mkdir -p \
 cp avian/api/admin-auth.php "$fixture/avian/api/admin-auth.php"
 cp avian/api/admin-state.php "$fixture/avian/api/admin-state.php"
 cp avian/api/educator-state.php "$fixture/avian/api/educator-state.php"
+cp avian/api/bundle-runtime.php "$fixture/avian/api/bundle-runtime.php"
 cp avian/api/generate.php "$fixture/avian/api/generate.php"
 
-printf 'GEMINI_API_KEY="%s"\n' "$test_key" >"$fixture/birdnet.conf"
+printf 'GEMINI_API_KEY="stale-checkout-key"\n' >"$fixture/birdnet.conf"
+mkdir -p /etc/birdnet
+printf 'GEMINI_API_KEY="%s"\n' "$test_key" >/etc/birdnet/birdnet.conf
 printf '%s\n' '# test worker path' >"$fixture/avian/scripts/generate_one.py"
 sqlite3 "$fixture/scripts/birds.db" <<'SQL'
 CREATE TABLE detections (Sci_Name TEXT, Com_Name TEXT, Date TEXT);
@@ -234,6 +241,9 @@ for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
 done
 [ "$(cat "$nohup_env")" = "$test_key" ] \
   || fail "the worker did not receive the API key through its environment"
+if grep -Fq "$test_key" "$server_log" "$fixture/avian/assets/illustrations/.generate.log"; then
+  fail "the API key appeared in a generation log"
+fi
 case "$(cat "$nohup_argv")" in
   *"$test_key"*) fail "the API key appeared in the worker argv" ;;
 esac
