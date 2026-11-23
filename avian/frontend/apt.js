@@ -3114,12 +3114,10 @@
   function renderCollage(items, animate) {
     collage.removeAttribute('data-frame-token');
     collage.setAttribute('data-frame-revision', ++collageRenderRevision);
-    // Keep the outgoing render's bird images so tiles showing the same picture can
-    // reuse them. A fresh lazy/async <img> paints blank for a frame or two even from
-    // cache, which made every 30 s poll flash the whole collage.
+    // Reuse loaded or pending images; retry failed loads on the next render.
     var reusableImgs = {};
     (collage.querySelectorAll ? collage.querySelectorAll('.gtile > img') : []).forEach(function (el) {
-      reusableImgs[el.getAttribute('src')] = el;
+      if (!el.complete || el.naturalWidth > 0) reusableImgs[el.getAttribute('src')] = el;
     });
     collage.innerHTML = '';
     // Drop the previous render's hit-test tiles up front so a click or hover on
