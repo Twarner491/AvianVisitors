@@ -4,7 +4,7 @@
 set -o pipefail
 umask 077
 repo_dir=${HOME}/BirdNET-Pi
-config_file=${repo_dir}/birdnet.conf
+config_file=${AVIAN_DIAGNOSTIC_CONFIG:-/etc/birdnet/birdnet.conf}
 my_dir=${repo_dir}/scripts
 redactor=${my_dir}/redact_diagnostics.py
 systemd_wants_dir=${AVIAN_DIAGNOSTIC_SYSTEMD_WANTS_DIR:-/etc/systemd/system/multi-user.target.wants}
@@ -16,8 +16,20 @@ unset BIRDWEATHER_ID CADDY_PWD ICE_PWD GEMINI_API_KEY GEMINI_KEY \
   WMI_PASSWORD AVIAN_DISK_REFRESH_TOKEN HTTP_AUTHORIZATION \
   REDIRECT_HTTP_AUTHORIZATION AUTHORIZATION
 
-[ -r "$config_file" ] || { echo "BirdNET-Pi config is unavailable" >&2; exit 1; }
+[ -f "$config_file" ] && [ -r "$config_file" ] \
+  || { echo "BirdNET-Pi config is unavailable" >&2; exit 1; }
 [ -r "$redactor" ] || { echo "Diagnostic redactor is unavailable" >&2; exit 1; }
+extra_configs=()
+if [ -e "$repo_dir/birdnet.conf" ] || [ -L "$repo_dir/birdnet.conf" ]; then
+  [ -f "$repo_dir/birdnet.conf" ] && [ -r "$repo_dir/birdnet.conf" ] \
+    || { echo "BirdNET-Pi checkout config is unavailable for redaction" >&2; exit 1; }
+  extra_configs=(--config "$repo_dir/birdnet.conf")
+fi
+if ! python3 "$redactor" --mode journal --config "$config_file" "${extra_configs[@]}" \
+  </dev/null >/dev/null; then
+  echo "Could not safely read diagnostic credentials" >&2
+  exit 1
+fi
 if ! RECS_DIR=$(python3 "$redactor" --mode path --config "$config_file" \
   --key RECS_DIR --home "$HOME"); then
   echo "BirdNET-Pi recordings path is invalid" >&2
@@ -62,12 +74,12 @@ while IFS= read -r i; do
   unit_path=${systemd_wants_dir}/${i}
   if [ -L "$unit_path" ];then
     if ! journalctl -u "$i" -n 100 --no-pager \
-      | python3 "$redactor" --mode journal --config "$config_file" > "${LOG_DIR}/${i}.log"; then
+      | python3 "$redactor" --mode journal --config "$config_file" "${extra_configs[@]}" > "${LOG_DIR}/${i}.log"; then
       rm -f -- "${LOG_DIR}/${i}.log"
       echo "Could not safely redact ${i} logs" >&2
       exit 1
     fi
-    if ! python3 "$redactor" --mode journal --config "$config_file" \
+    if ! python3 "$redactor" --mode journal --config "$config_file" "${extra_configs[@]}" \
       < "$unit_path" > "${LOG_DIR}/${i}"; then
       rm -f -- "${LOG_DIR}/${i}"
       echo "Could not safely redact ${i} service definition" >&2
@@ -86,7 +98,7 @@ fi
 # Create password-removed Caddyfile
 if [ -f /etc/caddy/Caddyfile ];then
   if ! sed -e '/basicauth/,+2d' /etc/caddy/Caddyfile \
-    | python3 "$redactor" --mode journal --config "$config_file" > "${LOG_DIR}/Caddyfile"; then
+    | python3 "$redactor" --mode journal --config "$config_file" "${extra_configs[@]}" > "${LOG_DIR}/Caddyfile"; then
     rm -f -- "${LOG_DIR}/Caddyfile"
     echo "Could not safely redact Caddy configuration" >&2
     exit 1

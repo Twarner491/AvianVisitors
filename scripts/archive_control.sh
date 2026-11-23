@@ -66,7 +66,7 @@ archive_dir="$birdnet_home/bird-archive"
 archive_script="$archive_dir/archive_to_drive.sh"
 archive_conf="$archive_dir/archive.conf"
 archive_status="$archive_dir/status"
-birdnet_conf="$repo_dir/birdnet.conf"
+birdnet_conf=/etc/birdnet/birdnet.conf
 service_path=/etc/systemd/system/bird-archive.service
 timer_path=/etc/systemd/system/bird-archive.timer
 

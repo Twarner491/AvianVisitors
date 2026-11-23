@@ -8,7 +8,7 @@ tmpfile=$(mktemp)
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 my_dir=$(cd -- "$script_dir/.." && pwd -P)
-config_file=$my_dir/birdnet.conf
+config_file=/etc/birdnet/birdnet.conf
 export USER=$USER
 export HOME=$HOME
 

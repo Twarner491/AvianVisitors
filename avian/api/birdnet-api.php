@@ -34,7 +34,7 @@ require_once __DIR__ . '/admin-auth.php';
 // under PHP-FPM (BirdNET-Pi runs it as the caddy user), so it can't
 // be relied on.
 $DB_PATH = educator_birds_db_path();
-$CONF_PATH = dirname(__DIR__, 2) . '/birdnet.conf';
+$CONF_PATH = '/etc/birdnet/birdnet.conf';
 
 // SITE_NAME is already public on BirdNET-Pi's legacy homepage. Read only that
 // key so the collage can share its canonical title without exposing the rest

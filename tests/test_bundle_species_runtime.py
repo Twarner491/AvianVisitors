@@ -29,9 +29,10 @@ class BundleSpeciesRuntimeTest(unittest.TestCase):
                          "BirdNET_GLOBAL_6K_V2.4_Model_FP16_Labels.txt"):
             shutil.copyfile(ROOT / "model" / filename, station / "model" / filename)
         (station / "scripts").mkdir()
-        config = temporary / "birdnet.conf"
+        config = Path("/etc/birdnet/birdnet.conf")
+        config.parent.mkdir(parents=True, exist_ok=True)
         config.write_text("LATITUDE=37.7\nLONGITUDE=-122.4\nSF_THRESH=0.03\nDATA_MODEL_VERSION=2\n")
-        (station / "birdnet.conf").symlink_to(config)
+        (station / "birdnet.conf").write_text("LATITUDE=0\nLONGITUDE=0\n")
         python = station / "birdnet" / "bin" / "python3"
         python.parent.mkdir(parents=True)
         identity = station / "identity.txt"

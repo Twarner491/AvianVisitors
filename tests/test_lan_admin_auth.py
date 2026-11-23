@@ -170,6 +170,20 @@ class LanAdminAuthStaticTests(unittest.TestCase):
     def test_other_root_smokes_require_two_explicit_safety_gates(self):
         cases = (
             (
+                "tests/smoke_generate_api.sh",
+                "AVIAN_GENERATE_API_TEST",
+                "id caddy",
+                ">/etc/birdnet/birdnet.conf",
+                "generate API smoke",
+            ),
+            (
+                "tests/smoke_config_authority.sh",
+                "AVIAN_CONFIG_AUTHORITY_TEST",
+                "id configbird",
+                "canonical=/etc/birdnet/birdnet.conf",
+                "config authority smoke",
+            ),
+            (
                 "tests/smoke_admin_control.sh",
                 "AVIAN_ADMIN_CONTROL_TEST",
                 "id caddy",
@@ -443,6 +457,8 @@ class LanAdminAuthStaticTests(unittest.TestCase):
             "scripts/security_refresh.sh",
             "scripts/update_caddyfile.sh",
             "tests/smoke_admin_control.sh",
+            "tests/smoke_generate_api.sh",
+            "tests/smoke_config_authority.sh",
             "tests/smoke_caddy_generated_routes.sh",
             "tests/smoke_caddy_live_transition.sh",
             "tests/smoke_caddy_overlay.sh",

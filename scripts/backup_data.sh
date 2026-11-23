@@ -5,7 +5,8 @@ set -e
 set -o pipefail
 
 conf=/etc/birdnet/birdnet.conf
-[ -r "$conf" ] || { echo "BirdNET-Pi config was not found" >&2; exit 1; }
+[ -f "$conf" ] && [ -r "$conf" ] \
+  || { echo "BirdNET-Pi config is not a readable regular file" >&2; exit 1; }
 conf_value() {
   local key=$1
   awk -v wanted="$key" '
@@ -33,6 +34,14 @@ birdnet_home=$(getent passwd "$BIRDNET_USER" | cut -d: -f6)
 [[ "$birdnet_home" =~ ^/[A-Za-z0-9._/-]+$ ]] && [[ "$birdnet_home" != *'..'* ]] \
   || { echo "BirdNET-Pi home is invalid" >&2; exit 1; }
 my_dir=$birdnet_home/BirdNET-Pi/scripts
+
+repo_conf=$birdnet_home/BirdNET-Pi/birdnet.conf
+if [ ! -L "$conf" ] || [ "$(readlink -f -- "$conf")" != "$repo_conf" ] \
+  || [ ! -f "$repo_conf" ] || [ -L "$repo_conf" ] \
+  || [ "$(stat -c %h -- "$repo_conf")" != 1 ]; then
+  echo "Unsupported BirdNET-Pi config layout. Back up /etc/birdnet/birdnet.conf and $repo_conf, then reconcile them and restore the canonical symlink before using legacy backup or restore." >&2
+  exit 1
+fi
 
 if [ "$EUID" == 0 ]
   then echo "Please run as a non-root user."
