@@ -720,6 +720,13 @@ body.bundle-page {
   display: block;
 }
 .style-action:empty { display: none; }
+.bundle-region-action + .bundle-region-action { margin-top: 14px; }
+.bundle-region-label {
+  margin: 0 0 6px;
+  color: var(--bundle-muted);
+  font: 500 10px/1.5 var(--bundle-mono);
+  overflow-wrap: anywhere;
+}
 .bundle-action-row {
   width: 100%;
   display: grid;

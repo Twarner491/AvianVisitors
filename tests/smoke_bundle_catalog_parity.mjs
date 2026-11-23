@@ -169,8 +169,8 @@ assert.match(renderer, /credentials: "omit"[\s\S]{0,80}mode: "cors"[\s\S]{0,80}r
   'the cross-origin discovery fetch carries no station credentials or referrer');
 assert.match(renderer, /embedded && window[.]AVIAN_BUNDLE_CATALOG_SNAPSHOT[\s\S]{0,140}parseCatalog\(window[.]AVIAN_BUNDLE_CATALOG_SNAPSHOT\)/,
   'the vendored catalog remains a fail-closed offline fallback');
-assert.match(renderer, /activeTarget = visiblePacks[.]find\(\(pack\) => pack[.]id === activePackId\)/,
-  'an active regional pack takes precedence as the style action target');
+assert.match(renderer, /visiblePacks[.]forEach\(\(target\) => \{[\s\S]{0,80}activeTarget = target[.]id === activePackId/,
+  'each visible regional pack has its own action and active state');
 assert.match(renderer, /embedded [?] installablePackIds[.]has\(pack[.]id\) : pack[.]installable/,
   'station install actions require the parent trusted snapshot, never public discovery metadata alone');
 assert.match(renderer, /use[.]textContent = "Currently in use"[\s\S]{0,120}use[.]disabled = true/,

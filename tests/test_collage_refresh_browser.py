@@ -118,8 +118,9 @@ def test_failed_image_retries_on_refresh(collage_page):
 def test_pending_image_survives_refresh(collage_page):
     page, state = collage_page
     state["hold"] = True
+    page.expose_function("heldImageCount", lambda: len(state["pending"]))
     page.evaluate("DATA.recent.species = [bird]; renderCollage(DATA.recent.species, false)")
-    page.wait_for_function("!!document.querySelector('.gtile > img')")
+    page.wait_for_function("async () => (await heldImageCount()) === 1")
     page.evaluate("window.pendingImage = document.querySelector('.gtile > img'); renderCollage(DATA.recent.species, false)")
     assert page.evaluate("document.querySelector('.gtile > img') === pendingImage")
     assert not page.evaluate("pendingImage.complete")
