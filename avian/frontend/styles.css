@@ -2122,6 +2122,17 @@ body.postcard-open { overflow: hidden; }
   box-shadow: none;
 }
 .postcard-recordings .rec-row:hover { background: transparent; }
+.postcard-recordings .rec-correct { display: none; }
+.av-corrections-enabled .postcard-recordings .rec-row.expanded .rec-correct {
+  display: block; min-height: 30px; margin: 2px 0 6px auto;
+  padding-inline: 8px; border: 1px solid var(--card-rule); border-radius: 4px;
+  background: var(--card-panel); color: var(--card-ink); cursor: pointer;
+  font: 500 11px/1.2 ui-monospace, Menlo, monospace;
+}
+.postcard-recordings .rec-correct:focus-visible { outline: 2px solid var(--card-ink); }
+#modalCorrectionStatus:not(:empty) {
+  padding: 6px 0; color: var(--card-ink); font: 500 11px/1.4 ui-monospace, Menlo, monospace;
+}
 .postcard-recordings .rec-row:first-child { border-top: 0; }
 .postcard-recordings .rec-row-toggle {
   width: 100%; min-height: 48px;

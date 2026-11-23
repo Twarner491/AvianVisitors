@@ -70,6 +70,17 @@ sudo /usr/local/sbin/avian-admin-control password-reset
 
 The command prompts privately for a new password. Return to **Settings** after it finishes.
 
+### Correcting a detection
+
+Open a bird's postcard, expand a clip under **Recordings**, and choose
+**Mark incorrect**. This requires station admin access and removes only that
+detection from the database and counts. Audio and spectrogram files stay on disk.
+Shared listening-period links are read-only.
+
+If another detection arrives while you review a clip, the list may refresh
+before you can confirm. Custom WAL databases need Educators insertion tracking
+for this control; otherwise it stays hidden.
+
 ### Educators mode
 
 Educators mode is an optional profile for the BirdNET-Pi website. It adds a fifth menu page for starting, pausing, organizing, and reviewing listening periods. Enable it after installation over SSH:

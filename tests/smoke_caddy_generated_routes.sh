@@ -92,7 +92,7 @@ printf '<?php echo "info"; ?>\n' >"$site/phpsysinfo/index.php"
 printf '<?php echo "js"; ?>\n' >"$site/phpsysinfo/js.php"
 printf '<?php echo "info backup"; ?>\n' >"$site/phpsysinfo/js.php.bak"
 
-api_names=(archive birdnet-api birdnet-status birdweather bundle-assets bundle-preview bundle-species bundles config cutout educator-audio-check educator-audio educators export generate maintenance menu recording spectrogram wiki)
+api_names=(archive birdnet-api birdnet-status birdweather bundle-assets bundle-preview bundle-species bundles config cutout educator-audio-check educator-audio educators export generate maintenance mark-incorrect menu recording spectrogram wiki)
 for name in "${api_names[@]}"; do
   printf '<?php echo "api"; ?>\n' >"$site/avian/api/$name.php"
 done

@@ -25,6 +25,7 @@ header('Cross-Origin-Resource-Policy: same-origin');
 
 require_once __DIR__ . '/educator-scope.php';
 require_once __DIR__ . '/admin-auth.php';
+require_once __DIR__ . '/detection-correction.php';
 
 // PHP resolves __DIR__ through symlinks to the realpath. This script
 // lives at $HOME/BirdNET-Pi/avian/api/birdnet-api.php (served via the
@@ -183,6 +184,9 @@ if (!file_exists($DB_PATH)) {
 }
 
 try {
+    // Must outlive the SQLite transaction (see detection-correction.php).
+    $correctionStream = $action === 'species' && !$educatorSavedRequest ? @fopen($DB_PATH, 'rb') : false;
+    $correctionIdentity = $correctionStream ? fstat($correctionStream) : false;
     $db = new SQLite3($DB_PATH, SQLITE3_OPEN_READONLY);
     $db->busyTimeout(2000);
     $db->exec('BEGIN');
@@ -404,12 +408,20 @@ switch ($action) {
         if ($sci === '') { http_response_code(400); birdnetRespond($db, $educatorScope, ['error' => 'sci= required']); break; }
         $limit = max(1, min(1000, (int)($_GET['limit'] ?? 500)));
         $offset = max(0, (int)($_GET['offset'] ?? 0));
+        $binding = $correctionIdentity ? detection_correction_binding_sql($db, false, $correctionStream) : 'NULL';
         $detections = rows($db,
-          "SELECT detection_id, Date AS d, Time AS t, File_Name AS file, Confidence AS conf "
-        . "FROM detections WHERE Sci_Name = :sn ORDER BY Date DESC, Time DESC "
+          "SELECT detection_id, Date AS d, Time AS t, File_Name AS file, Confidence AS conf, $binding AS binding "
+        . "FROM detections d WHERE Sci_Name = :sn ORDER BY Date DESC, Time DESC "
         . "LIMIT ".$limit." OFFSET ".$offset,
           [':sn' => $sci]
         );
+        foreach ($detections as &$detection) {
+            if ($correctionIdentity && $detection['binding'] !== null) {
+                $detection['correction_key'] = detection_correction_key($correctionIdentity, $sci, $detection);
+            }
+            unset($detection['binding']);
+        }
+        unset($detection);
         $summary = one($db,
           "SELECT Com_Name AS com, COUNT(*) AS total, MIN(Date||' '||Time) AS first_seen, "
         . "       MAX(Date||' '||Time) AS last_seen, MAX(Confidence) AS best_conf "
