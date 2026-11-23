@@ -42,7 +42,7 @@ may already be configured there. Do not overwrite it:
 
 ```bash
 if [ -f /etc/asound.conf ]; then
-    sudo cp -a /etc/asound.conf "/etc/asound.conf.bak.$(date +%Y%m%d-%H%M%S)"
+    sudo cp -pL /etc/asound.conf "/etc/asound.conf.bak.$(date +%Y%m%d-%H%M%S)"
 fi
 grep -nE 'pcm\.(dsnooper|birdmic)|ipc_key 2048' /etc/asound.conf 2>/dev/null
 ```
@@ -50,6 +50,7 @@ grep -nE 'pcm\.(dsnooper|birdmic)|ipc_key 2048' /etc/asound.conf 2>/dev/null
 If the `grep` prints anything, those names or that `ipc_key` are already in
 use: pick different ones below. Also check `~/.asoundrc` of the station user,
 which is read in addition to `/etc/asound.conf`.
+The backup copies the contents even if `/etc/asound.conf` is a symlink.
 
 ### 2. Append the shared device
 
@@ -84,13 +85,16 @@ Replace `hw:CARD=Device,DEV=0` with your own card. `arecord -L` lists the
 names; `Device` is only what many generic USB microphones call themselves.
 
 `channels`, `rate` and `format` must be something your microphone supports.
-To see what it offers (stop the recording service first, or the card is busy):
+To see what it offers, pause both capture services first:
 
 ```bash
-sudo systemctl stop birdnet_recording.service
+sudo systemctl stop birdnet_recording.service livestream.service
 sudo -u "$STATION_USER" arecord -D hw:CARD=Device,DEV=0 --dump-hw-params -d 1 /dev/null
-sudo systemctl start birdnet_recording.service
+sudo systemctl start birdnet_recording.service livestream.service
 ```
+
+If the card is still busy, check `sudo fuser -v /dev/snd/*` for another
+capture process, including PulseAudio. Close that capture before retrying.
 
 Look at the `CHANNELS`, `RATE` and `FORMAT` lines. The recording script asks
 for 48000 Hz, 16-bit; the `plug` wrapper around `dsnooper` converts rate,
@@ -162,8 +166,10 @@ Work through these before concluding the card cannot be shared. Only if the
 checks above are clean and the driver still refuses to create the dsnoop
 device is turning off `livestream.service` the fallback.
 
-To undo everything: restore the backup (or delete the appended block), set
-`REC_CARD` back to its previous value, and restart the two services.
+To undo everything: copy your timestamped backup back with
+`sudo cp -p /etc/asound.conf.bak.YYYYMMDD-HHMMSS /etc/asound.conf` (or delete
+the appended block), set `REC_CARD` back to its previous value, and restart
+the two services.
 
 ## Card numbers move; card names do not
 
