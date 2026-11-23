@@ -86,6 +86,16 @@ curl -fsSL https://raw.githubusercontent.com/Twarner491/AvianVisitors/avian-visi
 
 Listening periods scope the Collage, Stats, Atlas, and available detection clips without copying or protecting audio files from normal retention. Saved period and folder exports require a direct local connection. See [the Educators guide](docs/educators.md) for the full workflow and privacy details.
 
+### Compare with reference recordings
+
+Optionally, each recording can be checked against reference recordings of the same species from [xeno-canto](https://xeno-canto.org). Any verified xeno-canto account has a free API key on its [account page](https://xeno-canto.org/account). Add it to the station's config over SSH:
+
+```bash
+sudo nano /etc/birdnet/birdnet.conf   # add: XENO_CANTO_API_KEY="your-key"
+```
+
+Open a recording and select **compare** to step through short, good-quality recordings drawn as the same spectrogram. Recordist, license, and a link to each source are shown with it. Only species the station has detected are looked up, and the key stays on the station. Without a key the control is hidden.
+
 ### Updating an existing station
 
 For the first v1 update, or if an interrupted older update left the admin helper missing and Tools locked, keep the existing checkout and run this verified setup over SSH:

@@ -1067,7 +1067,8 @@ gateSelectors.forEach(function (selector) {
     'gate off and gate on must not select or reposition the Atlas');
 });
 
-assert.match(html, /styles\.css\?v=r196/, 'the polished styles have a fresh cache key');
+assert.ok(Number((html.match(/styles\.css\?v=r(\d+)/) || [])[1]) >= 196,
+  'the frontend styles cache key must include the current changes');
 assert.ok(Number((html.match(/apt\.js\?v=r(\d+)/) || [])[1]) >= 242,
   'the frontend cache key must include the current settings changes');
 
