@@ -776,6 +776,7 @@ body.bundle-page {
 .bundle-region-option input:checked ~ .bundle-region-icon { visibility: visible; }
 .bundle-region-option:has(input:checked) { color: var(--bundle-ink); background: var(--bundle-surface-2); }
 .bundle-region-option:has(input:focus-visible) { outline: 2px solid var(--bundle-muted); outline-offset: -2px; }
+.bundle-region-confirm[hidden] { display: none; }
 .bundle-region-confirm {
   display: block;
   width: 100%;
@@ -1543,7 +1544,7 @@ html.embed .catalog-state { flex: 0 0 auto; margin: 10px 0 14px; }
   .share-drop,
   .share-next,
   .share-back { transition-duration: .01ms !important; }
-  .bundle-theme-pill { transition: none !important; }
+  .bundle-command-popover, .bundle-theme-pill { transition: none !important; }
 }
 
 html.embed .catalog-open-full-placeholder { visibility: hidden; pointer-events: none; }

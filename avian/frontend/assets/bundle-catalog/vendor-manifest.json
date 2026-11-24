@@ -2,9 +2,9 @@
   "format": "avian-station-vendored-bundle-catalog",
   "format_version": 1,
   "source_sha256": {
-    "bundles.html": "0ba0046ecc25d3429c2091b08e07848184c7425a496cf5daa0aca6c70817d25a",
-    "bundles.css": "c601b09d4dbcea6563da5de2468cc8ffd307895470280d1b6feb72ead372854f",
-    "bundles.js": "9768f6a6388eef315fd6f6092afa510e9593042ead302339742ea80fd26e170b",
+    "bundles.html": "ae4d6c64a38884c4a1af49920c65bc0e72c66984b8b429d4e899d4b653cc8ac1",
+    "bundles.css": "20cd380093037549b96e40390a597b145c9266e6a41e3ca1ca8021f16a8d8158",
+    "bundles.js": "dbc1d41d1b13a175abd658b9dc64aa82c6f11b148fecb550640e2eae5ff0bd95",
     "bundle-theme.js": "9a3db5921563a983a076d57aec77b80ed448e82a9defe5b6cee5a5f25e77e4fc",
     "bundle-collage.css": "b1776fd5a9a6fff1734cb6f94ad89208768eef370ee55d02746d3aa023124175",
     "bundle-collage.js": "4441e5d3f34945dd87b62bf2390e36d2ee8eba50527bee73b9457f2ab884e1c5",
@@ -56,9 +56,9 @@
     "bundle-previews/woodblock-corvus-brachyrhynchos.png": "ffe3a1586e011d52175b7e4e285bcf64187722217090216f9dd3a4fc4faa9e46"
   },
   "output_sha256": {
-    "index.html": "84080cb39c15db1b2d9e110bb6dd039d9a01deefd52ec80f562e1c21460fd310",
-    "bundles.css": "a244a4564d1f0deecd618d618355746d59fe337ddca462dd6c93d561afb52fa9",
-    "bundles.js": "3de3c3d53557e3fa773646edace318ae428690ec58db9e922d08ef5dabe885dc",
+    "index.html": "2bfc1aa4bee7647300683d38ef55a5f1a5803804ae9a846160a93e20665ae6f2",
+    "bundles.css": "e7315bc128f82e2310694be837f2c994c36d3d188ed277d9a031956b3ac32fb1",
+    "bundles.js": "753af9cdbc306c81cc4360e86952f806b11c7a3c3ad3a8c8743d7b7c266e997d",
     "bundle-theme.js": "9a3db5921563a983a076d57aec77b80ed448e82a9defe5b6cee5a5f25e77e4fc",
     "bundle-collage.css": "c0dd7d34c1d5d7290e365623421a322317db2e787fa8e904d0dc7fea8c7dbfa6",
     "bundle-collage.js": "00b48a5b4de16dd0ed957ff2ec4cb41e95ca30fa4a94d8b3482073356ca2dbf2",
