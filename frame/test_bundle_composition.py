@@ -1,8 +1,12 @@
 import copy
+import importlib.util
 import unittest
+from pathlib import Path
 from unittest import mock
 
-from frame import test_bundle_runtime as fixtures
+spec = importlib.util.spec_from_file_location("frame_composition_fixtures", Path(__file__).with_name("test_bundle_runtime.py"))
+fixtures = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fixtures)
 
 canonical = fixtures.canonical
 runtime = fixtures.bundle_runtime
