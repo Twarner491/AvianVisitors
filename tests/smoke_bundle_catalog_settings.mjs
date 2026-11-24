@@ -38,7 +38,7 @@ assert.match(source, /event[.]origin !== 'null'/);
 assert.match(source, /event[.]data[.]handoff !== handoff/);
 assert.match(source, /exactKeys\(data, \['v', 'type', 'handoff', 'id'\]\)/);
 assert.match(source, /new Uint8Array\(16\)/);
-assert.match(source, /body: JSON[.]stringify\(\{ action: 'use', id: id \}\)/);
+assert.match(source, /JSON[.]stringify\(\{ action: 'use', id: id \}\)/);
 assert.match(source, /postToFrame\('avianvisitors:bundle-library', \{[\s\S]{0,160}ids: ids,[\s\S]{0,160}activeId: activeId,[\s\S]{0,160}installableIds: installableIds\(\),[\s\S]{0,160}installedPacks: installedPacks/,
   'the opaque child receives installed presentation fields plus active and usable ids from the trusted station snapshot');
 assert.match(source, /Array[.]isArray\(snapshot[.]library[.]installed\)/,
@@ -927,4 +927,59 @@ for (const [latitude, longitude, expected] of [
     `configured coordinates ${latitude},${longitude} should select ${expected || 'All regions'}`);
 }
 
+currentSnapshot = structuredClone(initial);
+currentSnapshot.capabilities = ['ordered-regions-v1'];
+currentSnapshot.catalog.packs.push(structuredClone(delistedPack));
+currentSnapshot.library.installed[0].sources = [
+  {id: currentSnapshot.library.installed[0].id, version: '1.0.0'},
+  {id: delistedPack.id, version: delistedPack.version},
+  {id: 'community-unknown-source', version: '1.0.0'}
+];
+fakeWindow.AVIAN_BUNDLES.mount({root: row});
+await new Promise(resolve => setTimeout(resolve, 15));
+row.trigger.emit('click');
+await new Promise(resolve => setTimeout(resolve, 15));
+modal = fakeBody.children.at(-1);
+modal.frame.emit('load');
+const compositeLibrary = modal.frame.contentWindow.sent.find(item => item.message.type === 'avianvisitors:bundle-library').message;
+assert.ok(compositeLibrary.ids.includes(delistedPack.id), 'a secondary-only cached region reaches the picker');
+assert.ok(compositeLibrary.installedPacks.some(pack => pack.id === delistedPack.id && pack.version === '1.2.3'));
+assert.ok(!compositeLibrary.ids.includes('community-unknown-source'), 'receipt IDs still require trusted presentation metadata');
+fakeWindow.AVIAN_BUNDLES.unmount();
+
+currentSnapshot = structuredClone(initial);
+currentSnapshot.capabilities = ['ordered-regions-v1'];
+const regionB = structuredClone(currentSnapshot.catalog.packs[0]);
+regionB.id = 'community-second-region';
+regionB.included = false;
+regionB.availability = 'installable';
+currentSnapshot.catalog.packs.push(regionB);
+currentSnapshot.library.active_ids = [regionB.id, 'official-western-us-woodblock'];
+const orderedIds = [regionB.id, 'official-western-us-woodblock'];
+fakeWindow.location.href = 'http://birdnet.local/avian/?bundles=' + orderedIds.join(',');
+fakeWindow.AVIAN_BUNDLES.mount({root: row});
+await new Promise(resolve => setTimeout(resolve, 15));
+modal = fakeBody.children.at(-1);
+const orderedUrl = new URL(modal.frame.src);
+assert.equal(orderedUrl.searchParams.get('bundles'), orderedIds.join(','));
+const beforeOrdered = fetchCalls.filter(call => call.options.method === 'POST').length;
+modal.frame.emit('load');
+const selectedMessage = modal.frame.contentWindow.sent.find(item => item.message.type === 'avianvisitors:bundle-selection-state');
+assert.deepEqual(JSON.parse(JSON.stringify(selectedMessage.message.requestedIds)), orderedIds);
+assert.equal(fetchCalls.filter(call => call.options.method === 'POST').length, beforeOrdered, 'a URL never installs');
+const orderedRequest = {v: 1, type: 'avianvisitors:bundle-selection', handoff: orderedUrl.searchParams.get('handoff'), ids: orderedIds};
+fakeWindow.emit('message', {source: modal.frame.contentWindow, origin: 'null', data: {
+  v: 1, type: 'avianvisitors:bundle-install', handoff: orderedRequest.handoff, id: orderedIds[0]
+}});
+assert.equal(fetchCalls.filter(call => call.options.method === 'POST').length, beforeOrdered,
+  'an old picker cannot reduce an explicit ordered handoff to one ID');
+for (const data of [{...orderedRequest, ids: [regionB.id, regionB.id]}, {...orderedRequest, ids: ['unknown']},
+  {...orderedRequest, ids: [regionB.id, 'official-western-us-impressionist']}, {...orderedRequest, url: 'https://example.com'}]) {
+  fakeWindow.emit('message', {source: modal.frame.contentWindow, origin: 'null', data});
+}
+assert.equal(fetchCalls.filter(call => call.options.method === 'POST').length, beforeOrdered);
+fakeWindow.emit('message', {source: modal.frame.contentWindow, origin: 'null', data: orderedRequest});
+assert.deepEqual(JSON.parse(fetchCalls.filter(call => call.options.method === 'POST').at(-1).options.body), {action: 'use', ids: orderedIds});
+await new Promise(resolve => setTimeout(resolve, 35));
+fakeWindow.AVIAN_BUNDLES.unmount();
 console.log('Bundle Settings catalog behavior and security smoke passed.');

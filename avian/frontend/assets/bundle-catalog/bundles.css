@@ -720,13 +720,86 @@ body.bundle-page {
   display: block;
 }
 .style-action:empty { display: none; }
-.bundle-region-action + .bundle-region-action { margin-top: 14px; }
-.bundle-region-label {
-  margin: 0 0 6px;
-  color: var(--bundle-muted);
-  font: 500 10px/1.5 var(--bundle-mono);
-  overflow-wrap: anywhere;
+
+.bundle-region-icon { width: 12px; height: 12px; fill: currentColor; flex: none; }
+.bundle-region-picker {
+  --bundle-menu-edge: inset 0 0 0 1px rgba(255,255,255,.6), 0 0 0 1px rgba(26,22,18,.06), 0 8px 28px rgba(26,22,18,.06);
+  position: relative;
+  max-width: 100%;
 }
+:root[data-theme="dark"] .bundle-region-picker {
+  --bundle-menu-edge: inset 0 0 0 1px rgba(255,255,255,.06), 0 0 0 1px rgba(0,0,0,.5), 0 10px 30px rgba(0,0,0,.5);
+}
+.bundle-region-picker .bundle-use[data-selecting] {
+  justify-content: space-between;
+  padding: 9px 12px;
+  background: var(--bundle-surface-2);
+  box-shadow: var(--bundle-recess);
+  color: var(--bundle-ink-2);
+  font: 12px/1.25 var(--bundle-serif);
+  letter-spacing: normal;
+  text-align: left;
+}
+.bundle-use[data-selecting] > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bundle-use[data-selecting] > .bundle-region-icon { width: 10px; height: 10px; color: var(--bundle-muted); }
+.bundle-use[data-selecting][aria-expanded="true"] > .bundle-region-icon { transform: rotate(180deg); }
+.bundle-region-menu {
+  position: absolute;
+  z-index: 14;
+  bottom: calc(100% - 6px);
+  left: 1px;
+  width: calc(100% - 2px);
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--bundle-surface);
+  box-shadow: var(--bundle-menu-edge);
+  color: var(--bundle-ink-2);
+}
+.bundle-region-picker:has(.bundle-command) .bundle-region-menu { width: calc(100% - 50px); }
+.bundle-region-menu[hidden], .bundle-command[hidden] { display: none; }
+.bundle-region-options { max-height: 230px; overflow-y: auto; overscroll-behavior: contain; }
+.bundle-region-option {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 34px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font: 12.5px/1.4 var(--bundle-serif);
+  cursor: pointer;
+}
+.bundle-region-option input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.bundle-region-option span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.bundle-region-option > .bundle-region-icon { width: 11px; height: 11px; visibility: hidden; }
+.bundle-region-option input:checked ~ .bundle-region-icon { visibility: visible; }
+.bundle-region-option:has(input:checked) { color: var(--bundle-ink); background: var(--bundle-surface-2); }
+.bundle-region-option:has(input:focus-visible) { outline: 2px solid var(--bundle-muted); outline-offset: -2px; }
+.bundle-region-confirm {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px;
+  border: 0;
+  border-top: 1px solid var(--bundle-line);
+  border-radius: 0 0 4px 4px;
+  background: transparent;
+  color: var(--bundle-ink-2);
+  font: 9px/1.4 var(--bundle-mono);
+  letter-spacing: .04em;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.bundle-region-confirm:focus-visible,
+.bundle-region-picker .bundle-use:focus-visible { outline: 2px solid var(--bundle-muted); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) {
+  .bundle-region-option:hover,
+  .bundle-region-confirm:hover { background: var(--bundle-surface-2); color: var(--bundle-ink); }
+}
+.bundle-region-status { display: block; font: 9px/1.5 var(--bundle-mono); padding: 4px 10px; }
+.bundle-region-status:empty { display: none; }
 .bundle-action-row {
   width: 100%;
   display: grid;

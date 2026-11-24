@@ -273,12 +273,14 @@ class BundlePhpEndpoints(unittest.TestCase):
         self.assertEqual(list(payload["masks"]), ["corvus-brachyrhynchos"])
         self.assertIn(self.revision_one, headers["ETag"])
 
-    def _selection_fixture(self, name: str, slug: str) -> dict:
+    def _selection_fixture(self, name: str, slug: str, sources=None) -> dict:
         receipt = {
             "schema_version": 1, "mode": "local",
             "manifest_sha256": self.revision_one,
             "species": [name], "basis_sha256": "b" * 64,
         }
+        if sources is not None:
+            receipt['sources'] = sources
         raw = (json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n").encode()
         selection = hashlib.sha256(raw).hexdigest()
         version_dir = self.library / "packs/test-pack/1.0.0"
@@ -303,6 +305,16 @@ class BundlePhpEndpoints(unittest.TestCase):
             "reference": reference, "installed_at": "2026-09-09T00:00:00Z",
         })
         return reference
+
+    def test_composite_receipt_serves_images_and_rejects_duplicate_sources(self):
+        sources = [
+            {'id': 'test-pack', 'version': '1.0.0', 'sha256': self.revision_one, 'bytes': 100},
+            {'id': 'second-pack', 'version': '1.0.0', 'sha256': self.revision_two, 'bytes': 100},
+        ]
+        for rows, expected in [(sources, 200), ([sources[0], sources[0]], 503), (list(reversed(sources)), 503)]:
+            reference = self._selection_fixture('Corvus brachyrhynchos', 'corvus-brachyrhynchos', rows)
+            self._json(self.library / 'active.json', {'schema_version': 1, 'active': reference, 'previous': None})
+            self.assertEqual(self.request('/avian/api/bundle-assets.php')[0], expected)
 
     def test_selection_identity_keeps_prior_geometry_and_images_addressable(self) -> None:
         first = self._selection_fixture("Corvus brachyrhynchos", "corvus-brachyrhynchos")

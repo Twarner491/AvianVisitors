@@ -136,6 +136,105 @@ def test_using_again_can_select_only_a_base_bird(library, monkeypatch):
     assert station.use_selector(child.pack_id)["changed"] is False
 
 
+@pytest.mark.parametrize("runtime", [station, frame], ids=["station", "frame"])
+def test_cached_extension_can_be_selected_without_base_download(library, runtime, monkeypatch):
+    child, _, base_sha, dev = library
+    reference, _, assets = install(runtime, child)
+    assert 'passer-domesticus' in assets
+    (dev / "manifests" / (base_sha + ".json")).unlink()
+    if runtime is station:
+        station.activate_reference(station.builtin_ref())
+        monkeypatch.setattr(station, "refresh_catalog", station.load_catalog)
+        monkeypatch.setattr(station.subprocess, "Popen", lambda args, **kw: station.run_job(args[-1]))
+        result = station.use_selector(child.pack_id, all_species=True)
+        assert result["bundle"] == reference
+        station.validate_installed_pack(reference, verify_hashes=True)
+    else:
+        frame.use(child.pack_id, config={}, all_species=True)
+        assert frame.active_bundle().reference == reference
+
+
+@pytest.mark.parametrize("runtime", [station, frame], ids=["station", "frame"])
+@pytest.mark.parametrize("child_first", [True, False])
+@pytest.mark.parametrize("variants", [False, True])
+def test_explicit_regions_precede_implicit_base(library, runtime, monkeypatch, child_first, variants):
+    child, base, _, dev = library
+    fallback = copy.deepcopy(base['species'][1])
+    fallback['scientific_name'] = 'Sturnus vulgaris'
+    fallback['poses'][0]['file'] = station.pose_path('Sturnus vulgaris', 'perched')
+    base['species'].append(fallback)
+    base_raw = station.canonical_json(base)
+    base_sha = sha256(base_raw)
+    (dev / 'manifests' / (base_sha + '.json')).write_bytes(base_raw)
+    monkeypatch.setitem(runtime.WOODBLOCK_EXTENSIONS, (child.pack_id, child.version, child.manifest_hash),
+                        (base_sha, len(base_raw)))
+    other = BundleFixture()
+    other.pack.pop('search_terms')
+    other.pack_id = 'community-other-region'
+    other.manifest.update(id=other.pack_id)
+    other.manifest['species'][0]['scientific_name'] = 'Passer domesticus'
+    for pose in other.manifest['species'][0]['poses']:
+        pose['file'] = station.pose_path('Passer domesticus', pose['id'])
+    if variants:
+        other.manifest['format_version'] = 2
+        for number, pose in enumerate(other.manifest['species'][0]['poses'], 1):
+            pose['id'] = f'variant-{number}'
+            pose['file'] = station.pose_path('Passer domesticus', pose['id'])
+        other.pack['previews'][0]['pose'] = 'variant-1'
+    unique = copy.deepcopy(other.manifest['species'][0])
+    unique['scientific_name'] = 'Sitta europaea'
+    for pose in unique['poses']:
+        pose['file'] = station.pose_path('Sitta europaea', pose['id'])
+    other.manifest['species'].append(unique)
+    other.manifest_raw = station.canonical_json(other.manifest)
+    other.manifest_hash = sha256(other.manifest_raw)
+    other.pack.update(id=other.pack_id, species=['Passer domesticus', 'Sitta europaea'],
+                      species_count=2, archive_bytes=other.pack['archive_bytes'] * 2)
+    other.pack['previews'][0]['scientific_name'] = 'Passer domesticus'
+    other.pack['manifest'] = {'sha256': other.manifest_hash, 'bytes': len(other.manifest_raw),
+                              'url': station.MANIFEST_BASE_URL + other.manifest_hash + '.json'}
+    other.publish(dev)
+    for raw in other.images.values():
+        (dev / 'objects' / (sha256(raw) + '.png')).write_bytes(raw)
+    catalog = {**child.catalog, 'packs': child.catalog['packs'] + [other.pack]}
+    (dev / 'catalog.json').write_bytes(station.canonical_json(catalog))
+    (dev / 'community-catalog-v1.json').write_bytes(station.canonical_json(catalog))
+    ids = [child.pack_id, other.pack_id] if child_first else [other.pack_id, child.pack_id]
+    if runtime is station:
+        station.initialize()
+        station.atomic_json(station.bundle_root() / station.CACHE_CATALOG_NAME, catalog)
+        monkeypatch.setattr(station, 'refresh_catalog', station.load_catalog)
+        monkeypatch.setattr(station.subprocess, 'Popen', lambda args, **kw: station.run_job(args[-1]))
+        result = station.use_selectors(ids, all_species=True)
+        reference = result['bundle']
+        assets = station.load_index(reference)['assets']
+        receipt = station.load_selection(reference, station.pack_directory(reference))
+        assert station.snapshot()['library']['active_ids'] == ids
+        station.validate_installed_pack(reference, verify_hashes=True)
+    else:
+        frame.use_many(ids, config={}, all_species=True)
+        active = frame.active_bundle()
+        assets = active.index['assets']
+        receipt = json.loads((active.directory / 'selection.json').read_bytes())
+    assert [source['id'] for source in receipt['sources']] == ids
+    assert receipt.get('base_manifest_sha256') == base_sha
+    assert set(assets) == {'corvus-brachyrhynchos', 'passer-domesticus', 'sturnus-vulgaris', 'sitta-europaea'}
+    assert assets['sturnus-vulgaris']['perched']['sha256'] == fallback['poses'][0]['sha256']
+    first_pose = 'variant-1' if variants else 'perched'
+    assert set(assets['passer-domesticus']) == ({'variant-1', 'variant-2'} if variants else {'perched', 'flight'})
+    assert assets['passer-domesticus'][first_pose]['sha256'] == sha256(other.images['perched'])
+    assert assets['passer-domesticus'][first_pose]['sha256'] != base['species'][1]['poses'][0]['sha256']
+    if runtime is station:
+        official = station.catalog_path()
+        listed = json.loads(official.read_bytes())
+        listed['packs'][0]['id'] = 'official-other-art'
+        listed['packs'][0]['availability'] = 'unavailable'
+        official.write_bytes(station.canonical_json(listed))
+        card = station.catalog_pack(station.snapshot()['catalog'], child.pack_id)
+        assert card['species_count'] == 3
+        assert card['creator'] == 'Test Contributor + Base artist (base)'
+
+
 @pytest.mark.parametrize("base_head", ["absent", "new-version"])
 def test_catalog_turnover_does_not_hide_other_packs_or_rebind_the_base(library, monkeypatch, base_head):
     child, _, _, _ = library

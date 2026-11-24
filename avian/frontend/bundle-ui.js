@@ -3,7 +3,7 @@
 
   var API_URL = './avian/api/bundles.php';
   var CATALOG_URL = 'https://avianvisitors.com/bundles';
-  var FRAME_URL = './assets/bundle-catalog/index.html?v=r4';
+  var FRAME_URL = './assets/bundle-catalog/index.html?v=r5';
   var ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,79}$/;
   var JOB_ID_PATTERN = /^[a-f0-9]{32}$/;
   var STYLE_PATTERN = /^[a-z0-9][a-z0-9._-]{0,79}$/;
@@ -40,6 +40,8 @@
   var backdropPointer = null;
   var themeObserver = null;
   var requestedPackId = '';
+  var requestedPackIds = [];
+  var submitting = false;
   var stationRegion = '';
   var mobile = global.matchMedia ? global.matchMedia(MOBILE_QUERY) : null;
   var drawer = {
@@ -382,11 +384,23 @@
     return pack.catalog_current !== false && pack.availability === 'installable';
   }
 
-  function useBundle(id) {
+  function validRegionIds(ids) {
+    return Array.isArray(ids) && ids.length > 0 && ids.length <= 16 && ids.every(function (id, index) {
+      return typeof id === 'string' && ID_PATTERN.test(id) && ids.indexOf(id) === index;
+    });
+  }
+
+  function supportsRegions() {
+    return snapshot && Array.isArray(snapshot.capabilities) && snapshot.capabilities.indexOf('ordered-regions-v1') >= 0;
+  }
+
+  function useBundle(id, ids) {
+    if (submitting || jobTracking) return;
     if (!allowedUsePack(id)) {
       announce('That bundle is not available for this station.', true);
       return;
     }
+    submitting = true;
     setBusy(true);
     announce('Preparing bird bundle.', false);
     var artworkCallback = refreshArtwork;
@@ -395,8 +409,11 @@
       credentials: 'same-origin',
       cache: 'no-store',
       headers: { 'Content-Type': 'application/json', 'X-Avian-Action': '1' },
-      body: JSON.stringify({ action: 'use', id: id })
+      body: ids ? JSON.stringify({ action: 'use', ids: ids }) : JSON.stringify({ action: 'use', id: id })
     }).then(responseJson).then(function (body) {
+      submitting = false;
+      requestedPackIds = [];
+      requestedPackId = '';
       requestClose();
       if (body.unchanged === true || !body.job) {
         stopPolling();
@@ -409,6 +426,7 @@
       }
       startPolling(artworkCallback, ownRecord(body.job) ? body.job.id : '');
     }).catch(function (error) {
+      submitting = false;
       setBusy(false);
       announce(error.message, true);
       // The error copy lives in the Settings row, so return focus there rather
@@ -440,11 +458,14 @@
     var records = ownRecord(snapshot) && ownRecord(snapshot.library) && Array.isArray(snapshot.library.installed)
       ? snapshot.library.installed : [];
     records.slice(0, 1000).forEach(function (record) {
-      var id = ownRecord(record) && typeof record.id === 'string' ? record.id : '';
-      if (ID_PATTERN.test(id) && known[id] && !seen[id] && ids.length < 100) {
-        seen[id] = true;
-        ids.push(id);
-      }
+      var sources = ownRecord(record) && Array.isArray(record.sources) ? record.sources.slice(0, 16) : [];
+      [record].concat(sources).forEach(function (item) {
+        var id = ownRecord(item) && typeof item.id === 'string' ? item.id : '';
+        if (ID_PATTERN.test(id) && known[id] && !seen[id] && ids.length < 100) {
+          seen[id] = true;
+          ids.push(id);
+        }
+      });
     });
     return ids.slice(0, 100);
   }
@@ -540,6 +561,14 @@
       installableIds: installableIds(),
       installedPacks: installedPacks
     });
+    if (supportsRegions()) {
+      var activeIds = snapshot.library && snapshot.library.active_ids;
+      postToFrame('avianvisitors:bundle-selection-state', {
+        capability: 'ordered-regions-v1',
+        activeIds: validRegionIds(activeIds) ? activeIds : (activeId ? [activeId] : []),
+        requestedIds: requestedPackIds.slice()
+      });
+    }
   }
 
   function onFrameMessage(event) {
@@ -547,6 +576,14 @@
         event.origin !== 'null' || !ownRecord(event.data) || event.data.v !== 1 ||
         event.data.handoff !== handoff) return;
     var data = event.data;
+    if (data.type === 'avianvisitors:bundle-selection' && supportsRegions() &&
+        exactKeys(data, ['v', 'type', 'handoff', 'ids']) && validRegionIds(data.ids)) {
+      var selected = data.ids.map(allowedUsePack);
+      if (selected.every(Boolean) && selected.every(function (pack) {
+        return ownRecord(pack.style) && ownRecord(selected[0].style) && pack.style.id === selected[0].style.id;
+      })) useBundle(data.ids[0], data.ids);
+      return;
+    }
     if (data.type === 'avianvisitors:bundle-library-request' &&
         exactKeys(data, ['v', 'type', 'handoff'])) {
       sendLibrary();
@@ -554,6 +591,10 @@
     }
     if (data.type === 'avianvisitors:bundle-install' &&
         exactKeys(data, ['v', 'type', 'handoff', 'id']) && typeof data.id === 'string') {
+      if (requestedPackIds.length > 1) {
+        announce('Reload the updated bundle picker to use multiple regions.', true);
+        return;
+      }
       useBundle(data.id);
       return;
     }
@@ -736,7 +777,9 @@
     url.searchParams.set('handoff', handoff);
     url.searchParams.set('parentOrigin', global.location.origin);
     url.searchParams.set('theme', currentTheme());
-    if (stationRegion) url.searchParams.set('region', stationRegion);
+    if (stationRegion && !requestedPackIds.length) url.searchParams.set('region', stationRegion);
+    if (requestedPackIds.length === 1) url.searchParams.set('bundle', requestedPackIds[0]);
+    if (requestedPackIds.length > 1) url.searchParams.set('bundles', requestedPackIds.join(','));
     var style = activeStyle();
     if (requestedPackId) {
       var requested = packsFrom(snapshot).find(function (pack) { return pack.id === requestedPackId; });
@@ -835,13 +878,16 @@
     try {
       var url = new URL(global.location.href);
       var values = url.searchParams.getAll('bundle');
-      var id = values.length === 1 && ID_PATTERN.test(values[0]) ? values[0] : '';
-      if (values.length) {
+      var groups = url.searchParams.getAll('bundles');
+      var ids = values.length === 1 && !groups.length ? values :
+        (groups.length === 1 && !values.length ? groups[0].split(',') : []);
+      if (values.length || groups.length) {
         url.searchParams.delete('bundle');
+        url.searchParams.delete('bundles');
         global.history.replaceState(global.history.state, '', url.pathname + url.search + url.hash);
       }
-      return id;
-    } catch (_) { return ''; }
+      return validRegionIds(ids) ? ids : [];
+    } catch (_) { return []; }
   }
 
   function mount(options) {
@@ -857,7 +903,8 @@
     stationRegion = broadRegionForCoordinates(options.latitude, options.longitude);
     mounted = true;
     trigger.addEventListener('click', openDialog);
-    requestedPackId = requestedBundleFromUrl();
+    requestedPackIds = requestedBundleFromUrl();
+    requestedPackId = requestedPackIds[0] || '';
     fetchSnapshot().then(function () {
       var job = ownRecord(snapshot) && ownRecord(snapshot.job) ? snapshot.job : null;
       if (job && job.state === 'running' && !jobTracking) startPolling(null, job.id);
@@ -897,6 +944,7 @@
     snapshot = null;
     refreshArtwork = null;
     requestedPackId = '';
+    requestedPackIds = [];
     stationRegion = '';
   }
 
