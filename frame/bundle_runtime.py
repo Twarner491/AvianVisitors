@@ -51,6 +51,12 @@ ALLOWED_HOSTS = frozenset({"avianvisitors.com"})
 CATALOG_FORMAT = "avian-visitors-bundle-catalog"
 VENDOR_CATALOG_FORMAT = "avian-visitors-frame-bundle-catalog"
 MANIFEST_FORMAT = "avian-visitors-asset-pack"
+# Keep in step with the independent station installer; both are standalone.
+WOODBLOCK_EXTENSIONS = {
+    ("community-roquealonso-e824a0e5dde69d4b", "1.0.0",
+     "daf6765916d9beab9bed59a9fd38a10806017d7134744e1101569d60acadf583"):
+        ("019d21f5f54b1a68a4510b089544eb7316a3db54dfd37fc129b950eeeffa591f", 131283),
+}
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 VERSION_RE = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
@@ -1615,6 +1621,29 @@ def _all_selection_basis() -> str:
     return _sha(_canonical({"schema_version": 1, "mode": "all"}))
 
 
+def _woodblock_extension(reference: dict[str, str]) -> tuple[str, int] | None:
+    return WOODBLOCK_EXTENSIONS.get((reference["id"], reference["version"], reference["revision"]))
+
+
+def _compose_woodblock(child_raw: bytes, base_raw: bytes, reference: dict[str, str]) -> dict[str, Any]:
+    pin = _woodblock_extension(reference)
+    if pin != (_sha(base_raw), len(base_raw)) or _sha(child_raw) != reference["revision"]:
+        raise BundleError("bundle extension manifest checksum is incorrect", "manifest_hash")
+    source = _json(child_raw, "child manifest")
+    base = _validate_manifest(base_raw, {"id": "official-western-us-woodblock", "version": "1.0.0"})
+    if source["style"] != base["style"] or source["license"]["spdx"] != base["license"]["spdx"]:
+        raise BundleError("incompatible bundle extension", "invalid_manifest")
+    own = {bird["scientific_name"] for bird in source["species"]}
+    source["species"] += [bird for bird in base["species"] if bird["scientific_name"] not in own]
+    source["attribution"]["creator"] += " + " + base["attribution"]["creator"] + " (base)"
+    composed = _canonical(source)
+    if len(composed) > MANIFEST_MAX:
+        raise BundleError("composed manifest exceeds its size limit", "bundle_too_large")
+    manifest = _validate_manifest(composed, {"id": reference["id"], "version": reference["version"]})
+    manifest["base_manifest_sha256"] = pin[0]
+    return manifest
+
+
 def _make_selection(manifest: dict[str, Any], revision: str, basis: dict[str, Any] | None) -> dict[str, Any]:
     available = {item["scientific_name"] for item in manifest["species"]}
     if basis is None:
@@ -1627,12 +1656,16 @@ def _make_selection(manifest: dict[str, Any], revision: str, basis: dict[str, An
     if not selected:
         raise BundleError("this bundle has no birds for the configured location", "no_matching_species")
     return {"schema_version": 1, "mode": mode, "manifest_sha256": revision,
+            **({"base_manifest_sha256": manifest["base_manifest_sha256"]} if "base_manifest_sha256" in manifest else {}),
             "species": selected, "basis_sha256": basis_digest}
 
 
 def _validate_selection(raw: bytes, reference: dict[str, str], manifest: dict[str, Any]) -> dict[str, Any]:
     receipt = _json(raw, "bundle selection")
-    if set(receipt) != {"schema_version", "mode", "manifest_sha256", "species", "basis_sha256"} or \
+    fields = {"schema_version", "mode", "manifest_sha256", "species", "basis_sha256"}
+    if "base_manifest_sha256" in manifest:
+        fields.add("base_manifest_sha256")
+    if set(receipt) != fields or receipt.get("base_manifest_sha256") != manifest.get("base_manifest_sha256") or \
             type(receipt["schema_version"]) is not int or receipt["schema_version"] != 1 or \
             not isinstance(receipt["mode"], str) or receipt["mode"] not in {"local", "all"} or \
             receipt["manifest_sha256"] != reference["revision"] or \
@@ -1669,7 +1702,7 @@ def _equivalent_selection_reference(
             stored = _validate_selection(
                 _safe_file(directory / "selection.json", SELECTION_MAX), candidate, manifest,
             )
-            if any(stored[key] != receipt[key] for key in ("mode", "manifest_sha256", "species")):
+            if any(stored.get(key) != receipt.get(key) for key in ("mode", "manifest_sha256", "base_manifest_sha256", "species")):
                 continue
             _validate_install(root, candidate, verify_hashes=True)
             return candidate
@@ -1684,6 +1717,13 @@ def _install(root: Path, pack: dict[str, Any], basis: dict[str, Any] | None = No
     if _sha(manifest_raw) != record["sha256"]:
         raise BundleError("manifest checksum is incorrect", "manifest_hash")
     manifest = _validate_manifest(manifest_raw, pack)
+    identity = {"id": pack["id"], "version": pack["version"], "revision": record["sha256"]}
+    pin = _woodblock_extension(identity)
+    base_raw = None
+    if pin:
+        digest, size = pin
+        base_raw = _download(_manifest_url(digest), MANIFEST_MAX, size)
+        manifest = _compose_woodblock(manifest_raw, base_raw, identity)
     receipt = _make_selection(manifest, record["sha256"], basis)
     selection_raw = _canonical(receipt)
     assets = _selection_assets(manifest, receipt)
@@ -1719,6 +1759,8 @@ def _install(root: Path, pack: dict[str, Any], basis: dict[str, Any] | None = No
         except BundleError:
             _safe_dir(final)
             allowed = {"manifest.json", "selection.json", "index.json", "dims.json", "masks.json"}
+            if base_raw is not None:
+                allowed.add("base-manifest.json")
             if any(
                 item.name not in allowed or (item.is_dir() and not item.is_symlink())
                 for item in final.iterdir()
@@ -1770,6 +1812,8 @@ def _install(root: Path, pack: dict[str, Any], basis: dict[str, Any] | None = No
         if len(dimensions_raw) > TABLE_MAX or len(masks_raw) > TABLE_MAX:
             raise BundleError("derived bundle tables are too large", "bundle_too_large")
         _atomic(staging / "manifest.json", manifest_raw, 0o600)
+        if base_raw is not None:
+            _atomic(staging / "base-manifest.json", base_raw, 0o600)
         _atomic(staging / "selection.json", selection_raw, 0o600)
         _atomic(staging / "index.json", _canonical({"reference": reference, "assets": assets}), 0o600)
         _atomic(staging / "dims.json", dimensions_raw, 0o600)
@@ -1834,6 +1878,8 @@ def _validate_install_contents(
     expected_files = {"manifest.json", "index.json", "dims.json", "masks.json"}
     if "selection_revision" in reference:
         expected_files.add("selection.json")
+        if (directory / "base-manifest.json").exists():
+            expected_files.add("base-manifest.json")
     names = {item.name for item in directory.iterdir()}
     if "selection_revision" not in reference and "selections" in names:
         _safe_dir(directory / "selections")
@@ -1854,6 +1900,8 @@ def _validate_install_contents(
         manifest_raw,
         {"id": reference["id"], "version": reference["version"]},
     )
+    if "base-manifest.json" in expected_files:
+        manifest = _compose_woodblock(manifest_raw, _safe_file(directory / "base-manifest.json", MANIFEST_MAX), reference)
     expected_assets = manifest["assets"]
     if "selection_revision" in reference:
         receipt = _validate_selection(_safe_file(directory / "selection.json", SELECTION_MAX), reference, manifest)

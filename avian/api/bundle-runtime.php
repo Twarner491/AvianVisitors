@@ -540,7 +540,12 @@ function avian_bundle_selection_matches(array $state, string $directory, array $
     if (!is_array($selection) || array_is_list($selection)) return false;
     $keys = array_keys($selection);
     sort($keys, SORT_STRING);
-    if ($keys !== ['basis_sha256', 'manifest_sha256', 'mode', 'schema_version', 'species']
+    $fields = ['basis_sha256', 'manifest_sha256', 'mode', 'schema_version', 'species'];
+    if (array_key_exists('base_manifest_sha256', $selection)) {
+        if (!is_string($selection['base_manifest_sha256']) || !avian_bundle_revision_valid($selection['base_manifest_sha256'])) return false;
+        array_unshift($fields, 'base_manifest_sha256');
+    }
+    if ($keys !== $fields
         || $selection['schema_version'] !== 1
         || !in_array($selection['mode'], ['local', 'all'], true)
         || $selection['manifest_sha256'] !== $state['revision']

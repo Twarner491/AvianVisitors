@@ -58,6 +58,13 @@ FORMAT_VERSION = 1
 BUILTIN_ID = "official-western-us-woodblock"
 BUILTIN_VERSION = "1.0.0"
 BUILTIN_REVISION = "included-woodblock-v1"
+# Reviewed child identity -> exact immutable station-install Woodblock manifest.
+# No contributor metadata, style name or future release can grant this relationship.
+WOODBLOCK_EXTENSIONS = {
+    ("community-roquealonso-e824a0e5dde69d4b", "1.0.0",
+     "daf6765916d9beab9bed59a9fd38a10806017d7134744e1101569d60acadf583"):
+        ("019d21f5f54b1a68a4510b089544eb7316a3db54dfd37fc129b950eeeffa591f", 131283),
+}
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 VERSION_RE = re.compile(
@@ -229,6 +236,11 @@ def installed_version_key(value: Any) -> tuple[Any, ...]:
     """Order verified installs by SemVer, then full ASCII version text."""
     version = checked_version(value)
     return semver_precedence(version), version
+
+
+def installed_profile_key(item: dict[str, Any]) -> tuple[Any, ...]:
+    reference = item["reference"]
+    return installed_version_key(reference["version"]), item.get("installed_at", ""), reference.get("selection_revision", "")
 
 
 def installed_activation_presentation(
@@ -1945,6 +1957,45 @@ def pack_directory(reference: dict[str, Any]) -> Path:
     return directory
 
 
+def woodblock_extension(reference: dict[str, Any]) -> tuple[str, int] | None:
+    return WOODBLOCK_EXTENSIONS.get((reference["id"], reference["version"], reference["revision"]))
+
+
+def woodblock_catalog_base(catalog: dict[str, Any], pack: dict[str, Any]) -> dict[str, Any] | None:
+    pin = woodblock_extension({**pack, "revision": pack["manifest"]["sha256"]})
+    if not pin:
+        return None
+    return next((base for base in catalog["packs"]
+                 if base["id"] == BUILTIN_ID and base["version"] == BUILTIN_VERSION
+                 and (base["manifest"]["sha256"], base["manifest"]["bytes"]) == pin), None)
+
+
+def fetch_woodblock_base(pin: tuple[str, int]) -> bytes:
+    digest, size = pin
+    return fetch_manifest({"manifest": {"sha256": digest, "bytes": size, "url": MANIFEST_BASE_URL + digest + ".json"}})
+
+
+def compose_woodblock(child_raw: bytes, base_raw: bytes, reference: dict[str, Any]) -> dict[str, Any]:
+    pin = woodblock_extension(reference)
+    if pin != (sha256_bytes(base_raw), len(base_raw)) or sha256_bytes(child_raw) != reference["revision"]:
+        raise BundleError("bundle extension manifest checksum is incorrect", "manifest_hash")
+    source = parse_json_bytes(child_raw, "child manifest")
+    base = validate_manifest(parse_json_bytes(base_raw, "base manifest"))
+    if (base["id"], base["version"]) != (BUILTIN_ID, BUILTIN_VERSION) or (
+        source["style"] != base["style"] or source["license"]["spdx"] != base["license"]["spdx"]
+    ):
+        raise BundleError("incompatible bundle extension", "invalid_manifest")
+    own = {bird["scientific_name"] for bird in source["species"]}
+    source["species"] += [bird for bird in base["species"] if bird["scientific_name"] not in own]
+    source["attribution"]["creator"] += " + " + base["attribution"]["creator"] + " (base)"
+    # Re-validate the union: aggregate limits and cross-source slug/path collisions.
+    if len(canonical_json(source)) > MANIFEST_MAX:
+        raise BundleError("composed manifest exceeds its size limit", "bundle_too_large")
+    manifest = validate_manifest(source)
+    manifest["base_manifest_sha256"] = pin[0]
+    return manifest
+
+
 def selection_record(manifest: dict[str, Any], revision: str, basis: dict[str, Any] | None) -> dict[str, Any]:
     available = {bird["scientific_name"] for bird in manifest["species"]}
     selected = available if basis is None else available & set(basis["species"])
@@ -1954,6 +2005,7 @@ def selection_record(manifest: dict[str, Any], revision: str, basis: dict[str, A
         "schema_version": 1,
         "mode": "all" if basis is None else "local",
         "manifest_sha256": revision,
+        **({"base_manifest_sha256": manifest["base_manifest_sha256"]} if "base_manifest_sha256" in manifest else {}),
         "species": sorted(selected),
         "basis_sha256": (
             sha256_bytes(canonical_json({"schema_version": 1, "mode": "all"}))
@@ -1967,7 +2019,11 @@ def load_selection(reference: dict[str, Any], directory: Path) -> dict[str, Any]
     if sha256_bytes(raw) != reference["selection_revision"]:
         raise BundleError("installed selection revision is invalid", "invalid_install")
     selection = parse_json_bytes(raw, "installed selection")
-    exact_keys(selection, {"schema_version", "mode", "manifest_sha256", "species", "basis_sha256"}, set(), "installed selection")
+    exact_keys(selection, {"schema_version", "mode", "manifest_sha256", "species", "basis_sha256"}, {"base_manifest_sha256"}, "installed selection")
+    if "base_manifest_sha256" in selection:
+        pin = woodblock_extension(reference)
+        if not pin or selection["base_manifest_sha256"] != pin[0]:
+            raise BundleError("installed base manifest is not authorized", "invalid_install")
     if (
         selection["schema_version"] != 1
         or not isinstance(selection["mode"], str)
@@ -2156,14 +2212,7 @@ def current_install(pack_id: str, version: str | None = None) -> dict[str, Any] 
     ]
     if not candidates:
         return None
-    return max(
-        candidates,
-        key=lambda item: (
-            installed_version_key(item["reference"]["version"]),
-            item.get("installed_at", ""),
-            item["reference"].get("selection_revision", ""),
-        ),
-    )
+    return max(candidates, key=installed_profile_key)
 
 
 def validate_stored_object(
@@ -2262,6 +2311,8 @@ def validate_installed_pack(
     allowed = {"manifest.json", "index.json", "dims.json", "masks.json", "meta.json"}
     if "selection_revision" in normalized:
         allowed.add("selection.json")
+        if "base_manifest_sha256" in load_selection(normalized, directory):
+            allowed.add("base-manifest.json")
     elif (directory / "selections").exists():
         safe_directory(directory / "selections")
         allowed.add("selections")
@@ -2283,6 +2334,8 @@ def validate_installed_pack(
     manifest = validate_manifest(parse_json_bytes(manifest_raw, "installed manifest"))
     if manifest["id"] != normalized["id"] or manifest["version"] != normalized["version"]:
         raise BundleError("installed manifest identity is invalid", "invalid_install")
+    if "base-manifest.json" in allowed:
+        manifest = compose_woodblock(manifest_raw, read_regular(directory / "base-manifest.json", MANIFEST_MAX), normalized)
 
     index = load_index(normalized, directory=directory)
     birds = selected_species(manifest, normalized, directory)
@@ -2324,6 +2377,8 @@ def validate_installed_pack(
         "license": manifest["license"]["spdx"],
         "creator": manifest["attribution"]["creator"],
         "archive_bytes": manifest["total_bytes"],
+        **({"effective_species": [bird["scientific_name"] for bird in manifest["species"]]}
+           if "base_manifest_sha256" in manifest else {}),
         "installed_bytes": sum({item["sha256"]: item["bytes"] for poses in index["assets"].values() for item in poses.values()}.values()),
         "installed_at": meta["installed_at"],
     }
@@ -2406,7 +2461,7 @@ def equivalent_selection_reference(reference: dict[str, Any], selection: dict[st
                         and directory != active_path)):
                 continue
             receipt = load_selection(candidate, directory)
-            if any(receipt[key] != selection[key] for key in ("mode", "manifest_sha256", "species")):
+            if any(receipt.get(key) != selection.get(key) for key in ("mode", "manifest_sha256", "base_manifest_sha256", "species")):
                 continue
             validate_installed_pack(candidate, verify_hashes=True)
             return candidate
@@ -2426,6 +2481,12 @@ def install_pack(
     manifest_hash = sha256_bytes(manifest_raw)
     manifest = validate_manifest(parse_json_bytes(manifest_raw, "manifest"))
     verify_catalog_manifest(pack, manifest, manifest_hash)
+    identity = {"id": pack["id"], "version": pack["version"], "revision": manifest_hash}
+    pin = woodblock_extension(identity)
+    base_raw = None
+    if pin:
+        base_raw = fetch_woodblock_base(pin)
+        manifest = compose_woodblock(manifest_raw, base_raw, identity)
     basis = None if all_species else local_selection_basis()
     selection = selection_record(manifest, manifest_hash, basis)
     birds = [bird for bird in manifest["species"] if bird["scientific_name"] in selection["species"]]
@@ -2496,6 +2557,8 @@ def install_pack(
             return reference
         except BundleError:
             allowed = {"manifest.json", "index.json", "dims.json", "masks.json", "meta.json", "selection.json"}
+            if base_raw is not None:
+                allowed.add("base-manifest.json")
             if any(
                 item.name not in allowed or (item.is_dir() and not item.is_symlink())
                 for item in final.iterdir()
@@ -2578,6 +2641,8 @@ def install_pack(
     cleanup_staging = True
     try:
         atomic_bytes(staging / "manifest.json", manifest_raw)
+        if base_raw is not None:
+            atomic_bytes(staging / "base-manifest.json", base_raw)
         atomic_json(
             staging / "index.json",
             {
@@ -3156,17 +3221,31 @@ def snapshot() -> dict[str, Any]:
     packs: list[dict[str, Any]] = []
     for pack in catalog["packs"]:
         available_species = set(pack["species"])
-        covered = len(basis & available_species) if basis else None
         versions = installed_by_id.get(pack["id"], [])
+        composed = next((item for item in versions if item["reference"]["revision"] == pack["manifest"]["sha256"]
+                         and "effective_species" in item), None)
+        base_pack = woodblock_catalog_base(catalog, pack)
+        if composed:
+            available_species = set(composed["effective_species"])
+            pack = {**pack, "species": sorted(available_species), "species_count": len(available_species),
+                    "creator": composed["creator"], "archive_bytes": composed["archive_bytes"]}
+        elif base_pack:
+            base_species = set(base_pack["species"])
+            # Catalog bytes describe source packs. Their sum is exact only
+            # for disjoint inventories, as in the release-pinned Iberian pair.
+            size = pack["archive_bytes"] + base_pack["archive_bytes"] if available_species.isdisjoint(base_species) else None
+            available_species.update(base_species)
+            pack = {**pack, "species": sorted(available_species), "species_count": len(available_species),
+                    "creator": pack["creator"] + " + " + base_pack["creator"] + " (base)", "archive_bytes": size}
+        elif woodblock_extension({**pack, "revision": pack["manifest"]["sha256"]}):
+            pack = {**pack, "description": "Counts describe the community art. Installation also uses its pinned official Woodblock base."}
+        covered = len(basis & available_species) if basis else None
         installed_versions = sorted(
             {item["reference"]["version"] for item in versions},
             key=installed_version_key,
         )
         activation_item = (
-            max(
-                versions,
-                key=lambda item: installed_version_key(item["reference"]["version"]),
-            )
+            max(versions, key=installed_profile_key)
             if versions else None
         )
         activation_version = (
@@ -3239,14 +3318,9 @@ def snapshot() -> dict[str, Any]:
             (
                 candidate for candidate in versions
                 if active
-                and candidate["reference"]["version"] == state["active"]["version"]
+                and candidate["reference"] == state["active"]
             ),
-            max(
-                versions,
-                key=lambda candidate: installed_version_key(
-                    candidate["reference"]["version"]
-                ),
-            ),
+            max(versions, key=installed_profile_key),
         )
         reference = item["reference"]
         try:
@@ -3256,6 +3330,8 @@ def snapshot() -> dict[str, Any]:
             manifest = validate_manifest(
                 parse_json_bytes(manifest_raw, "installed manifest")
             )
+            if "selection_revision" in reference and "base_manifest_sha256" in load_selection(reference, pack_directory(reference)):
+                manifest = compose_woodblock(manifest_raw, read_regular(pack_directory(reference) / "base-manifest.json", MANIFEST_MAX), reference)
         except BundleError:
             continue
         available_species = {
@@ -3266,12 +3342,7 @@ def snapshot() -> dict[str, Any]:
             {candidate["reference"]["version"] for candidate in versions},
             key=installed_version_key,
         )
-        activation_item = max(
-            versions,
-            key=lambda candidate: installed_version_key(
-                candidate["reference"]["version"]
-            ),
-        )
+        activation_item = max(versions, key=installed_profile_key)
         packs.append(
             {
                 "id": reference["id"],
@@ -3584,23 +3655,32 @@ def use_selector(selector: str, *, all_species: bool = False) -> dict[str, Any]:
         pack, _ = use_target(catalog, selector)
     else:
         pack = resolve_use_selector(catalog, selector)
+    can_check_profile = True
     if pack["availability"] == "included":
         expected = builtin_ref()
     else:
-        basis = None if all_species else local_selection_basis()
-        selection = selection_record(
-            {"species": [{"scientific_name": name} for name in pack["species"]]},
-            pack["manifest"]["sha256"], basis,
-        )
         expected = {"id": pack["id"], "version": pack["version"],
-                    "revision": pack["manifest"]["sha256"], "included": False,
-                    "name": pack["name"], "selection_revision": sha256_bytes(canonical_json(selection))}
-        expected = equivalent_selection_reference(expected, selection) or expected
+                    "revision": pack["manifest"]["sha256"], "included": False, "name": pack["name"]}
+        base = woodblock_catalog_base(catalog, pack)
+        # When a release no longer lists that base head, let the worker resolve
+        # the pinned immutable manifest before deciding which profile to use.
+        can_check_profile = base is not None or not woodblock_extension(expected)
+        if can_check_profile:
+            species = set(pack["species"])
+            if base:
+                species.update(base["species"])
+            selection = selection_record(
+                {"species": [{"scientific_name": name} for name in species],
+                 **({"base_manifest_sha256": base["manifest"]["sha256"]} if base else {})},
+                expected["revision"], None if all_species else local_selection_basis(),
+            )
+            expected["selection_revision"] = sha256_bytes(canonical_json(selection))
+            expected = equivalent_selection_reference(expected, selection) or expected
 
     with locked(exclusive=False):
         state = load_state()
         previous_active = state["active"]
-        if state["active"] == expected:
+        if can_check_profile and state["active"] == expected:
             if not expected["included"]:
                 validate_runtime_reference(expected, verify_hashes=True)
             return {

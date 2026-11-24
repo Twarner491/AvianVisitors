@@ -27,6 +27,17 @@ The original nine invitations were verified by readback as @Twarner491 at 21:48:
 
 The legacy species totals and coverage descriptions are contributor claims carried forward from the old index. Reconfirm them through the current validator rather than treating this table as verification.
 
+## Iberian Woodblock extension
+
+The reviewed Iberian release (`community-roquealonso-e824a0e5dde69d4b`,
+`1.0.0`) includes the pinned original Woodblock artwork for missing birds.
+Select the bundle again after updating to apply this to an existing installation.
+
+With several regions selected, the first selected region owns each bird.
+Original artwork fills only birds absent from every selected region, without
+mixing poses. Other styles and unreviewed releases do not inherit this fallback.
+Existing selections remain available for rollback.
+
 ## Attribution follow-up
 
 @cdkl was not contacted in this outreach.
