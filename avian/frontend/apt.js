@@ -14204,6 +14204,10 @@
         postcardRecordingsPanel.querySelector('summary').focus();
         status.textContent = stale ? 'The list changed. Review a recording before trying again.'
           : 'Detection removed. Recording kept.';
+      } else if (postcardModal.getAttribute('aria-hidden') === 'false') {
+        var openPanel = postcardPanelTarget;
+        populatePostcard(document.getElementById('modalSci').textContent, activePostcardEducatorScope);
+        settlePostcardPanels(openPanel);
       }
     } catch (error) {
       if (request === POSTCARD_CONTENT_REQUEST && row.isConnected) {

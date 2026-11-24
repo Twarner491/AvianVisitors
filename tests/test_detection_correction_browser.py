@@ -35,6 +35,8 @@ def station_page():
         if url.path == "/avian/api/birdnet-api.php":
             action = parse_qs(url.query)["action"][0]
             data = {"species": [bird] if state["present"] else []}
+            if state.get("other"):
+                data["species"].append({**bird, "sci": "Corvus brachyrhynchos", "com": "American Crow"})
             if action == "species":
                 row = dict(detection)
                 if not state["actionable"]:
@@ -111,3 +113,50 @@ def test_stale_selection_refreshes_before_retry(station_page):
     button.press("Enter")
     pw.expect(page.locator("#modalRecCount")).to_have_text("0 recordings")
     assert [selection["key"] for selection in state["posts"]] == ["b" * 64, "c" * 64]
+
+
+@pytest.mark.parametrize("stale", [False, True])
+@pytest.mark.parametrize("recordings_open", [False, True])
+def test_late_correction_refreshes_the_current_postcard(station_page, stale, recordings_open):
+    page, state = station_page
+    state["other"] = True
+    page.add_init_script("localStorage.setItem('bird:atlasStyle:v1', 'classic')")
+    held = {}
+    crow = {"summary": {"com": "American Crow", "total": 1}, "detections": [
+        {"detection_id": 8, "d": "2026-10-22", "t": "12:01:00", "file": "crow.mp3", "conf": 0.9}]}
+
+    def other_species(route):
+        query = parse_qs(urlsplit(route.request.url).query)
+        if query.get("action") != ["species"] or query.get("sci") != ["Corvus brachyrhynchos"]:
+            return route.fallback()
+        if "species" not in held:
+            held["species"] = route
+            return
+        return route.fulfill(json=crow)
+
+    page.route("**/mark-incorrect.php", lambda route: held.update(correction=route))
+    page.route("**/birdnet-api.php?*", other_species)
+    open_recording(page)
+    page.once("dialog", lambda dialog: dialog.accept())
+    with page.expect_request("**/mark-incorrect.php"):
+        page.get_by_role("button", name="Mark incorrect").click()
+    page.keyboard.press("Escape")
+    pw.expect(page.locator("#postcard-modal")).to_have_attribute("aria-hidden", "true")
+    with page.expect_request(lambda request: "sci=Corvus%20brachyrhynchos" in request.url):
+        page.locator('.classic-atlas-card[data-sci="Corvus brachyrhynchos"] h3').click()
+    pw.expect(page.locator("#modalSci")).to_have_text("Corvus brachyrhynchos")
+    panel = page.locator(".postcard-recordings")
+    if recordings_open:
+        panel.locator("summary").click()
+    with page.expect_request(lambda request: parse_qs(urlsplit(request.url).query).get("action") == ["lifelist"], timeout=2000):
+        held["correction"].fulfill(status=409 if stale else 200,
+                                   json={"error": "Reload recordings."} if stale else {"ok": True})
+    held["species"].fulfill(json=crow)
+    pw.expect(page.locator("#modalRecCount")).to_have_text("1 recording")
+    pw.expect(page.locator("#modalSci")).to_have_text("Corvus brachyrhynchos")
+    pw.expect(page.locator("#modalRecordings")).not_to_contain_text("Failed to load")
+    assert panel.evaluate("node => node.open") is recordings_open
+    if recordings_open:
+        pw.expect(panel.locator("summary")).to_be_focused()
+    else:
+        pw.expect(panel.locator("summary")).not_to_be_focused()
