@@ -584,7 +584,7 @@
     }
   }
 
-  function bundleCommandControl(pack, selectedIds) {
+  function bundleCommandControl(pack, selectedIds, selectRegions) {
     const selector = typeof pack?.id === "string" &&
       /^[a-z0-9][a-z0-9._-]{0,79}$/.test(pack.id) && catalogManifestUrl(pack)
       ? pack.id : "";
@@ -670,6 +670,10 @@
     const options = [option];
     const entry = { root, trigger, popover, options };
     trigger.addEventListener("click", async () => {
+      if (selectedIds && !selectedIds().length) {
+        selectRegions?.();
+        return;
+      }
       if (activeCommandPopover === entry) {
         setCommandPopover(null, true);
         return;
@@ -1221,7 +1225,9 @@
     confirm.textContent = "Use selected";
     const stationBase = loopbackHost ? "http://127.0.0.1:8137/" : "http://birdnet.local/avian/";
     const valid = () => validRegionIds(ids) && ids.every(id => choices.some(pack => pack.id === id));
+    let copyOnSelection = false;
     const update = () => {
+      confirm.hidden = copyOnSelection;
       const first = choices.find(pack => pack.id === ids[0]);
       trigger.setAttribute("data-selecting", "");
       trigger.replaceChildren();
@@ -1237,7 +1243,7 @@
         else confirm.removeAttribute("href");
       }
       if (command) {
-        command.querySelectorAll("button").forEach(button => { button.disabled = !valid(); });
+        command.querySelector(".bundle-command-option").disabled = !valid();
         const code = command.querySelector("code");
         if (code) code.textContent = `sudo avian-bundle use ${ids.map(id => `'${id}'`).join(" ")}`;
       }
@@ -1245,10 +1251,18 @@
     const close = () => {
       menu.hidden = true;
       trigger.setAttribute("aria-expanded", "false");
+      if (copyOnSelection) {
+        commandTrigger.setAttribute("aria-expanded", "false");
+        commandTrigger.setAttribute("aria-controls", command.querySelector(".bundle-command-popover").id);
+        commandTrigger.setAttribute("aria-haspopup", "dialog");
+      }
+      copyOnSelection = false;
       if (openRegionChooser?.root === root) openRegionChooser = null;
     };
-    const command = !embedded && defaultPack ? bundleCommandControl(defaultPack, () => valid() ? ids.slice() : []) : null;
-    command?.querySelectorAll("button").forEach(button => { button.disabled = !valid(); });
+    const command = !embedded && defaultPack ? bundleCommandControl(defaultPack, () => valid() ? ids.slice() : [],
+      () => copyOnSelection ? close() : root._openRegions(undefined, true)) : null;
+    const commandTrigger = command?.querySelector(".bundle-command-trigger");
+    if (command) command.querySelector(".bundle-command-option").disabled = !valid();
     const missing = ids.filter(id => !choices.some(pack => pack.id === id)).map(id => ({id,
       region: (group.packs.find(pack => pack.id === id)?.region || id) + " (unavailable)", unavailable: true}));
     choices.concat(missing).forEach(pack => {
@@ -1274,14 +1288,25 @@
         regionSelections.set(group.id, ids.slice());
         status.textContent = "";
         update();
+        if (copyOnSelection && valid()) {
+          close();
+          commandTrigger.click();
+        }
       });
       label.append(field, text, regionIcon("check"));
       options.append(label);
     });
-    root._openRegions = (focusValue) => {
+    root._openRegions = (focusValue, copying = false) => {
       if (!defaultPack) return;
       openRegionChooser?.close();
-      openRegionChooser = {root, close, groupId: group.id};
+      copyOnSelection = copying;
+      openRegionChooser = {root, close, groupId: group.id, copying};
+      if (copying) {
+        setCommandPopover(null);
+        commandTrigger.setAttribute("aria-controls", menu.id);
+        commandTrigger.setAttribute("aria-expanded", "true");
+        commandTrigger.removeAttribute("aria-haspopup");
+      }
       menu.hidden = false;
       trigger.setAttribute("aria-expanded", "true");
       update();
@@ -1296,8 +1321,9 @@
       if (event.key !== "Escape" || menu.hidden) return;
       event.preventDefault();
       event.stopPropagation();
+      const opener = copyOnSelection ? commandTrigger : trigger;
       close();
-      trigger.focus();
+      opener.focus();
     });
     confirm.addEventListener("click", event => {
       if (!valid() || (ids.length > 1 && !orderedRegionSupport)) {
@@ -1524,7 +1550,7 @@
   }
 
   function render() {
-    const reopen = openRegionChooser ? {id: openRegionChooser.groupId,
+    const reopen = openRegionChooser ? {id: openRegionChooser.groupId, copying: openRegionChooser.copying,
       focus: openRegionChooser.root.contains(document.activeElement) ? document.activeElement.value : null} : null;
     openRegionChooser?.close();
     const plan = searchPlan(search.value);
@@ -1562,7 +1588,7 @@
     });
     downloadedStyles.concat(remainingStyles).forEach((group) =>
       catalog.append(cardForStyle(group, visibleByStyle.get(group.id) || [])));
-    if (reopen) document.getElementById("bundle-regions-" + slug(reopen.id))?.parentNode?._openRegions(reopen.focus);
+    if (reopen) document.getElementById("bundle-regions-" + slug(reopen.id))?.parentNode?._openRegions(reopen.focus, reopen.copying);
     if (openBundleId) {
       const panel = document.getElementById("style-panel-" + slug(openBundleId));
       if (panel) requestAnimationFrame(() => mountGallery(panel));

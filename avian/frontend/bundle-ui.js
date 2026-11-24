@@ -3,7 +3,7 @@
 
   var API_URL = './avian/api/bundles.php';
   var CATALOG_URL = 'https://avianvisitors.com/bundles';
-  var FRAME_URL = './assets/bundle-catalog/index.html?v=r5';
+  var FRAME_URL = './assets/bundle-catalog/index.html?v=r6';
   var ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,79}$/;
   var JOB_ID_PATTERN = /^[a-f0-9]{32}$/;
   var STYLE_PATTERN = /^[a-z0-9][a-z0-9._-]{0,79}$/;
