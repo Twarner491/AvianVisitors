@@ -100,6 +100,13 @@ const frameHtml = text('index.html');
 const renderer = text('bundles.js');
 const themeRenderer = text('bundle-theme.js');
 const rendererCss = text('bundles.css');
+const stationCss = fs.readFileSync(path.join(root, 'avian/frontend/styles.css'), 'utf8');
+const shadowValues = (css, property) => Array.from(
+  css.matchAll(new RegExp(`${property}:\\s*([^;]+);`, 'g')),
+  (match) => match[1].replace(/\s/g, '').replace(/0\./g, '.')
+);
+assert.deepEqual(shadowValues(rendererCss, '--bundle-menu-edge'), shadowValues(stationCss, '--edge-lg'),
+  'the region menu reuses the station menu shadows in both themes');
 const collageRenderer = text('bundle-collage.js');
 const reservedBlock = renderer.match(/const LEGACY_REPOSITORY_PACK_IDS = new Set\(\[([\s\S]*?)\]\);/);
 assert.ok(reservedBlock, 'the station renderer carries the protected legacy contributor namespace');
@@ -169,14 +176,14 @@ assert.match(renderer, /credentials: "omit"[\s\S]{0,80}mode: "cors"[\s\S]{0,80}r
   'the cross-origin discovery fetch carries no station credentials or referrer');
 assert.match(renderer, /embedded && window[.]AVIAN_BUNDLE_CATALOG_SNAPSHOT[\s\S]{0,140}parseCatalog\(window[.]AVIAN_BUNDLE_CATALOG_SNAPSHOT\)/,
   'the vendored catalog remains a fail-closed offline fallback');
-assert.match(renderer, /visiblePacks[.]forEach\(\(target\) => \{[\s\S]{0,80}activeTarget = target[.]id === activePackId/,
-  'each visible regional pack has its own action and active state');
+assert.match(renderer, /info[.]append\(regionAction\(group, visiblePacks\)\)/,
+  'each style keeps one region chooser');
 assert.match(renderer, /embedded [?] installablePackIds[.]has\(pack[.]id\) : pack[.]installable/,
   'station install actions require the parent trusted snapshot, never public discovery metadata alone');
-assert.match(renderer, /use[.]textContent = "Currently in use"[\s\S]{0,120}use[.]disabled = true/,
-  'the active bundle action is visibly non-actionable');
-assert.match(renderer, /unavailable[.]textContent = "Unavailable"[\s\S]{0,100}unavailable[.]disabled = true/,
-  'untrusted or unavailable station packs render an explicit disabled action');
+assert.match(renderer, /trigger[.]textContent = defaultPack \? "Use on my station" : "Unavailable";[\s\S]{0,80}trigger[.]disabled = !defaultPack/,
+  'the action is disabled when no region is authorized');
+assert.match(renderer, /ids[.]every\(id => choices[.]some\(pack => pack[.]id === id\)\)/,
+  'every selected region needs trusted authority');
 assert.match(themeRenderer, /exactMessage\(event[.]data, \["v", "type", "handoff", "theme"\]\)/,
   'the opaque frame accepts only the exact parent theme schema');
 assert.match(renderer, /function searchPlan\(/);
@@ -217,12 +224,12 @@ assert.match(manifestTrustBlock, /url[.]hostname === "avianvisitors[.]com"/,
   'install commands trust manifests from the canonical catalog host only');
 assert.doesNotMatch(manifestTrustBlock, /www[.]avianvisitors[.]com|assets[.]avianvisitors[.]com/,
   'alias hosts cannot become station install authority');
-assert.match(renderer, /const command = `sudo avian-bundle use '\$\{selector\}'`/,
+assert.match(renderer, /const command = \(\) => `sudo avian-bundle use/,
   'the copied command is the same after SSHing into a station or BirdFrame');
 assert.match(renderer, /trigger[.]addEventListener\("click", async \(\) => \{[\s\S]{0,260}await copy\(\)/,
   'opening the command dialog copies the universal command immediately');
-assert.match(renderer, /icon[.]textContent = ">_"/,
-  'the command control uses a terminal glyph instead of a generic copy icon');
+assert.match(renderer, /icon[.]append\(regionIcon\("terminal"\)\)/,
+  'the command control uses the Font Awesome terminal');
 assert.doesNotMatch(renderer, /Copy an SSH command|ssh birdnet[.]local|ssh birdframe[.]local/);
 assert.doesNotMatch(renderer, /curl[^\n]{0,200}[|]\s*(?:sh|bash)|wget[^\n]{0,200}[|]\s*(?:sh|bash)/,
   'the command menu never emits a remote script pipeline');

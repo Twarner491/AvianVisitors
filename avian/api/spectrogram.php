@@ -191,38 +191,8 @@ function resolve_common(string $sci): ?string {
 
 $common = resolve_common($sci) ?? str_replace(' ', '_', $sci);
 
-function newest_spectrogram(string $rootDir, string $common): ?string {
-    if (!is_dir($rootDir)) return null;
-    // Normalised match so apostrophes / case don't matter - same fix as
-    // recording.php (e.g. Anna's_Hummingbird vs Annas_Hummingbird).
-    $norm = function (string $s): string {
-        return preg_replace('/[^a-z0-9]/', '', strtolower($s));
-    };
-    $want = $norm($common);
-    $dates = scandir($rootDir, SCANDIR_SORT_DESCENDING);
-    if (!$dates) return null;
-    foreach ($dates as $date) {
-        if ($date[0] === '.') continue;
-        $dayDir = "$rootDir/$date";
-        if (!is_dir($dayDir)) continue;
-        $speciesDir = null;
-        foreach (scandir($dayDir) as $sub) {
-            if ($sub[0] === '.' || !is_dir("$dayDir/$sub")) continue;
-            if ($norm($sub) === $want) { $speciesDir = "$dayDir/$sub"; break; }
-        }
-        if ($speciesDir === null) continue;
-        $files = scandir($speciesDir, SCANDIR_SORT_DESCENDING);
-        if (!$files) continue;
-        foreach ($files as $f) {
-            if (substr($f, -4) === '.png' && @filesize("$speciesDir/$f") >= 64) {
-                return "$speciesDir/$f";
-            }
-        }
-    }
-    return null;
-}
-
-$path = newest_spectrogram($BY_DATE, $common);
+require_once __DIR__ . '/station-media.php';
+$path = station_latest_media($BY_DATE, $sci, $common, true);
 if ($path === null || !is_file($path) || filesize($path) < 64) {
     http_response_code(404);
     echo 'no spectrogram for ' . htmlspecialchars($sci);
@@ -231,5 +201,5 @@ if ($path === null || !is_file($path) || filesize($path) < 64) {
 
 header('Content-Type: image/png');
 header('Content-Length: ' . filesize($path));
-header('Cache-Control: public, max-age=60');
+header('Cache-Control: no-store');
 readfile($path);

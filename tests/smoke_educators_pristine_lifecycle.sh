@@ -49,7 +49,7 @@ mkdir -p "$repo/avian/api" "$repo/scripts" "$repo/.git" \
   "$bird_home/phpsysinfo/templates/html" "$recordings" "$processed" \
   "$extracted/Charts" "$extracted/By_Date" /etc/birdnet
 for api_file in admin-auth.php admin-state.php birdnet-api.php educator-scope.php \
-  educator-state.php educator-store.php export.php recording.php; do
+  educator-state.php educator-store.php export.php recording.php detection-correction.php station-media.php; do
   cp "/source/avian/api/$api_file" "$repo/avian/api/$api_file"
 done
 cp /source/scripts/backup_data.sh "$repo/scripts/backup_data.sh"

@@ -84,7 +84,8 @@ if (!is_string($raw) || strlen($raw) > 4096) {
     avian_bundles_respond(413, ['ok' => false, 'error' => 'request body is too large']);
 }
 try {
-    $body = json_decode($raw, true, 16, JSON_THROW_ON_ERROR);
+    $object = json_decode($raw, false, 16, JSON_THROW_ON_ERROR);
+    $body = is_object($object) ? (array)$object : null;
 } catch (JsonException $error) {
     avian_bundles_respond(400, ['ok' => false, 'error' => 'bad json']);
 }
@@ -95,16 +96,25 @@ if (!is_array($body) || array_is_list($body) || !is_string($body['action'] ?? nu
 $action = $body['action'];
 $arguments = ['enqueue', '--action', $action];
 if ($action === 'use') {
-    if (!avian_bundles_exact_keys($body, ['action', 'id'])
-        || !is_string($body['id'])) {
+    $ids = avian_bundles_exact_keys($body, ['action', 'id']) ? [$body['id']]
+        : (avian_bundles_exact_keys($body, ['action', 'ids']) ? $body['ids'] : null);
+    if (!is_array($ids) || !array_is_list($ids) || count($ids) < 1 || count($ids) > 16) {
         avian_bundles_respond(400, ['ok' => false, 'error' => 'invalid use request']);
     }
-    $id = avian_bundles_normalize_id($body['id']);
-    if (!avian_bundle_id_valid($id)) {
-        avian_bundles_respond(400, ['ok' => false, 'error' => 'invalid use request']);
+    $seen = [];
+    $arguments = ['enqueue', '--action', 'use'];
+    foreach ($ids as $value) {
+        if (!is_string($value)) avian_bundles_respond(400, ['ok' => false, 'error' => 'invalid use request']);
+        $id = array_key_exists('ids', $body) ? $value : avian_bundles_normalize_id($value);
+        if (!avian_bundle_id_valid($id) || isset($seen[$id])) {
+            avian_bundles_respond(400, ['ok' => false, 'error' => 'invalid use request']);
+        }
+        $seen[$id] = true;
+        $arguments[] = '--id';
+        $arguments[] = $id;
     }
     // Resolve location locally on every use, including an already active bundle.
-    $arguments = ['enqueue', '--action', 'use', '--id', $id, '--json'];
+    $arguments[] = '--json';
 } elseif ($action === 'install' || $action === 'update') {
     if (!avian_bundles_exact_keys($body, ['action', 'activate', 'id'])
         || !is_string($body['id']) || !avian_bundle_id_valid($body['id'])

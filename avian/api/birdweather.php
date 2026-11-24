@@ -7,6 +7,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/admin-auth.php';
+require_once __DIR__ . '/station-config.php';
 
 const AVIAN_BIRDWEATHER_API = 'https://app.birdweather.com/api/v1/stations';
 const AVIAN_BIRDWEATHER_PUBLIC = 'https://app.birdweather.com';
@@ -27,48 +28,6 @@ function birdweather_conf_path(): string {
     return '/etc/birdnet/birdnet.conf';
 }
 
-function birdweather_parse_conf_value(string $raw): ?string {
-    if (strlen($raw) > 1024) return null;
-    $raw = trim($raw);
-    if ($raw === '') return '';
-    $first = $raw[0];
-    if ($first === "'") {
-        $close = strpos($raw, "'", 1);
-        if ($close === false || preg_match('/\A\s*(?:#.*)?\z/D', substr($raw, $close + 1)) !== 1) {
-            return null;
-        }
-        return substr($raw, 1, $close - 1);
-    }
-    if ($first === '"') {
-        $value = '';
-        $length = strlen($raw);
-        for ($index = 1; $index < $length; $index++) {
-            $character = $raw[$index];
-            if ($character === '"') {
-                return preg_match('/\A\s*(?:#.*)?\z/D', substr($raw, $index + 1)) === 1
-                    ? $value
-                    : null;
-            }
-            if ($character === '\\') {
-                $index++;
-                if ($index >= $length) return null;
-                $escaped = $raw[$index];
-                $value .= in_array($escaped, ['\\', '"', '$', '`'], true)
-                    ? $escaped
-                    : '\\' . $escaped;
-                continue;
-            }
-            if ($character === '$' || $character === '`') return null;
-            $value .= $character;
-        }
-        return null;
-    }
-    if (preg_match('/\A([A-Za-z0-9._+,:@%\/=~-]*)(?:\s+#.*)?\z/D', $raw, $match) !== 1) {
-        return null;
-    }
-    return $match[1];
-}
-
 function birdweather_read_conf(string $path): array {
     if (!is_readable($path) || is_dir($path)) return [];
     $values = [];
@@ -87,7 +46,7 @@ function birdweather_read_conf(string $path): array {
             'BIRDWEATHER_UPLOAD_AUDIO',
             'PRIVACY_THRESHOLD',
         ], true)) {
-            $value = birdweather_parse_conf_value($match[2]);
+            $value = avian_station_config_literal($match[2]);
             if ($value === null) unset($values[$match[1]]);
             else $values[$match[1]] = $value;
         }

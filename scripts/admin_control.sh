@@ -681,6 +681,12 @@ read_config_values() {
 
 action=${1:-version}
 case "$action" in
+  mark-incorrect)
+    [ "$#" -eq 1 ] || fail "detection correction takes no arguments"
+    exec /usr/sbin/runuser -u "$birdnet_user" -- \
+      env -i HOME="$birdnet_home" USER="$birdnet_user" PATH=/usr/bin:/bin \
+      /usr/bin/php "$repo_dir/avian/api/detection-correction.php"
+    ;;
   delete-recordings)
     [ "$#" -eq 1 ] || fail "recording deletion takes no arguments"
     [ -f "$repo_dir/scripts/delete_recordings.py" ] \

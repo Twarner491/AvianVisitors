@@ -58,6 +58,11 @@ FORMAT_VERSION = 1
 BUILTIN_ID = "official-western-us-woodblock"
 BUILTIN_VERSION = "1.0.0"
 BUILTIN_REVISION = "included-woodblock-v1"
+WOODBLOCK_EXTENSIONS = {
+    ("community-roquealonso-e824a0e5dde69d4b", "1.0.0",
+     "daf6765916d9beab9bed59a9fd38a10806017d7134744e1101569d60acadf583"):
+        ("019d21f5f54b1a68a4510b089544eb7316a3db54dfd37fc129b950eeeffa591f", 131283),
+}
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 VERSION_RE = re.compile(
@@ -229,6 +234,11 @@ def installed_version_key(value: Any) -> tuple[Any, ...]:
     """Order verified installs by SemVer, then full ASCII version text."""
     version = checked_version(value)
     return semver_precedence(version), version
+
+
+def installed_profile_key(item: dict[str, Any]) -> tuple[Any, ...]:
+    reference = item["reference"]
+    return installed_version_key(reference["version"]), item.get("installed_at", ""), reference.get("selection_revision", "")
 
 
 def installed_activation_presentation(
@@ -1945,6 +1955,133 @@ def pack_directory(reference: dict[str, Any]) -> Path:
     return directory
 
 
+def woodblock_extension(reference: dict) -> tuple[str, int] | None:
+    return WOODBLOCK_EXTENSIONS.get((reference["id"], reference["version"], reference["revision"]))
+
+
+def woodblock_source(reference: dict, sources: list[dict] | None = None) -> dict | None:
+    references = [{"id": source["id"], "version": source["version"], "revision": source["sha256"]}
+                  for source in sources] if sources else [reference]
+    return next((item for item in references if woodblock_extension(item)), None)
+
+
+def woodblock_catalog_base(catalog: dict, pack: dict) -> dict | None:
+    pin = woodblock_extension({**pack, "revision": pack["manifest"]["sha256"]})
+    return next((base for base in catalog["packs"] if base["id"] == BUILTIN_ID
+                 and base["version"] == BUILTIN_VERSION
+                 and (base["manifest"]["sha256"], base["manifest"]["bytes"]) == pin), None)
+
+
+def cached_woodblock_base(pin: tuple[str, int], installed: list[dict] | None = None) -> bytes | None:
+    digest, size = pin
+    for item in installed_records() if installed is None else installed:
+        directory = pack_directory(item["reference"])
+        try:
+            safe_directory(directory.parent)
+            safe_directory(directory)
+            for name in ("base-manifest.json", digest + ".json", "manifest.json"):
+                path = directory / name
+                if not path.exists():
+                    continue
+                raw = read_regular(path, MANIFEST_MAX)
+                if (sha256_bytes(raw), len(raw)) == pin:
+                    return raw
+        except BundleError:
+            continue
+    return None
+
+
+def fetch_woodblock_base(pin: tuple[str, int]) -> bytes:
+    cached = cached_woodblock_base(pin)
+    if cached is not None:
+        return cached
+    digest, size = pin
+    return fetch_manifest({"manifest": {"sha256": digest, "bytes": size,
+                                        "url": MANIFEST_BASE_URL + digest + ".json"}})
+
+
+def compose_woodblock(child_raw: bytes, base_raw: bytes, reference: dict, *, manifest: dict | None = None) -> dict:
+    pin = woodblock_extension(reference)
+    if pin != (sha256_bytes(base_raw), len(base_raw)) or sha256_bytes(child_raw) != reference["revision"]:
+        raise BundleError("bundle extension manifest checksum is incorrect", "manifest_hash")
+    source = parse_json_bytes(child_raw, "child manifest")
+    base = validate_manifest(parse_json_bytes(base_raw, "base manifest"))
+    if (base["id"], base["version"]) != (BUILTIN_ID, BUILTIN_VERSION) or (
+        source["style"] != base["style"] or source["license"]["spdx"] != base["license"]["spdx"]
+    ):
+        raise BundleError("incompatible bundle extension", "invalid_manifest")
+    primary = manifest or validate_manifest(source)
+    source["species"] = ordered_species([primary, base])
+    if len(canonical_json(source)) > MANIFEST_MAX:
+        raise BundleError("composed manifest exceeds its size limit", "bundle_too_large")
+    poses = [pose for bird in source["species"] for pose in bird["poses"]]
+    result = {**primary, "species": source["species"], "species_count": len(source["species"]),
+              "pose_count": len(poses), "total_bytes": sum(pose["bytes"] for pose in poses),
+              "base_manifest_sha256": pin[0]}
+    result["attribution"] = {**result["attribution"],
+                             "creator": result["attribution"]["creator"] + " + " + base["attribution"]["creator"] + " (base)"}
+    if "source_credits" in result:
+        result["source_credits"] = result["source_credits"] + [
+            {"id": base["id"], "attribution": base["attribution"], "license": base["license"]}]
+    return result
+
+
+def checked_source_ids(ids: Any) -> list[str]:
+    if not isinstance(ids, list) or not 1 <= len(ids) <= 16:
+        raise BundleError("select between 1 and 16 regions", "invalid_selection")
+    result = [checked_id(item) for item in ids]
+    if len(set(result)) != len(result):
+        raise BundleError("selected regions must be distinct", "invalid_selection")
+    return result
+
+
+def checked_sources(raw: Any, reference: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(raw, list) or not 2 <= len(raw) <= 16:
+        raise BundleError("invalid selection sources", "invalid_selection")
+    total = 0
+    for source in raw:
+        exact_keys(plain_record(source, "selection source"), {"id", "version", "sha256", "bytes"}, set(), "selection source")
+        checked_version(source["version"])
+        checked_hash(source["sha256"], "source manifest")
+        if type(source["bytes"]) is not int or not 1 <= source["bytes"] <= MANIFEST_MAX:
+            raise BundleError("invalid source manifest size", "invalid_selection")
+        total += source["bytes"]
+    checked_source_ids([source["id"] for source in raw])
+    if total > MANIFEST_MAX or any(raw[0][key] != reference[field] for key, field in
+                                  (("id", "id"), ("version", "version"), ("sha256", "revision"))):
+        raise BundleError("invalid selection sources", "invalid_selection")
+    return raw
+
+
+def ordered_species(manifests: list[dict]) -> list[dict]:
+    birds: dict[str, dict] = {}
+    slugs: set[str] = set()
+    paths: set[str] = set()
+    sizes: dict[str, int] = {}
+    total = count = 0
+    for manifest in manifests:
+        if manifest["style"]["id"] != manifests[0]["style"]["id"]:
+            raise BundleError("select regions from one style", "invalid_selection")
+        for bird in manifest["species"]:
+            name = bird["scientific_name"]
+            if name in birds:
+                continue
+            slug = scientific_slug(name)
+            if slug in slugs:
+                raise BundleError("selected bird names collide", "invalid_species")
+            slugs.add(slug)
+            birds[name] = bird
+            for pose in bird["poses"]:
+                if pose["file"] in paths or sizes.setdefault(pose["sha256"], pose["bytes"]) != pose["bytes"]:
+                    raise BundleError("selected illustration records conflict", "invalid_manifest")
+                paths.add(pose["file"])
+                total += pose["bytes"]
+                count += 1
+            if len(birds) > SPECIES_MAX or count > OBJECTS_MAX or total > TOTAL_MAX:
+                raise BundleError("selected regions exceed bundle limits", "bundle_too_large")
+    return list(birds.values())
+
+
 def selection_record(manifest: dict[str, Any], revision: str, basis: dict[str, Any] | None) -> dict[str, Any]:
     available = {bird["scientific_name"] for bird in manifest["species"]}
     selected = available if basis is None else available & set(basis["species"])
@@ -1954,6 +2091,8 @@ def selection_record(manifest: dict[str, Any], revision: str, basis: dict[str, A
         "schema_version": 1,
         "mode": "all" if basis is None else "local",
         "manifest_sha256": revision,
+        **({"sources": manifest["sources"]} if "sources" in manifest else {}),
+        **({"base_manifest_sha256": manifest["base_manifest_sha256"]} if "base_manifest_sha256" in manifest else {}),
         "species": sorted(selected),
         "basis_sha256": (
             sha256_bytes(canonical_json({"schema_version": 1, "mode": "all"}))
@@ -1967,7 +2106,13 @@ def load_selection(reference: dict[str, Any], directory: Path) -> dict[str, Any]
     if sha256_bytes(raw) != reference["selection_revision"]:
         raise BundleError("installed selection revision is invalid", "invalid_install")
     selection = parse_json_bytes(raw, "installed selection")
-    exact_keys(selection, {"schema_version", "mode", "manifest_sha256", "species", "basis_sha256"}, set(), "installed selection")
+    exact_keys(selection, {"schema_version", "mode", "manifest_sha256", "species", "basis_sha256"}, {"sources", "base_manifest_sha256"}, "installed selection")
+    if "sources" in selection:
+        checked_sources(selection["sources"], reference)
+    if "base_manifest_sha256" in selection:
+        source = woodblock_source(reference, selection.get("sources"))
+        if source is None or selection["base_manifest_sha256"] != woodblock_extension(source)[0]:
+            raise BundleError("installed base manifest is not authorized", "invalid_install")
     if (
         selection["schema_version"] != 1
         or not isinstance(selection["mode"], str)
@@ -1980,6 +2125,36 @@ def load_selection(reference: dict[str, Any], directory: Path) -> dict[str, Any]
     if not names or names != selection["species"] or names != sorted(set(names)):
         raise BundleError("installed selection species are invalid", "invalid_install")
     return selection
+
+
+def selection_manifest(manifest: dict, reference: dict, directory: Path) -> dict:
+    if "selection_revision" not in reference:
+        return manifest
+    receipt = load_selection(reference, directory)
+    sources = receipt.get("sources")
+    manifests = []
+    for number, source in enumerate(sources or []):
+        name = "manifest.json" if number == 0 else source["sha256"] + ".json"
+        raw = read_regular(directory / name, MANIFEST_MAX)
+        if len(raw) != source["bytes"] or sha256_bytes(raw) != source["sha256"]:
+            raise BundleError("source manifest changed", "invalid_install")
+        item = validate_manifest(parse_json_bytes(raw, "source manifest"))
+        if item["id"] != source["id"] or item["version"] != source["version"]:
+            raise BundleError("source identity changed", "invalid_install")
+        manifests.append(item)
+    if sources:
+        birds = ordered_species(manifests)
+        poses = [pose for bird in birds for pose in bird["poses"]]
+        manifest = {**manifest, "species": birds, "species_count": len(birds),
+                    "pose_count": len(poses), "total_bytes": sum(pose["bytes"] for pose in poses), "sources": sources,
+                    "source_credits": [{"id": item["id"], "attribution": item["attribution"], "license": item["license"]}
+                                       for item in manifests]}
+    if "base_manifest_sha256" in receipt:
+        source = woodblock_source(reference, sources)
+        name = "manifest.json" if source["id"] == reference["id"] else source["revision"] + ".json"
+        manifest = compose_woodblock(read_regular(directory / name, MANIFEST_MAX),
+                                    read_regular(directory / "base-manifest.json", MANIFEST_MAX), source, manifest=manifest)
+    return manifest
 
 
 def selected_species(manifest: dict[str, Any], reference: dict[str, Any], directory: Path) -> list[dict[str, Any]]:
@@ -2148,11 +2323,12 @@ def installed_profile_directories(version_path: Path) -> list[Path]:
     return output
 
 
-def current_install(pack_id: str, version: str | None = None) -> dict[str, Any] | None:
+def current_install(pack_id: str, version: str | None = None, *, standalone: bool = False) -> dict[str, Any] | None:
     candidates = [
         item for item in installed_records()
         if item["reference"]["id"] == pack_id
         and (version is None or item["reference"]["version"] == version)
+        and (not standalone or "sources" not in item)
     ]
     if not candidates:
         return None
@@ -2262,6 +2438,10 @@ def validate_installed_pack(
     allowed = {"manifest.json", "index.json", "dims.json", "masks.json", "meta.json"}
     if "selection_revision" in normalized:
         allowed.add("selection.json")
+        allowed.update(source["sha256"] + ".json" for source in
+                       load_selection(normalized, directory).get("sources", [])[1:])
+        if "base_manifest_sha256" in load_selection(normalized, directory):
+            allowed.add("base-manifest.json")
     elif (directory / "selections").exists():
         safe_directory(directory / "selections")
         allowed.add("selections")
@@ -2283,6 +2463,7 @@ def validate_installed_pack(
     manifest = validate_manifest(parse_json_bytes(manifest_raw, "installed manifest"))
     if manifest["id"] != normalized["id"] or manifest["version"] != normalized["version"]:
         raise BundleError("installed manifest identity is invalid", "invalid_install")
+    manifest = selection_manifest(manifest, normalized, directory)
 
     index = load_index(normalized, directory=directory)
     birds = selected_species(manifest, normalized, directory)
@@ -2323,7 +2504,11 @@ def validate_installed_pack(
         "species_count": len(index["assets"]),
         "license": manifest["license"]["spdx"],
         "creator": manifest["attribution"]["creator"],
+        **({"sources": manifest["sources"], "source_credits": manifest["source_credits"]}
+           if "sources" in manifest else {}),
         "archive_bytes": manifest["total_bytes"],
+        **({"effective_species": [bird["scientific_name"] for bird in manifest["species"]]}
+           if "base_manifest_sha256" in manifest and "sources" not in manifest else {}),
         "installed_bytes": sum({item["sha256"]: item["bytes"] for poses in index["assets"].values() for item in poses.values()}.values()),
         "installed_at": meta["installed_at"],
     }
@@ -2406,7 +2591,7 @@ def equivalent_selection_reference(reference: dict[str, Any], selection: dict[st
                         and directory != active_path)):
                 continue
             receipt = load_selection(candidate, directory)
-            if any(receipt[key] != selection[key] for key in ("mode", "manifest_sha256", "species")):
+            if any(receipt.get(key) != selection.get(key) for key in ("mode", "manifest_sha256", "species", "sources", "base_manifest_sha256")):
                 continue
             validate_installed_pack(candidate, verify_hashes=True)
             return candidate
@@ -2418,14 +2603,50 @@ def equivalent_selection_reference(reference: dict[str, Any], selection: dict[st
 def install_pack(
     catalog: dict[str, Any], pack: dict[str, Any], job_id: str, *, all_species: bool = False,
     cached_manifest: bytes | None = None,
+    source_packs: list[dict] | None = None,
+    cached_sources: dict[str, bytes] | None = None,
 ) -> dict[str, Any]:
-    if pack["availability"] != "installable":
+    if pack["availability"] != "installable" and not (source_packs and pack["availability"] == "included"):
         raise BundleError("this bundle is not available to download", "not_installable")
+    if source_packs is not None:
+        checked_sources([{"id": item["id"], "version": item["version"], **{key: item["manifest"][key] for key in ("sha256", "bytes")}}
+                         for item in source_packs],
+                        {"id": pack["id"], "version": pack["version"], "revision": pack["manifest"]["sha256"]})
     update_job(job_id, phase="downloading manifest", current=0, total=0, percent=1)
     manifest_raw = fetch_manifest(pack) if cached_manifest is None else cached_manifest
     manifest_hash = sha256_bytes(manifest_raw)
     manifest = validate_manifest(parse_json_bytes(manifest_raw, "manifest"))
     verify_catalog_manifest(pack, manifest, manifest_hash)
+    source_files: dict[str, bytes] = {}
+    if source_packs is not None:
+        checked_source_ids([item["id"] for item in source_packs])
+        if len(source_packs) < 2 or source_packs[0] != pack:
+            raise BundleError("invalid selection sources", "invalid_selection")
+        manifests = [manifest]
+        sources = [{"id": pack["id"], "version": pack["version"], "sha256": manifest_hash, "bytes": len(manifest_raw)}]
+        for item in source_packs[1:]:
+            if item["availability"] not in {"installable", "included"}:
+                raise BundleError("a selected region is unavailable", "not_installable")
+            raw = (cached_sources or {}).get(item["id"])
+            if raw is None:
+                raw = fetch_manifest(item)
+            parsed = validate_manifest(parse_json_bytes(raw, "source manifest"))
+            digest = sha256_bytes(raw)
+            verify_catalog_manifest(item, parsed, digest)
+            sources.append({"id": item["id"], "version": item["version"], "sha256": digest, "bytes": len(raw)})
+            source_files[digest + ".json"] = raw
+            manifests.append(parsed)
+        checked_sources(sources, {"id": pack["id"], "version": pack["version"], "revision": manifest_hash})
+        birds = ordered_species(manifests)
+        poses = [pose for bird in birds for pose in bird["poses"]]
+        manifest = {**manifest, "species": birds, "species_count": len(birds),
+                    "pose_count": len(poses), "total_bytes": sum(pose["bytes"] for pose in poses), "sources": sources}
+    source = woodblock_source({"id": pack["id"], "version": pack["version"], "revision": manifest_hash}, manifest.get("sources"))
+    if source:
+        base_raw = fetch_woodblock_base(woodblock_extension(source))
+        child_raw = manifest_raw if source["id"] == pack["id"] else source_files[source["revision"] + ".json"]
+        manifest = compose_woodblock(child_raw, base_raw, source, manifest=manifest)
+        source_files["base-manifest.json"] = base_raw
     basis = None if all_species else local_selection_basis()
     selection = selection_record(manifest, manifest_hash, basis)
     birds = [bird for bird in manifest["species"] if bird["scientific_name"] in selection["species"]]
@@ -2496,6 +2717,7 @@ def install_pack(
             return reference
         except BundleError:
             allowed = {"manifest.json", "index.json", "dims.json", "masks.json", "meta.json", "selection.json"}
+            allowed.update(source_files)
             if any(
                 item.name not in allowed or (item.is_dir() and not item.is_symlink())
                 for item in final.iterdir()
@@ -2578,6 +2800,8 @@ def install_pack(
     cleanup_staging = True
     try:
         atomic_bytes(staging / "manifest.json", manifest_raw)
+        for filename, raw in source_files.items():
+            atomic_bytes(staging / filename, raw)
         atomic_json(
             staging / "index.json",
             {
@@ -2666,7 +2890,7 @@ def activate_pack(
         )
         if not wanted_version:
             raise BundleError("bundle is not in the trusted catalog", "unknown_bundle")
-        installed = current_install(pack_id, wanted_version)
+        installed = current_install(pack_id, wanted_version, standalone=True)
         if installed is None:
             raise BundleError("download this bundle before using it", "not_installed")
         reference = installed["reference"]
@@ -2694,14 +2918,14 @@ def rollback_active() -> dict[str, Any]:
 
 def remove_pack(pack_id: str) -> None:
     checked_id(pack_id)
-    if pack_id == BUILTIN_ID:
+    if pack_id == BUILTIN_ID and current_install(pack_id) is None:
         raise BundleError("the included bundle cannot be removed", "included_bundle")
     state = load_state()
     active = state["active"]
     previous = state["previous"]
-    if active["id"] == pack_id:
+    if active["id"] == pack_id and not active["included"]:
         save_state(builtin_ref(), None)
-    elif previous is not None and previous["id"] == pack_id:
+    elif previous is not None and previous["id"] == pack_id and not previous["included"]:
         save_state(active, None)
     target = bundle_root() / "packs" / pack_id
     if target.exists() or target.is_symlink():
@@ -3064,7 +3288,7 @@ def load_job() -> dict[str, Any] | None:
         "schema_version", "id", "operation", "bundle_id", "bundle_version", "activate", "state", "phase",
         "current", "total", "percent", "error", "created_at", "updated_at",
     }
-    exact_keys(job, required, {"all_species"}, "bundle job")
+    exact_keys(job, required, {"all_species", "sources", "activation"}, "bundle job")
     operation = job["operation"]
     state = job["state"]
     bundle_id = job["bundle_id"]
@@ -3103,6 +3327,11 @@ def load_job() -> dict[str, Any] | None:
             raise BundleError("bundle job state is invalid", "invalid_job")
     if job.get("all_species", False) and operation not in {"use", "install", "update"}:
         raise BundleError("bundle job state is invalid", "invalid_job")
+    if "sources" in job:
+        if operation != "use" or not isinstance(job["sources"], list) or not job["sources"]:
+            raise BundleError("invalid selection job", "invalid_job")
+        checked_sources(job["sources"], {"id": bundle_id, "version": version,
+                                       "revision": job["sources"][0].get("sha256") if isinstance(job["sources"][0], dict) else None})
     for field in ("created_at", "updated_at"):
         try:
             dt.datetime.strptime(job[field], "%Y-%m-%dT%H:%M:%SZ")
@@ -3113,6 +3342,14 @@ def load_job() -> dict[str, Any] | None:
             raise BundleError("bundle job progress is invalid", "invalid_job")
     if job["percent"] > 100 or (job["total"] and job["current"] > job["total"]):
         raise BundleError("bundle job progress is invalid", "invalid_job")
+    if "activation" in job:
+        target = normalize_ref(job["activation"], "job activation")
+        if "sources" not in job or target["id"] != bundle_id or target["version"] != version or target["revision"] != job["sources"][0]["sha256"]:
+            raise BundleError("invalid job activation", "invalid_job")
+        if state in {"running", "failed"} and load_state()["active"] == target:
+            if load_selection(target, pack_directory(target)).get("sources") != job["sources"]:
+                raise BundleError("invalid job activation sources", "invalid_job")
+            job.update(state="complete", phase="complete", current=job["total"], percent=100, error="")
     return job
 
 
@@ -3148,6 +3385,28 @@ def snapshot() -> dict[str, Any]:
     installed_by_id: dict[str, list[dict[str, Any]]] = {}
     for item in installed:
         installed_by_id.setdefault(item["reference"]["id"], []).append(item)
+        for source in item.get("sources", [])[1:]:
+            pack_id = source["id"]
+            try:
+                raw = read_regular(pack_directory(item["reference"]) / (source["sha256"] + ".json"), MANIFEST_MAX)
+                if sha256_bytes(raw) != source["sha256"]:
+                    continue
+                manifest = validate_manifest(parse_json_bytes(raw, "installed source"))
+                if manifest["id"] != pack_id or manifest["version"] != source["version"]:
+                    continue
+            except BundleError:
+                continue
+            installed_by_id.setdefault(pack_id, []).append({
+                "reference": {"id": pack_id, "version": source["version"], "revision": source["sha256"]},
+                "manifest": manifest, "name": manifest["name"], "coverage": manifest["coverage"],
+                "style": manifest["style"], "species_count": manifest["species_count"],
+                "creator": manifest["attribution"]["creator"], "license": manifest["license"]["spdx"],
+                "archive_bytes": manifest["total_bytes"],
+            })
+    active_versions = {state["active"]["id"]: state["active"]["version"]}
+    if "selection_revision" in state["active"]:
+        active_versions.update({source["id"]: source["version"] for source in
+                                load_selection(state["active"], pack_directory(state["active"])).get("sources", [])})
     expected = expected_species()
     heard = heard_species()
     basis = expected if expected else heard
@@ -3156,8 +3415,27 @@ def snapshot() -> dict[str, Any]:
     packs: list[dict[str, Any]] = []
     for pack in catalog["packs"]:
         available_species = set(pack["species"])
-        covered = len(basis & available_species) if basis else None
         versions = installed_by_id.get(pack["id"], [])
+        composed = next((item for item in versions if item["reference"]["revision"] == pack["manifest"]["sha256"]
+                         and "effective_species" in item), None)
+        base = woodblock_catalog_base(catalog, pack)
+        pin = woodblock_extension({**pack, "revision": pack["manifest"]["sha256"]})
+        if base is None and pin:
+            raw = cached_woodblock_base(pin, installed)
+            if raw is not None:
+                cached_base = validate_manifest(parse_json_bytes(raw, "cached base manifest"))
+                base = {"species": [bird["scientific_name"] for bird in cached_base["species"]],
+                        "archive_bytes": cached_base["total_bytes"], "creator": cached_base["attribution"]["creator"]}
+        if composed:
+            available_species = set(composed["effective_species"])
+            pack = {**pack, "species": sorted(available_species), "species_count": len(available_species),
+                    "creator": composed["creator"], "archive_bytes": composed["archive_bytes"]}
+        elif base:
+            size = pack["archive_bytes"] + base["archive_bytes"] if available_species.isdisjoint(base["species"]) else None
+            available_species.update(base["species"])
+            pack = {**pack, "species": sorted(available_species), "species_count": len(available_species),
+                    "creator": pack["creator"] + " + " + base["creator"] + " (base)", "archive_bytes": size}
+        covered = len(basis & available_species) if basis else None
         installed_versions = sorted(
             {item["reference"]["version"] for item in versions},
             key=installed_version_key,
@@ -3165,7 +3443,7 @@ def snapshot() -> dict[str, Any]:
         activation_item = (
             max(
                 versions,
-                key=lambda item: installed_version_key(item["reference"]["version"]),
+                key=installed_profile_key,
             )
             if versions else None
         )
@@ -3185,8 +3463,8 @@ def snapshot() -> dict[str, Any]:
             )
             if activation_item is not None else None
         )
-        active = state["active"]["id"] == pack["id"]
-        active_current = active and state["active"]["version"] == pack["version"]
+        active = pack["id"] in active_versions
+        active_current = active and active_versions[pack["id"]] == pack["version"]
         installed_current = any(item["reference"]["version"] == pack["version"] for item in versions)
         installed_any = bool(versions) or pack["availability"] == "included"
         preview_values = []
@@ -3213,7 +3491,7 @@ def snapshot() -> dict[str, Any]:
                 "activation_presentation": activation_presentation,
                 "active": active,
                 "active_current": active_current,
-                "active_version": state["active"]["version"] if active else "",
+                "active_version": active_versions[pack["id"]] if active else "",
                 "catalog_current": True,
                 "update_available": installed_any and not installed_current and pack["availability"] == "installable",
                 "matches_station": True if active else (
@@ -3234,12 +3512,12 @@ def snapshot() -> dict[str, Any]:
     for pack_id, versions in installed_by_id.items():
         if pack_id in catalog_ids:
             continue
-        active = state["active"]["id"] == pack_id
+        active = pack_id in active_versions
         item = next(
             (
                 candidate for candidate in versions
                 if active
-                and candidate["reference"]["version"] == state["active"]["version"]
+                and candidate["reference"]["version"] == active_versions[pack_id]
             ),
             max(
                 versions,
@@ -3250,12 +3528,16 @@ def snapshot() -> dict[str, Any]:
         )
         reference = item["reference"]
         try:
-            manifest_raw = read_regular(
-                pack_directory(reference) / "manifest.json", MANIFEST_MAX
-            )
-            manifest = validate_manifest(
-                parse_json_bytes(manifest_raw, "installed manifest")
-            )
+            manifest = item.get("manifest")
+            if manifest is None:
+                manifest_raw = read_regular(
+                    pack_directory(reference) / "manifest.json", MANIFEST_MAX
+                )
+                manifest = validate_manifest(
+                    parse_json_bytes(manifest_raw, "installed manifest")
+                )
+                if "selection_revision" in reference:
+                    manifest = selection_manifest(manifest, reference, pack_directory(reference))
         except BundleError:
             continue
         available_species = {
@@ -3316,8 +3598,8 @@ def snapshot() -> dict[str, Any]:
                     review="community",
                 ),
                 "active": active,
-                "active_current": active and state["active"]["version"] == reference["version"],
-                "active_version": state["active"]["version"] if active else "",
+                "active_current": active and active_versions[pack_id] == reference["version"],
+                "active_version": active_versions[pack_id] if active else "",
                 "catalog_current": False,
                 "update_available": False,
                 "matches_station": True if active else (
@@ -3329,7 +3611,8 @@ def snapshot() -> dict[str, Any]:
             }
         )
     installed_output = [
-        {**item["reference"], "species_count": item["species_count"], "installed_at": item["installed_at"]}
+        {**item["reference"], "species_count": item["species_count"], "installed_at": item["installed_at"],
+         **({"sources": item["sources"], "source_credits": item["source_credits"]} if "sources" in item else {})}
         for item in installed
     ]
     if not any(item["id"] == BUILTIN_ID for item in installed_output):
@@ -3340,6 +3623,7 @@ def snapshot() -> dict[str, Any]:
     )
     return {
         "ok": True,
+        "capabilities": ["ordered-regions-v1"],
         "catalog": {
             "updated": catalog["updated"],
             "catalog_url": CATALOG_URL,
@@ -3349,6 +3633,8 @@ def snapshot() -> dict[str, Any]:
         },
         "library": {
             "active": record_for_reference(state["active"], catalog),
+            "active_ids": ([source["id"] for source in load_selection(state["active"], pack_directory(state["active"])).get("sources", [])]
+                           or [state["active"]["id"]]) if "selection_revision" in state["active"] else [state["active"]["id"]],
             "previous": None if state["previous"] is None else record_for_reference(state["previous"], catalog),
             "installed": installed_output,
         },
@@ -3366,20 +3652,31 @@ def job_running(job: dict[str, Any]) -> bool:
     return (dt.datetime.now(dt.timezone.utc) - updated).total_seconds() <= JOB_STALE_SECONDS
 
 
-def use_target(catalog: dict[str, Any], pack_id: str, version: str = "") -> tuple[dict[str, Any], bytes | None]:
-    if pack_id == BUILTIN_ID:
+def use_target(catalog: dict[str, Any], pack_id: str, version: str = "", *, composition: bool = False) -> tuple[dict[str, Any], bytes | None]:
+    if pack_id == BUILTIN_ID and not composition:
         return catalog_pack(catalog, pack_id), None
-    installed = current_install(pack_id, version or None)
-    if installed is None:
+    cached = []
+    for item in installed_records():
+        reference = item["reference"]
+        sources = item.get("sources", [{"id": reference["id"], "version": reference["version"],
+                                        "sha256": reference["revision"]}])
+        for number, source in enumerate(sources):
+            if source["id"] == pack_id and (not version or source["version"] == version):
+                name = "manifest.json" if number == 0 else source["sha256"] + ".json"
+                cached.append((source, pack_directory(reference) / name))
+    if not cached:
         pack = catalog_pack(catalog, pack_id)
         if version and pack["version"] != version:
             raise BundleError("bundle version is no longer available", "version_mismatch")
         return pack, None
-    reference = installed["reference"]
-    raw = read_regular(pack_directory(reference) / "manifest.json", MANIFEST_MAX)
+    source, path = max(cached, key=lambda item: installed_version_key(item[0]["version"]))
+    reference = {"id": source["id"], "version": source["version"], "revision": source["sha256"]}
+    raw = read_regular(path, MANIFEST_MAX)
     if sha256_bytes(raw) != reference["revision"]:
         raise BundleError("installed manifest revision is invalid", "invalid_install")
     manifest = validate_manifest(parse_json_bytes(raw, "installed manifest"))
+    if manifest["id"] != pack_id or manifest["version"] != reference["version"]:
+        raise BundleError("installed manifest identity is invalid", "invalid_install")
     listed = next((item for item in catalog["packs"] if item["id"] == pack_id), None)
     if (listed is not None and listed["version"] == reference["version"]
             and listed["manifest"]["sha256"] != reference["revision"]):
@@ -3409,11 +3706,16 @@ def enqueue(
     expected_version: str = "",
     expected_revision: str = "",
     all_species: bool = False,
+    source_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     if action not in ACTIONS:
         raise BundleError("bundle action is invalid", "invalid_action")
     if not isinstance(all_species, bool) or (all_species and action not in {"use", "install", "update"}):
         raise BundleError("bundle selection is invalid", "invalid_action")
+    if source_ids is not None:
+        checked_source_ids(source_ids)
+        if action != "use" or source_ids[0] != pack_id:
+            raise BundleError("invalid selection action", "invalid_action")
     ensure_storage()
     with locked():
         catalog = load_catalog()
@@ -3435,7 +3737,8 @@ def enqueue(
             if action == "use" and activate:
                 raise BundleError("use does not accept an activation flag", "invalid_action")
             if action in {"use", "install", "update"}:
-                pack = use_target(catalog, pack_id, expected_version)[0] if action == "use" else catalog_pack(catalog, pack_id)
+                pack = (use_target(catalog, pack_id, expected_version, composition=bool(source_ids and len(source_ids) > 1))[0]
+                        if action == "use" else catalog_pack(catalog, pack_id))
                 if expected_version and pack["version"] != checked_version(expected_version):
                     raise BundleError(
                         "bundle version changed before the operation was queued",
@@ -3452,7 +3755,7 @@ def enqueue(
                     )
                 if pack["availability"] != "installable" and not (action == "use" and pack["availability"] == "included"):
                     raise BundleError("this bundle is not available to download", "not_installable")
-                installed = current_install(pack_id, pack["version"])
+                installed = current_install(pack_id, pack["version"], standalone=True)
                 if action == "install" and installed is not None:
                     raise BundleError("this bundle is already installed", "already_installed")
                 if action == "update" and installed is not None:
@@ -3462,13 +3765,13 @@ def enqueue(
                 if pack_id == BUILTIN_ID:
                     if wanted_version != BUILTIN_VERSION:
                         raise BundleError("bundle version is no longer available", "version_mismatch")
-                elif current_install(pack_id, wanted_version) is None:
+                elif current_install(pack_id, wanted_version, standalone=True) is None:
                     raise BundleError("download this bundle before using it", "not_installed")
                 if activate:
                     raise BundleError("activate does not accept an activation flag", "invalid_action")
             elif action == "remove":
                 wanted_version = checked_version(version)
-                if pack_id == BUILTIN_ID:
+                if pack_id == BUILTIN_ID and current_install(pack_id) is None:
                     raise BundleError("the included bundle cannot be removed", "included_bundle")
                 if listed_pack is not None and wanted_version != listed_pack["version"]:
                     raise BundleError("bundle version is no longer current", "version_mismatch")
@@ -3482,6 +3785,15 @@ def enqueue(
             resolved_version = pack["version"] if action in {"use", "install", "update"} else wanted_version
         if action in {"rollback", "refresh"}:
             resolved_version = ""
+        sources = []
+        if source_ids and len(source_ids) > 1:
+            selected = [use_target(catalog, item, composition=True)[0] for item in source_ids]
+            if any(item["availability"] not in {"included", "installable"}
+                   or item["style"]["id"] != selected[0]["style"]["id"] for item in selected):
+                raise BundleError("select available regions from one style", "invalid_selection")
+            sources = [{"id": item["id"], "version": item["version"],
+                        "sha256": item["manifest"]["sha256"], "bytes": item["manifest"]["bytes"]} for item in selected]
+            checked_sources(sources, {"id": pack_id, "version": resolved_version, "revision": sources[0]["sha256"]})
         now = utc_now()
         total = 0 if action in {"use", "install", "update"} else 1
         job = {
@@ -3492,6 +3804,7 @@ def enqueue(
             "bundle_version": resolved_version,
             "activate": activate,
             "all_species": all_species,
+            **({"sources": sources} if sources else {}),
             "state": "queued",
             "phase": "queued",
             "current": 0,
@@ -3584,8 +3897,12 @@ def use_selector(selector: str, *, all_species: bool = False) -> dict[str, Any]:
         pack, _ = use_target(catalog, selector)
     else:
         pack = resolve_use_selector(catalog, selector)
+    extension = woodblock_extension({**pack, "revision": pack["manifest"]["sha256"]})
     if pack["availability"] == "included":
         expected = builtin_ref()
+    elif extension:
+        expected = {"id": pack["id"], "version": pack["version"],
+                    "revision": pack["manifest"]["sha256"], "included": False, "name": pack["name"]}
     else:
         basis = None if all_species else local_selection_basis()
         selection = selection_record(
@@ -3634,6 +3951,24 @@ def use_selector(selector: str, *, all_species: bool = False) -> dict[str, Any]:
     }
 
 
+def use_selectors(selectors: list[str], *, all_species: bool = False) -> dict[str, Any]:
+    if len(selectors) == 1:
+        return use_selector(selectors[0], all_species=all_species)
+    checked_source_ids(selectors)
+    ensure_storage()
+    refresh_catalog()
+    before = load_state()["active"]
+    result = enqueue("use", selectors[0], "", False, all_species=all_species, source_ids=selectors)
+    wait_for_job(result["job"]["id"])
+    with locked(exclusive=False):
+        active = load_state()["active"]
+        receipt = load_selection(active, pack_directory(active))
+        if [source["id"] for source in receipt.get("sources", [])] != selectors:
+            raise BundleError("selection activation changed", "activation_mismatch")
+        validate_runtime_reference(active, verify_hashes=True)
+    return {"ok": True, "changed": active != before, "bundle": active}
+
+
 def run_job(job_id: str) -> None:
     try:
         with locked():
@@ -3645,7 +3980,23 @@ def run_job(job_id: str) -> None:
         catalog = load_catalog()
         operation = job["operation"]
         pack_id = job["bundle_id"]
-        if operation in {"use", "install", "update"}:
+        if "sources" in job:
+            selected = []
+            cached_sources = {}
+            for source in job["sources"]:
+                pack, cached = use_target(catalog, source["id"], source["version"], composition=True)
+                if pack["version"] != source["version"] or pack["manifest"]["sha256"] != source["sha256"] or pack["manifest"]["bytes"] != source["bytes"]:
+                    raise BundleError("selected region changed before installation", "version_mismatch")
+                selected.append(pack)
+                if cached is not None:
+                    cached_sources[pack["id"]] = cached
+            reference = install_pack(catalog, selected[0], job_id, all_species=job.get("all_species", False),
+                                     source_packs=selected, cached_sources=cached_sources,
+                                     cached_manifest=cached_sources.get(selected[0]["id"]))
+            update_job(job_id, activation=reference, phase="activating", percent=96)
+            with locked():
+                activate_reference(reference)
+        elif operation in {"use", "install", "update"}:
             selected_pack, cached_manifest = (use_target(catalog, pack_id, job["bundle_version"])
                                              if operation == "use" else (catalog_pack(catalog, pack_id), None))
             if selected_pack["version"] != job["bundle_version"]:
@@ -3683,6 +4034,8 @@ def run_job(job_id: str) -> None:
             error="",
         )
     except BundleError as error:
+        if load_job() and load_job()["id"] == job_id and load_job()["state"] == "complete":
+            return
         try:
             update_job(job_id, state="failed", phase="failed", error=str(error))
         except BundleError:
@@ -3696,6 +4049,8 @@ def run_job(job_id: str) -> None:
             pass
         raise
     except Exception as error:
+        if load_job() and load_job()["id"] == job_id and load_job()["state"] == "complete":
+            return
         try:
             update_job(job_id, state="failed", phase="failed", error="The bundle operation failed validation.")
         except BundleError:
@@ -3767,7 +4122,7 @@ def parser() -> argparse.ArgumentParser:
     configure_parser.add_argument("--json", action="store_true", required=True)
     enqueue_parser = commands.add_parser("enqueue")
     enqueue_parser.add_argument("--action", required=True, choices=sorted(ACTIONS))
-    enqueue_parser.add_argument("--id", default="")
+    enqueue_parser.add_argument("--id", action="append", default=[])
     enqueue_parser.add_argument("--version", default="")
     enqueue_parser.add_argument("--activate", action="store_true")
     enqueue_parser.add_argument("--all-species", action="store_true")
@@ -3785,7 +4140,7 @@ def parser() -> argparse.ArgumentParser:
         "use",
         help="install and activate a trusted bundle by id or exact install-manifest URL",
     )
-    use_parser.add_argument("selector")
+    use_parser.add_argument("selector", nargs="+")
     use_parser.add_argument("--all-species", action="store_true", help="install every bird in the bundle")
     use_parser.add_argument("--json", action="store_true")
     return arguments
@@ -3815,8 +4170,10 @@ def main() -> int:
         elif arguments.command == "configure-station":
             emit_json(configure_station(arguments.user, arguments.root))
         elif arguments.command == "enqueue":
-            emit_json(enqueue(arguments.action, arguments.id, arguments.version, arguments.activate,
-                              all_species=arguments.all_species))
+            if len(arguments.id) > 1 and arguments.action != "use":
+                raise BundleError("only use accepts multiple regions", "invalid_action")
+            emit_json(enqueue(arguments.action, arguments.id[0] if arguments.id else "", arguments.version, arguments.activate,
+                              all_species=arguments.all_species, source_ids=arguments.id if len(arguments.id) > 1 else None))
         elif arguments.command == "preview":
             sys.stdout.buffer.write(preview_bytes(arguments.id, arguments.index))
         elif arguments.command == "run-job":
@@ -3826,7 +4183,7 @@ def main() -> int:
         elif arguments.command == "inspect-png":
             emit_json(inspect_png_command(arguments.label))
         elif arguments.command == "use":
-            result = use_selector(arguments.selector, all_species=arguments.all_species)
+            result = use_selectors(arguments.selector, all_species=arguments.all_species)
             if arguments.json:
                 emit_json(result)
             else:

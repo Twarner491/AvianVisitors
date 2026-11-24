@@ -540,7 +540,36 @@ function avian_bundle_selection_matches(array $state, string $directory, array $
     if (!is_array($selection) || array_is_list($selection)) return false;
     $keys = array_keys($selection);
     sort($keys, SORT_STRING);
-    if ($keys !== ['basis_sha256', 'manifest_sha256', 'mode', 'schema_version', 'species']
+    $expectedKeys = ['basis_sha256', 'manifest_sha256', 'mode', 'schema_version', 'species'];
+    if (array_key_exists('sources', $selection)) {
+        $expectedKeys = ['basis_sha256', 'manifest_sha256', 'mode', 'schema_version', 'sources', 'species'];
+        $sources = $selection['sources'];
+        if (!is_array($sources) || !array_is_list($sources) || count($sources) < 2 || count($sources) > 16) return false;
+        $seen = [];
+        $total = 0;
+        foreach ($sources as $i => $source) {
+            if (!is_array($source) || array_is_list($source)) return false;
+            $sourceKeys = array_keys($source);
+            sort($sourceKeys, SORT_STRING);
+            if ($sourceKeys !== ['bytes', 'id', 'sha256', 'version']
+                || !is_string($source['id']) || !avian_bundle_id_valid($source['id']) || isset($seen[$source['id']])
+                || !is_string($source['version']) || !avian_bundle_version_valid($source['version'])
+                || !is_string($source['sha256']) || !avian_bundle_revision_valid($source['sha256'])
+                || !is_int($source['bytes']) || $source['bytes'] < 1) return false;
+            $seen[$source['id']] = true;
+            $total += $source['bytes'];
+            if ($total > 4 * 1024 * 1024) return false;
+            if ($i === 0 && ($source['id'] !== $state['id'] || $source['version'] !== $state['version']
+                || $source['sha256'] !== $state['revision'])) return false;
+        }
+    }
+    if (array_key_exists('base_manifest_sha256', $selection)) {
+        if (!is_string($selection['base_manifest_sha256'])
+            || !avian_bundle_revision_valid($selection['base_manifest_sha256'])) return false;
+        $expectedKeys[] = 'base_manifest_sha256';
+        sort($expectedKeys, SORT_STRING);
+    }
+    if ($keys !== $expectedKeys
         || $selection['schema_version'] !== 1
         || !in_array($selection['mode'], ['local', 'all'], true)
         || $selection['manifest_sha256'] !== $state['revision']

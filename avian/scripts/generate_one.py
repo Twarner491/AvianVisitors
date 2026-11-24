@@ -202,6 +202,7 @@ def main() -> int:
     write_state(running=True, sci=sci, com=com, step="render")
 
     try:
+        pregen.image_model()
         prompt = pregen.load_prompt(HERE / "prompt.template.md")
         notes = pregen.load_species_notes(HERE / "species-notes.json")
         refs = HERE.parent / "assets" / "references"

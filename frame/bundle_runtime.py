@@ -51,6 +51,11 @@ ALLOWED_HOSTS = frozenset({"avianvisitors.com"})
 CATALOG_FORMAT = "avian-visitors-bundle-catalog"
 VENDOR_CATALOG_FORMAT = "avian-visitors-frame-bundle-catalog"
 MANIFEST_FORMAT = "avian-visitors-asset-pack"
+WOODBLOCK_EXTENSIONS = {
+    ("community-roquealonso-e824a0e5dde69d4b", "1.0.0",
+     "daf6765916d9beab9bed59a9fd38a10806017d7134744e1101569d60acadf583"):
+        ("019d21f5f54b1a68a4510b089544eb7316a3db54dfd37fc129b950eeeffa591f", 131283),
+}
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 VERSION_RE = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
@@ -1615,6 +1620,90 @@ def _all_selection_basis() -> str:
     return _sha(_canonical({"schema_version": 1, "mode": "all"}))
 
 
+def _woodblock_extension(reference: dict) -> tuple[str, int] | None:
+    return WOODBLOCK_EXTENSIONS.get((reference["id"], reference["version"], reference["revision"]))
+
+
+def _woodblock_source(reference: dict, sources: list[dict] | None = None) -> dict | None:
+    references = [{"id": source["id"], "version": source["version"], "revision": source["sha256"]}
+                  for source in sources] if sources else [reference]
+    return next((item for item in references if _woodblock_extension(item)), None)
+
+
+def _compose_woodblock(child_raw: bytes, base_raw: bytes, reference: dict, *, manifest: dict | None = None) -> dict:
+    pin = _woodblock_extension(reference)
+    if pin != (_sha(base_raw), len(base_raw)) or _sha(child_raw) != reference["revision"]:
+        raise BundleError("bundle extension manifest checksum is incorrect", "manifest_hash")
+    source = _json(child_raw, "child manifest")
+    base = _validate_manifest(base_raw, {"id": "official-western-us-woodblock", "version": "1.0.0"})
+    if source["style"] != base["style"] or source["license"]["spdx"] != base["license"]["spdx"]:
+        raise BundleError("incompatible bundle extension", "invalid_manifest")
+    primary = manifest or _validate_manifest(child_raw, reference)
+    result = _compose([primary, base], primary.get("sources", []))
+    if "sources" not in primary:
+        result.pop("sources")
+    if len(_canonical({**source, "species": result["species"]})) > MANIFEST_MAX:
+        raise BundleError("composed manifest exceeds its size limit", "bundle_too_large")
+    result["base_manifest_sha256"] = pin[0]
+    result["attribution"] = {**result["attribution"],
+                             "creator": result["attribution"]["creator"] + " + " + base["attribution"]["creator"] + " (base)"}
+    return result
+
+
+def _source_ids(ids: Any) -> list[str]:
+    if not isinstance(ids, list) or not 1 <= len(ids) <= 16:
+        raise BundleError("select between 1 and 16 regions", "invalid_selection")
+    result = [_checked_id(item) for item in ids]
+    if len(set(result)) != len(result):
+        raise BundleError("selected regions must be distinct", "invalid_selection")
+    return result
+
+
+def _sources(raw: Any, reference: dict) -> list[dict]:
+    if not isinstance(raw, list) or not 2 <= len(raw) <= 16:
+        raise BundleError("invalid selection sources", "invalid_selection")
+    total = 0
+    for source in raw:
+        if not isinstance(source, dict) or set(source) != {"id", "version", "sha256", "bytes"}:
+            raise BundleError("invalid selection source", "invalid_selection")
+        _checked_version(source["version"])
+        _checked_hash(source["sha256"])
+        if type(source["bytes"]) is not int or not 1 <= source["bytes"] <= MANIFEST_MAX:
+            raise BundleError("invalid source manifest size", "invalid_selection")
+        total += source["bytes"]
+    _source_ids([source["id"] for source in raw])
+    if total > MANIFEST_MAX or any(raw[0][key] != reference[field] for key, field in
+                                  (("id", "id"), ("version", "version"), ("sha256", "revision"))):
+        raise BundleError("invalid selection sources", "invalid_selection")
+    return raw
+
+
+def _compose(manifests: list[dict], sources: list[dict]) -> dict:
+    birds, assets, sizes = {}, {}, {}
+    total = count = 0
+    for manifest in manifests:
+        if manifest["style"]["id"] != manifests[0]["style"]["id"]:
+            raise BundleError("select regions from one style", "invalid_selection")
+        for bird in manifest["species"]:
+            name = bird["scientific_name"]
+            if name in birds:
+                continue
+            slug = _slug(name)
+            if slug in assets:
+                raise BundleError("selected bird names collide", "invalid_manifest")
+            birds[name] = bird
+            assets[slug] = manifest["assets"][slug]
+            for item in assets[slug].values():
+                if sizes.setdefault(item["sha256"], item["bytes"]) != item["bytes"]:
+                    raise BundleError("selected object sizes disagree", "invalid_manifest")
+                total += item["bytes"]
+                count += 1
+            if len(birds) > SPECIES_MAX or count > SPECIES_MAX * 2 or total > TOTAL_MAX:
+                raise BundleError("selected regions exceed bundle limits", "bundle_too_large")
+    return {**manifests[0], "species": list(birds.values()), "assets": assets,
+            "object_sizes": sizes, "total_bytes": total, "sources": sources}
+
+
 def _make_selection(manifest: dict[str, Any], revision: str, basis: dict[str, Any] | None) -> dict[str, Any]:
     available = {item["scientific_name"] for item in manifest["species"]}
     if basis is None:
@@ -1627,12 +1716,21 @@ def _make_selection(manifest: dict[str, Any], revision: str, basis: dict[str, An
     if not selected:
         raise BundleError("this bundle has no birds for the configured location", "no_matching_species")
     return {"schema_version": 1, "mode": mode, "manifest_sha256": revision,
+            **({"sources": manifest["sources"]} if "sources" in manifest else {}),
+            **({"base_manifest_sha256": manifest["base_manifest_sha256"]} if "base_manifest_sha256" in manifest else {}),
             "species": selected, "basis_sha256": basis_digest}
 
 
 def _validate_selection(raw: bytes, reference: dict[str, str], manifest: dict[str, Any]) -> dict[str, Any]:
     receipt = _json(raw, "bundle selection")
-    if set(receipt) != {"schema_version", "mode", "manifest_sha256", "species", "basis_sha256"} or \
+    fields = {"schema_version", "mode", "manifest_sha256", "species", "basis_sha256"}
+    if "sources" in manifest:
+        fields.add("sources")
+        _sources(receipt.get("sources"), reference)
+    if "base_manifest_sha256" in manifest:
+        fields.add("base_manifest_sha256")
+    if set(receipt) != fields or receipt.get("sources") != manifest.get("sources") or \
+            receipt.get("base_manifest_sha256") != manifest.get("base_manifest_sha256") or \
             type(receipt["schema_version"]) is not int or receipt["schema_version"] != 1 or \
             not isinstance(receipt["mode"], str) or receipt["mode"] not in {"local", "all"} or \
             receipt["manifest_sha256"] != reference["revision"] or \
@@ -1669,7 +1767,7 @@ def _equivalent_selection_reference(
             stored = _validate_selection(
                 _safe_file(directory / "selection.json", SELECTION_MAX), candidate, manifest,
             )
-            if any(stored[key] != receipt[key] for key in ("mode", "manifest_sha256", "species")):
+            if any(stored.get(key) != receipt.get(key) for key in ("mode", "manifest_sha256", "species", "sources", "base_manifest_sha256")):
                 continue
             _validate_install(root, candidate, verify_hashes=True)
             return candidate
@@ -1678,12 +1776,64 @@ def _equivalent_selection_reference(
     return None
 
 
-def _install(root: Path, pack: dict[str, Any], basis: dict[str, Any] | None = None) -> dict[str, str]:
+def _manifest_bytes(root: Path, record: dict[str, Any]) -> bytes:
+    packs = root / "packs"
+    directories = packs.glob("*/*/*/selections/*")
+    for number, directory in enumerate(directories):
+        if number >= 512:
+            break
+        try:
+            for parent in (directory, *directory.parents):
+                _safe_dir(parent)
+                if parent == packs:
+                    break
+            for filename in (record["sha256"] + ".json", "manifest.json", "base-manifest.json"):
+                path = directory / filename
+                if not path.exists():
+                    continue
+                raw = _safe_file(path, MANIFEST_MAX)
+                if len(raw) == record["bytes"] and _sha(raw) == record["sha256"]:
+                    return raw
+        except BundleError:
+            continue
+    return _download(record["url"], MANIFEST_MAX, record["bytes"])
+
+
+def _install(root: Path, pack: dict[str, Any], basis: dict[str, Any] | None = None,
+             source_packs: list[dict] | None = None) -> dict[str, str]:
     record = pack["manifest"]
-    manifest_raw = _download(record["url"], MANIFEST_MAX, record["bytes"])
+    if source_packs is not None:
+        _sources([{"id": item["id"], "version": item["version"], **{key: item["manifest"][key] for key in ("sha256", "bytes")}}
+                  for item in source_packs],
+                 {"id": pack["id"], "version": pack["version"], "revision": record["sha256"]})
+    manifest_raw = _manifest_bytes(root, record)
     if _sha(manifest_raw) != record["sha256"]:
         raise BundleError("manifest checksum is incorrect", "manifest_hash")
     manifest = _validate_manifest(manifest_raw, pack)
+    source_files = {}
+    if source_packs is not None:
+        _source_ids([item["id"] for item in source_packs])
+        if len(source_packs) < 2 or source_packs[0] != pack:
+            raise BundleError("invalid selection sources", "invalid_selection")
+        manifests = [manifest]
+        sources = [{"id": pack["id"], "version": pack["version"], "sha256": record["sha256"], "bytes": len(manifest_raw)}]
+        for item in source_packs[1:]:
+            source = item["manifest"]
+            raw = _manifest_bytes(root, source)
+            if _sha(raw) != source["sha256"]:
+                raise BundleError("source manifest checksum is incorrect", "manifest_hash")
+            manifests.append(_validate_manifest(raw, item))
+            sources.append({"id": item["id"], "version": item["version"], "sha256": source["sha256"], "bytes": len(raw)})
+            source_files[source["sha256"] + ".json"] = raw
+        _sources(sources, {"id": pack["id"], "version": pack["version"], "revision": record["sha256"]})
+        manifest = _compose(manifests, sources)
+    source = _woodblock_source({"id": pack["id"], "version": pack["version"], "revision": record["sha256"]}, manifest.get("sources"))
+    if source:
+        digest, size = _woodblock_extension(source)
+        base_raw = _manifest_bytes(root, {"sha256": digest, "bytes": size, "url": _manifest_url(digest)})
+        child_raw = manifest_raw if source["id"] == pack["id"] else source_files[source["revision"] + ".json"]
+        manifest = _compose_woodblock(child_raw, base_raw, source, manifest=manifest)
+        source_files["base-manifest.json"] = base_raw
     receipt = _make_selection(manifest, record["sha256"], basis)
     selection_raw = _canonical(receipt)
     assets = _selection_assets(manifest, receipt)
@@ -1719,6 +1869,7 @@ def _install(root: Path, pack: dict[str, Any], basis: dict[str, Any] | None = No
         except BundleError:
             _safe_dir(final)
             allowed = {"manifest.json", "selection.json", "index.json", "dims.json", "masks.json"}
+            allowed.update(source_files)
             if any(
                 item.name not in allowed or (item.is_dir() and not item.is_symlink())
                 for item in final.iterdir()
@@ -1770,6 +1921,8 @@ def _install(root: Path, pack: dict[str, Any], basis: dict[str, Any] | None = No
         if len(dimensions_raw) > TABLE_MAX or len(masks_raw) > TABLE_MAX:
             raise BundleError("derived bundle tables are too large", "bundle_too_large")
         _atomic(staging / "manifest.json", manifest_raw, 0o600)
+        for filename, raw in source_files.items():
+            _atomic(staging / filename, raw, 0o600)
         _atomic(staging / "selection.json", selection_raw, 0o600)
         _atomic(staging / "index.json", _canonical({"reference": reference, "assets": assets}), 0o600)
         _atomic(staging / "dims.json", dimensions_raw, 0o600)
@@ -1834,6 +1987,15 @@ def _validate_install_contents(
     expected_files = {"manifest.json", "index.json", "dims.json", "masks.json"}
     if "selection_revision" in reference:
         expected_files.add("selection.json")
+        receipt = _json(_safe_file(directory / "selection.json", SELECTION_MAX), "selection")
+        if "sources" in receipt:
+            sources = _sources(receipt["sources"], reference)
+            expected_files.update(source["sha256"] + ".json" for source in sources[1:])
+        if "base_manifest_sha256" in receipt:
+            source = _woodblock_source(reference, receipt.get("sources"))
+            if source is None or receipt["base_manifest_sha256"] != _woodblock_extension(source)[0]:
+                raise BundleError("installed base manifest is not authorized", "invalid_install")
+            expected_files.add("base-manifest.json")
     names = {item.name for item in directory.iterdir()}
     if "selection_revision" not in reference and "selections" in names:
         _safe_dir(directory / "selections")
@@ -1854,6 +2016,19 @@ def _validate_install_contents(
         manifest_raw,
         {"id": reference["id"], "version": reference["version"]},
     )
+    if "selection_revision" in reference and "sources" in receipt:
+        manifests = []
+        for number, source in enumerate(sources):
+            raw = manifest_raw if number == 0 else _safe_file(directory / (source["sha256"] + ".json"), MANIFEST_MAX)
+            if len(raw) != source["bytes"] or _sha(raw) != source["sha256"]:
+                raise BundleError("source manifest checksum is incorrect", "invalid_install")
+            manifests.append(_validate_manifest(raw, source))
+        manifest = _compose(manifests, sources)
+    if "base-manifest.json" in expected_files:
+        source = _woodblock_source(reference, receipt.get("sources"))
+        name = "manifest.json" if source["id"] == reference["id"] else source["revision"] + ".json"
+        manifest = _compose_woodblock(_safe_file(directory / name, MANIFEST_MAX),
+                                     _safe_file(directory / "base-manifest.json", MANIFEST_MAX), source, manifest=manifest)
     expected_assets = manifest["assets"]
     if "selection_revision" in reference:
         receipt = _validate_selection(_safe_file(directory / "selection.json", SELECTION_MAX), reference, manifest)
@@ -1941,14 +2116,27 @@ def use(
     config: dict[str, Any] | None = None,
     all_species: bool = False,
 ) -> dict[str, Any]:
+    return use_many([selector], root=root, render=render, config=config, all_species=all_species)
+
+
+def use_many(
+    selectors: list[str], *, root: str | os.PathLike[str] | None = None,
+    render: Callable[[], None] | None = None, config: dict[str, Any] | None = None,
+    all_species: bool = False,
+) -> dict[str, Any]:
+    if not isinstance(selectors, list) or not 1 <= len(selectors) <= 16:
+        raise BundleError("select between 1 and 16 regions", "invalid_selection")
+    if len(selectors) > 1:
+        _source_ids(selectors)
     storage = _root(root)
     with operation_lock(storage):
         basis = None if all_species else _resolve_selection_basis(
             _load_frame_config() if config is None else config
         )
         catalog = refresh_catalog(storage)
-        pack = resolve_selector(catalog, selector)
-        reference = _install(storage, pack, basis)
+        packs = [resolve_selector(catalog, selector) for selector in selectors]
+        reference = (_install(storage, packs[0], basis, source_packs=packs)
+                     if len(packs) > 1 else _install(storage, packs[0], basis))
         before = _load_state(storage)
         changed = before["active"] != reference
         if changed:
@@ -2116,7 +2304,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     use_parser = commands.add_parser("use")
-    use_parser.add_argument("selector")
+    use_parser.add_argument("selector", nargs="+")
     use_parser.add_argument("--all-species", action="store_true", help="install every bird in the selected bundle")
     use_parser.add_argument("--no-render", action="store_true", help=argparse.SUPPRESS)
     use_parser.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
@@ -2133,7 +2321,7 @@ def main() -> int:
             else lambda: _render_callback(config_path)
         )
         result = (
-            use(arguments.selector, root=storage, render=render,
+            use_many(arguments.selector, root=storage, render=render,
                 config=_load_frame_config(config_path), all_species=arguments.all_species)
             if arguments.command == "use"
             else rollback(root=storage, render=render)

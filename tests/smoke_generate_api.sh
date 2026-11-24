@@ -27,12 +27,16 @@ chmod 0640 /var/lib/avian-visitors/admin-auth.state
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/avian-generate-test.XXXXXX")
 fixture="$work/station"
+lock="$fixture/avian/assets/illustrations/.generate.lock"
 worker_log="$work/workers.log"
 nohup_argv="$work/nohup-argv.txt"
 nohup_env="$work/nohup-env.txt"
+nohup_model="$work/nohup-model.txt"
 ps_snapshot="$work/ps.txt"
 server_log="$work/server.log"
 test_key='generator-key-that-must-never-appear-in-argv-4f881d6e'
+test_model='gemini-3.1-flash-lite-image'
+invalid_model='private-model-value/invalid'
 server_pid=
 locker_pid=
 
@@ -55,15 +59,22 @@ mkdir -p \
   "$fixture/avian/scripts" \
   "$fixture/scripts" \
   "$fixture/birdnet/bin"
+: >"$lock"
 cp avian/api/admin-auth.php "$fixture/avian/api/admin-auth.php"
 cp avian/api/admin-state.php "$fixture/avian/api/admin-state.php"
 cp avian/api/educator-state.php "$fixture/avian/api/educator-state.php"
 cp avian/api/bundle-runtime.php "$fixture/avian/api/bundle-runtime.php"
+cp avian/api/station-config.php "$fixture/avian/api/station-config.php"
 cp avian/api/generate.php "$fixture/avian/api/generate.php"
 
-printf 'GEMINI_API_KEY="stale-checkout-key"\n' >"$fixture/birdnet.conf"
+printf 'GEMINI_API_KEY="stale-checkout-key"\nGEMINI_IMAGE_MODEL="gemini-2.5-flash-image"\n' \
+  >"$fixture/birdnet.conf"
 mkdir -p /etc/birdnet
-printf 'GEMINI_API_KEY="%s"\n' "$test_key" >/etc/birdnet/birdnet.conf
+write_station_config() {
+  printf 'GEMINI_API_KEY="%s"\nGEMINI_IMAGE_MODEL="%s"\n' "$test_key" "$1" \
+    >/etc/birdnet/birdnet.conf
+}
+write_station_config "$invalid_model"
 printf '%s\n' '# test worker path' >"$fixture/avian/scripts/generate_one.py"
 sqlite3 "$fixture/scripts/birds.db" <<'SQL'
 CREATE TABLE detections (Sci_Name TEXT, Com_Name TEXT, Date TEXT);
@@ -84,6 +95,7 @@ cat >"$work/bin/nohup" <<'SH'
 #!/bin/sh
 printf '%s\n' "$@" >"$FAKE_NOHUP_ARGV"
 printf '%s' "$GEMINI_API_KEY" >"$FAKE_NOHUP_ENV"
+printf '%s' "${GEMINI_IMAGE_MODEL-}" >"$FAKE_NOHUP_MODEL"
 ps -axo command= >"$FAKE_PS_SNAPSHOT"
 sleep 1
 exec "$@"
@@ -129,8 +141,9 @@ PATH="$work/bin:$PATH" \
 FAKE_WORKER_LOG="$worker_log" \
 FAKE_NOHUP_ARGV="$nohup_argv" \
 FAKE_NOHUP_ENV="$nohup_env" \
+FAKE_NOHUP_MODEL="$nohup_model" \
 FAKE_PS_SNAPSHOT="$ps_snapshot" \
-AVIAN_GENERATION_LOCK="$fixture/avian/assets/illustrations/.generate.lock" \
+AVIAN_GENERATION_LOCK="$lock" \
 PHP_CLI_SERVER_WORKERS=8 \
   php -d "auto_prepend_file=$work/sqlite-prepend.php" \
   -S "127.0.0.1:$port" -t "$fixture" >"$server_log" 2>&1 &
@@ -172,7 +185,19 @@ post_case "null force" 400 'force must be boolean' \
   '{"sci":"Calypte anna","force":null}'
 [ ! -s "$worker_log" ] || fail "an invalid request started a worker"
 
-lock="$fixture/avian/assets/illustrations/.generate.lock"
+post_case "invalid configured image model" 409 'invalid Gemini image model' \
+  '{"sci":"Calypte anna"}'
+if grep -Fq "$invalid_model" "$work/response.json" "$server_log"; then
+  fail "the invalid model value appeared in a response or log"
+fi
+[ ! -e "$fixture/avian/assets/illustrations/.generate.starts" ] \
+  || fail "invalid model configuration consumed a generation start"
+{
+  printf 'GEMINI_API_KEY="%s" # station credential\n' "$test_key"
+  printf 'GEMINI_IMAGE_MODEL=gemini-2.5-flash-image # shadowed setting\n'
+  printf "export GEMINI_IMAGE_MODEL='%s' # active setting\n" "$test_model"
+} >/etc/birdnet/birdnet.conf
+
 lock_ready="$work/lock.ready"
 php -r '
   $handle = fopen($argv[1], "c");
@@ -241,6 +266,8 @@ for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
 done
 [ "$(cat "$nohup_env")" = "$test_key" ] \
   || fail "the worker did not receive the API key through its environment"
+[ "$(cat "$nohup_model")" = "$test_model" ] \
+  || fail "the worker did not receive the station-configured image model through its environment"
 if grep -Fq "$test_key" "$server_log" "$fixture/avian/assets/illustrations/.generate.log"; then
   fail "the API key appeared in a generation log"
 fi

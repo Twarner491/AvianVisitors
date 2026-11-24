@@ -80,6 +80,27 @@ function avian_bundle_run_manager($args, $timeout) {
         with urllib.request.urlopen(self.url, timeout=3) as response:
             self.assertTrue(json.load(response)['ok'])
 
+    def test_ordered_regions_reach_one_use_job(self):
+        status, body = self.post({'action': 'use', 'ids': ['region-b', 'region-a']})
+        self.assertEqual(status, 202)
+        self.assertTrue(body['accepted'])
+        self.assertEqual(json.loads((self.directory / 'argv.json').read_text()),
+                         ['enqueue', '--action', 'use', '--id', 'region-b', '--id', 'region-a', '--json'])
+
+    def test_invalid_region_lists_do_not_start_a_job(self):
+        for ids in [[], ['same', 'same'], [None], ['../escape'], 'region-a', list(range(2)),
+                    ['region-' + str(i) for i in range(17)]]:
+            with self.subTest(ids=ids):
+                self.assertEqual(self.post({'action': 'use', 'ids': ids})[0], 400)
+        self.assertEqual(self.post({'action': 'use', 'id': 'a', 'ids': ['b']})[0], 400)
+        self.assertFalse((self.directory / 'argv.json').exists())
+
+    def test_ordered_ids_preserve_identity_and_require_a_json_array(self):
+        self.assertEqual(self.post({'action': 'use', 'ids': {'0': 'a', '1': 'b'}})[0], 400)
+        self.assertEqual(self.post({'action': 'use', 'ids': ['woodblock', 'b']})[0], 202)
+        self.assertEqual(json.loads((self.directory / 'argv.json').read_text()),
+                         ['enqueue', '--action', 'use', '--id', 'woodblock', '--id', 'b', '--json'])
+
     def test_browser_cannot_supply_location_or_download_authority(self):
         for field, value in [("latitude", 37), ("species", ["Corvus corax"]),
                              ("url", "https://example.com/pack.json")]:

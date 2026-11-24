@@ -8,7 +8,7 @@ Step 1 of the illustration pipeline:
 
 Reads a species list (BirdNET-Pi's labels.txt, eBird, or stdin),
 fetches a Wikipedia reference photo for each species, and generates an
-illustration via the Gemini 2.5 Flash Image API. Saves PNGs into
+illustration via the Gemini image API. Saves PNGs into
 avian/assets/illustrations/.
 
 The prompt renders each bird on a CREAM ground, not a transparent one:
@@ -51,6 +51,7 @@ Usage:
     python3 pregen.py --labels ~/BirdNET-Pi/model/labels.txt --force
 
 Set GEMINI_API_KEY in the environment (preferred) or pass --gemini-key.
+Set GEMINI_IMAGE_MODEL to override the default Gemini image model.
 """
 from __future__ import annotations
 import argparse
@@ -67,11 +68,11 @@ from pathlib import Path
 
 import build_masks
 
-# Gemini's image-out model. The endpoint changes occasionally; if you
-# get a 404 here, check Google's model catalog and bump this.
-GEMINI_URL = (
+# Compare replacement artwork before changing the default for all stations.
+DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-image"
+GEMINI_GENERATE_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.5-flash-image:generateContent"
+    "{}:generateContent"
 )
 POSES = {1: "perched", 2: "in flight with wings spread"}
 
@@ -378,6 +379,14 @@ def load_anti_ref(refs_dir: Path, key: str = "bluejay") -> Path | None:
 
 # ---- Gemini call ----
 
+def image_model() -> str:
+    """Read the shared image model without accepting a URL or resource path."""
+    model = os.environ.get("GEMINI_IMAGE_MODEL", DEFAULT_IMAGE_MODEL).strip()
+    if not re.fullmatch(r"gemini-[a-z0-9]+(?:[.-][a-z0-9]+)*", model):
+        raise ValueError("GEMINI_IMAGE_MODEL must be a bare Gemini image model ID")
+    return model
+
+
 def _anti_ref_line(anti_ref_key: str | None) -> str:
     """Render the `{anti_ref_line}` substitution for the prompt body.
     Returns the IMAGE 2 bullet describing which species is attached and
@@ -407,7 +416,7 @@ def gen_one(
     style_ref: Path | None = None,
 ) -> bytes:
     """Single Gemini call with bounded retry on 429 + transient 5xx.
-    Returns raw PNG bytes.
+    Returns raw image bytes.
 
     positive_ref: Wikipedia/Audubon photo of the target species.
     anti_ref: lookalike photo to attach as IMAGE 2. The companion
@@ -420,6 +429,7 @@ def gen_one(
                   appended as the last paragraph before the reference
                   block.
     """
+    url = GEMINI_GENERATE_URL.format(image_model())
     body = (prompt
             .replace("{sci_name}", sci)
             .replace("{com_name}", com)
@@ -485,7 +495,7 @@ def gen_one(
     # API key as header, NOT URL - keeps the key out of Google's
     # request logs, proxy logs, and shell history.
     req = urllib.request.Request(
-        GEMINI_URL,
+        url,
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
         method="POST",
@@ -498,8 +508,10 @@ def gen_one(
                 resp = json.loads(r.read())
             break
         except urllib.error.HTTPError as e:
-            if e.code in (429, 500, 502, 503, 504) and attempt < 3:
+            code = e.code
+            if code in (429, 500, 502, 503, 504) and attempt < 3:
                 ra = e.headers.get("Retry-After")
+                e.close()
                 try:
                     retry_after = float(ra) if ra else backoff
                 except (TypeError, ValueError):
@@ -507,21 +519,29 @@ def gen_one(
                 time.sleep(retry_after)
                 backoff *= 2
                 continue
-            raise
-        except urllib.error.URLError:
+            e.close()
+            hint = "; check GEMINI_IMAGE_MODEL and model access" if code == 404 else ""
+            raise RuntimeError(f"Gemini image request failed (HTTP {code}){hint}") from None
+        except (TimeoutError, urllib.error.URLError) as e:
+            if isinstance(e, TimeoutError) or isinstance(e.reason, TimeoutError):
+                # The timed-out request may have already incurred a charge.
+                raise RuntimeError("Gemini image request timed out") from None
             if attempt < 3:
                 time.sleep(backoff)
                 backoff *= 2
                 continue
-            raise
+            raise RuntimeError("Gemini image request failed (network error)") from None
 
-    for cand in resp.get("candidates", []):
+    candidates = resp.get("candidates") or []
+    for cand in candidates:
         for part in cand.get("content", {}).get("parts", []):
+            if part.get("thought"):
+                continue
             inline = part.get("inlineData") or part.get("inline_data")
             if inline and inline.get("data"):
                 return base64.b64decode(inline["data"])
     # No image - surface the blocking reason so users know what to fix.
-    finish = (resp.get("candidates", [{}])[0]).get("finishReason", "?")
+    finish = candidates[0].get("finishReason", "?") if candidates else "?"
     block = resp.get("promptFeedback", {}).get("blockReason", "")
     raise RuntimeError(f"no image (finish={finish} block={block})")
 
@@ -572,7 +592,7 @@ def main() -> int:
     ap.add_argument("--no-refs", action="store_true",
                     help="Skip the Wikipedia reference fetch (faster, lower-quality output)")
     ap.add_argument("--sleep", type=float, default=6.0,
-                    help="Seconds between API calls (default 6 = headroom under free-tier RPM cap)")
+                    help="Seconds between API calls (default 6, for rate-limit headroom)")
     ap.add_argument("--limit", type=int, default=0, help="Cap species count for testing")
     args = ap.parse_args()
 
@@ -586,6 +606,11 @@ def main() -> int:
     gemini_key = args.gemini_key or os.environ.get("GEMINI_API_KEY", "")
     if not gemini_key:
         print("error: GEMINI_API_KEY required (--gemini-key or env)", file=sys.stderr)
+        return 2
+    try:
+        model = image_model()
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
         return 2
 
     # Build species list
@@ -625,7 +650,7 @@ def main() -> int:
         print(f"[notes] loaded per-species addenda for {len(notes)} species")
 
     total = len(species) * len(args.poses)
-    print(f"generating up to {total} illustrations into {args.out}/")
+    print(f"generating up to {total} illustrations with {model} into {args.out}/")
     for key, p in anti_paths.items():
         print(f"[refs] {ANTI_REFS[key]['common_name']} anti-reference: {p.name}")
 

@@ -10,6 +10,7 @@ on:
       - frame/avian-bundle
       - frame/avian-bundle-installed
       - frame/birdweather.py
+      - frame/bundle_runtime.py
       - frame/check_install_security.sh
       - frame/config_contract.py
       - frame/capture_art.py
@@ -33,6 +34,7 @@ on:
       - frame/avian-bundle
       - frame/avian-bundle-installed
       - frame/birdweather.py
+      - frame/bundle_runtime.py
       - frame/check_install_security.sh
       - frame/config_contract.py
       - frame/capture_art.py
