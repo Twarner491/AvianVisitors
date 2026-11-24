@@ -22,8 +22,10 @@ function station_latest_media(string $root, string $sci, string $common, bool $s
                 $rows = $query->execute();
                 while ($row = $rows->fetchArray(SQLITE3_NUM)) {
                     $file = $row[0];
-                    if (!is_string($file) || str_contains($file, '..')
-                        || !preg_match("/\A[\\p{L}\\p{N}_.:'-]+[.]mp3\z/uD", $file)) continue;
+                    if (!is_string($file) || $file === '' || str_contains($file, '..')
+                        || str_contains($file, '/') || str_contains($file, '\\')
+                        || preg_match('/[\x00-\x1f\x7f]/u', $file) !== 0
+                        || (!$spectrogram && !str_ends_with($file, '.mp3'))) continue;
                     $path = "$dir/$file" . ($spectrogram ? '.png' : '');
                     if (is_file($path) && @filesize($path) >= 64) return $path;
                 }
